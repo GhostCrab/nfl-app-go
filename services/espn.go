@@ -174,8 +174,16 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 	// Parse game ID
 	gameID, _ := strconv.Atoi(event.ID)
 	
-	// Parse date
-	gameDate, _ := time.Parse(time.RFC3339, event.Date)
+	// Parse date - ESPN uses format like "2024-09-08T00:20Z"
+	gameDate, err := time.Parse("2006-01-02T15:04Z", event.Date)
+	if err != nil {
+		// Try alternative format with seconds
+		gameDate, err = time.Parse("2006-01-02T15:04:05Z", event.Date)
+		if err != nil {
+			log.Printf("ESPN API: Failed to parse date '%s' for game %s: %v", event.Date, event.ID, err)
+			gameDate = time.Now() // Fallback to current time
+		}
+	}
 	
 	// Determine home/away teams and scores
 	var homeTeam, awayTeam string
@@ -195,6 +203,10 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 	
 	// Convert status
 	state := e.convertGameState(event.Status)
+	
+	// Debug log the parsing result
+	// log.Printf("ESPN API: Game %s (%s vs %s) parsed date from '%s' to '%s'", 
+	// 	event.ID, awayTeam, homeTeam, event.Date, gameDate.Format("2006-01-02 15:04:05"))
 	
 	return models.Game{
 		ID:        gameID,
@@ -289,12 +301,12 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 		}
 		
 		if !enrichedGames[i].HasOdds() {
-			log.Printf("ESPN Odds: Trying to fetch odds for game %d", enrichedGames[i].ID)
+			// log.Printf("ESPN Odds: Trying to fetch odds for game %d", enrichedGames[i].ID)
 			
 			if odds, err := e.GetOdds(enrichedGames[i].ID); err == nil {
 				enrichedGames[i].Odds = odds
-				log.Printf("ESPN Odds: Successfully got odds for game %d (spread: %.1f, o/u: %.1f)", 
-					enrichedGames[i].ID, odds.Spread, odds.OU)
+				// log.Printf("ESPN Odds: Successfully got odds for game %d (spread: %.1f, o/u: %.1f)", 
+				// 	enrichedGames[i].ID, odds.Spread, odds.OU)
 			} else {
 				log.Printf("ESPN Odds: Failed to get odds for game %d: %v", enrichedGames[i].ID, err)
 			}

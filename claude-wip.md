@@ -65,9 +65,21 @@ write off to claude-wip.md any todo prompts that I might need after I shut down 
 ```
 
 ## Quick Restart Commands
-```bash
+
+### Windows 11
+```cmd
 cd C:\Users\ryanp\Workspace\nfl-app-go
-go run main.go
+set DB_PASSWORD=your_actual_password && go run main.go
+```
+
+Or in PowerShell:
+```powershell
+cd C:\Users\ryanp\Workspace\nfl-app-go
+$env:DB_PASSWORD="your_actual_password"; go run main.go
+```
+
+### General
+```bash
 # Visit: http://localhost:8080
 ```
 

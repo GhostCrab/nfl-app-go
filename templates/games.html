@@ -14,6 +14,7 @@
         })();
     </script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -23,10 +24,17 @@
             <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark Mode</button>
         </header>
         
-        <main>
-            <div class="games-grid">
-                {{range .Games}}
-                <div class="game-card {{.State}} {{.SpreadResult}}">
+        <main hx-ext="sse" sse-connect="/events">
+            <div class="games-grid" sse-swap="gameUpdate">
+                {{template "game-list" .}}
+            </div>
+        </main>
+    </div>
+    
+    <!-- Template for game list that will be updated via SSE -->
+    {{define "game-list"}}
+        {{range .Games}}
+                <div id="game-{{.ID}}" class="game-card {{.State}} {{.SpreadResult}}">
                     <div class="matchup">
                         <div class="team away">
                             {{if ne .State "scheduled"}}
@@ -75,10 +83,8 @@
                         {{end}}
                     </div>
                 </div>
-                {{end}}
-            </div>
-        </main>
-    </div>
+        {{end}}
+    {{end}}
     
     <script>
         function toggleTheme() {

@@ -17,22 +17,22 @@ const (
 
 // Odds represents betting odds for a game
 type Odds struct {
-	Spread float64 `json:"spread"` // Point spread (negative = home team favored)
-	OU     float64 `json:"ou"`     // Over/Under total points
+	Spread float64 `json:"spread" bson:"spread"` // Point spread (negative = home team favored)
+	OU     float64 `json:"ou" bson:"ou"`         // Over/Under total points
 }
 
 // Game represents an NFL game with scores and metadata
 type Game struct {
-	ID        int       `json:"id"`
-	Date      time.Time `json:"date"`
-	Week      int       `json:"week"`
-	Away      string    `json:"away"`
-	Home      string    `json:"home"`
-	State     GameState `json:"state"`
-	AwayScore int       `json:"awayScore"`
-	HomeScore int       `json:"homeScore"`
-	Quarter   int       `json:"quarter"`
-	Odds      *Odds     `json:"odds,omitempty"` // Betting odds (nil if not available)
+	ID        int       `json:"id" bson:"id"`
+	Date      time.Time `json:"date" bson:"date"`
+	Week      int       `json:"week" bson:"week"`
+	Away      string    `json:"away" bson:"away"`
+	Home      string    `json:"home" bson:"home"`
+	State     GameState `json:"state" bson:"state"`
+	AwayScore int       `json:"awayScore" bson:"awayScore"`
+	HomeScore int       `json:"homeScore" bson:"homeScore"`
+	Quarter   int       `json:"quarter" bson:"quarter"`
+	Odds      *Odds     `json:"odds,omitempty" bson:"odds,omitempty"` // Betting odds (nil if not available)
 }
 
 // IsCompleted returns true if the game is finished
