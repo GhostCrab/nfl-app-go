@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script>
+        // Apply theme before page renders to prevent flash
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>{{.Title}}</h1>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark Mode</button>
+        </header>
+        
+        <main>
+            <div class="games-grid">
+                {{range .Games}}
+                <div class="game-card {{.State}} {{.SpreadResult}}">
+                    <div class="matchup">
+                        <div class="team away">
+                            {{if ne .State "scheduled"}}
+                                <span class="score">{{.AwayScore}}</span>
+                            {{end}}
+                            <span class="team-abbr">{{.Away}}</span>
+                        </div>
+                        
+                        <div class="vs-section">
+                            {{if eq .State "scheduled"}}
+                                <div class="game-status">@</div>
+                                <div class="game-status">{{.Date.Format "3:04 PM"}}</div>
+                            {{else if eq .State "in_play"}}
+                                <div class="live-indicator">LIVE</div>
+                                <div class="game-status">Q{{.Quarter}}</div>
+                            {{else}}
+                                <div class="game-status">FINAL</div>
+                            {{end}}
+                            {{if .HasOdds}}
+                                <div class="spread-info">{{.FormatSpread}}</div>
+                                <div class="ou-info">O/U {{.Odds.OU}}</div>
+                            {{end}}
+                        </div>
+                        
+                        <div class="team home">
+                            <span class="team-abbr">{{.Home}}</span>
+                            {{if ne .State "scheduled"}}
+                                <span class="score">{{.HomeScore}}</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    
+                    <div class="game-meta">
+                        <div class="week-info">Week {{.Week}}</div>
+                        <div class="date-info">{{.Date.Format "Jan 2"}}</div>
+                        {{if and .HasOdds .IsCompleted}}
+                            <div class="spread-result {{.SpreadResult}}">
+                                {{if eq .SpreadResult "push"}}
+                                    PUSH
+                                {{else if eq .SpreadResult "home-covered"}}
+                                    {{.Home}} ✓
+                                {{else if eq .SpreadResult "away-covered"}}
+                                    {{.Away}} ✓
+                                {{end}}
+                            </div>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        function toggleTheme() {
+            const html = document.documentElement;
+            const button = document.querySelector('.theme-toggle');
+            
+            if (html.getAttribute('data-theme') === 'dark') {
+                html.removeAttribute('data-theme');
+                button.textContent = '🌙 Dark Mode';
+                localStorage.setItem('theme', 'light');
+            } else {
+                html.setAttribute('data-theme', 'dark');
+                button.textContent = '☀️ Light Mode';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+        
+        // Update button text on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme');
+            const button = document.querySelector('.theme-toggle');
+            
+            if (savedTheme === 'dark') {
+                button.textContent = '☀️ Light Mode';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,285 @@
+/* CSS Variables for theming */
+:root {
+    --bg-color: #f5f5f5;
+    --text-color: #333;
+    --card-bg: #ffffff;
+    --header-color: #2c3e50;
+    --border-color: #e0e0e0;
+    --shadow: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] {
+    --bg-color: #1a1a1a;
+    --text-color: #e0e0e0;
+    --card-bg: #2d2d2d;
+    --header-color: #ffffff;
+    --border-color: #404040;
+    --shadow: rgba(0, 0, 0, 0.3);
+}
+
+/* Reset and base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+h1 {
+    color: var(--header-color);
+    font-size: 2.2rem;
+    margin: 0;
+}
+
+.theme-toggle {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+    box-shadow: 0 1px 3px var(--shadow);
+}
+
+.theme-toggle:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px var(--shadow);
+}
+
+/* Games list */
+.games-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.game-card {
+    background: var(--card-bg);
+    border-radius: 6px;
+    padding: 12px 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 50px;
+}
+
+.game-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.game-card.in_play {
+    border-left-color: #e74c3c;
+    background: var(--card-bg);
+    box-shadow: 0 1px 3px var(--shadow), inset 0 0 0 1px rgba(231, 76, 60, 0.1);
+}
+
+.game-card.completed {
+    border-left-color: #27ae60;
+}
+
+.game-card.scheduled {
+    border-left-color: #3498db;
+}
+
+.game-info {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+
+.matchup {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+
+.team {
+    display: flex;
+    align-items: center;
+    min-width: 120px;
+}
+
+.team.away {
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.team.home {
+    justify-content: flex-start;
+    text-align: left;
+}
+
+.team-abbr {
+    font-size: 1rem;
+    font-weight: bold;
+    color: var(--text-color);
+    margin: 0 8px;
+}
+
+.score {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #e74c3c;
+    min-width: 28px;
+}
+
+.vs-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0 20px;
+    min-width: 70px;
+}
+
+.game-status {
+    font-size: 0.8rem;
+    color: var(--text-color);
+    opacity: 0.7;
+    text-align: center;
+    line-height: 1.2;
+}
+
+.live-indicator {
+    background: #e74c3c;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    animation: pulse 2s infinite;
+    border: none;
+}
+
+.game-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 100px;
+    font-size: 0.8rem;
+    color: var(--text-color);
+    opacity: 0.7;
+}
+
+.week-info {
+    font-weight: 600;
+    color: var(--text-color);
+    line-height: 1.2;
+}
+
+.date-info {
+    color: var(--text-color);
+    opacity: 0.6;
+    line-height: 1.2;
+}
+
+/* Odds display */
+.spread-info, .ou-info {
+    font-size: 0.7rem;
+    color: var(--text-color);
+    opacity: 0.8;
+    line-height: 1.1;
+    margin-top: 2px;
+}
+
+.spread-info {
+    font-weight: 600;
+    color: #3498db;
+}
+
+/* Spread result indicators */
+.spread-result {
+    font-size: 0.7rem;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 8px;
+    margin-top: 4px;
+    text-align: center;
+}
+
+.spread-result.push {
+    background: #f39c12;
+    color: white;
+}
+
+.spread-result.home-covered {
+    background: #27ae60;
+    color: white;
+}
+
+.spread-result.away-covered {
+    background: #27ae60;
+    color: white;
+}
+
+/* Game card result highlighting */
+.game-card.push {
+    border-left-color: #f39c12;
+}
+
+.game-card.home-covered {
+    border-left-color: #27ae60;
+}
+
+.game-card.away-covered {
+    border-left-color: #27ae60;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .container {
+        padding: 15px;
+    }
+    
+    h1 {
+        font-size: 2rem;
+    }
+    
+    .games-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .game-card {
+        padding: 15px;
+    }
+    
+    .team-abbr {
+        font-size: 1.5rem;
+    }
+    
+    .score {
+        font-size: 1.8rem;
+    }
+}
