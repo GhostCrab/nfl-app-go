@@ -37,12 +37,6 @@ func (s *DatabaseGameService) GetGamesBySeason(season int) ([]models.Game, error
 		games[i] = *gamePtr
 	}
 
-	// Debug: Log first few games before sorting
-	if len(games) > 0 {
-		log.Printf("Before sorting - First game: %s vs %s, State: %s, Date: %s", 
-			games[0].Away, games[0].Home, games[0].State, games[0].Date.Format("2006-01-02 15:04:05"))
-	}
-
 	// Sort games: in-progress first, then upcoming, then completed, all by time
 	sort.Slice(games, func(i, j int) bool {
 		gameI, gameJ := games[i], games[j]
@@ -64,12 +58,6 @@ func (s *DatabaseGameService) GetGamesBySeason(season int) ([]models.Game, error
 		// Within same status, sort by date/time
 		return gameI.Date.Before(gameJ.Date)
 	})
-
-	// Debug: Log first few games after sorting
-	if len(games) > 0 {
-		log.Printf("After sorting - First game: %s vs %s, State: %s, Date: %s", 
-			games[0].Away, games[0].Home, games[0].State, games[0].Date.Format("2006-01-02 15:04:05"))
-	}
 
 	log.Printf("DatabaseGameService: Retrieved %d games from database for season %d", len(games), season)
 	

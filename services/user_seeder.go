@@ -36,11 +36,13 @@ func (s *UserSeeder) SeedUsers() error {
 		{6, "BRAD", "bradvassar@gmail.com", "password123"},
 	}
 
+	var existingCount, createdCount int
+
 	for _, userData := range users {
 		// Check if user already exists
 		existingUser, err := s.userRepo.GetUserByEmail(userData.Email)
 		if err == nil && existingUser != nil {
-			log.Printf("UserSeeder: User %s already exists, skipping", userData.Email)
+			existingCount++
 			continue
 		}
 
@@ -66,9 +68,12 @@ func (s *UserSeeder) SeedUsers() error {
 		}
 
 		log.Printf("UserSeeder: Created user %s (%s) with ID %d", userData.Name, userData.Email, userData.ID)
+		createdCount++
 	}
 
-	log.Println("UserSeeder: User seeding completed")
+	if existingCount > 0 || createdCount > 0 {
+		log.Printf("UserSeeder: Completed - %d existing, %d created", existingCount, createdCount)
+	}
 	return nil
 }
 

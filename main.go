@@ -22,6 +22,9 @@ func getEnv(key, defaultValue string) string {
 }
 
 func main() {
+	// Set log format with milliseconds for timing analysis
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	
 	// Load .env file
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: Could not load .env file: %v", err)
@@ -96,7 +99,6 @@ func main() {
 
 	// Seed users if needed
 	userSeeder := services.NewUserSeeder(userRepo)
-	log.Println("Seeding users...")
 	if err := userSeeder.SeedUsers(); err != nil {
 		log.Printf("Failed to seed users: %v", err)
 	}
@@ -157,6 +159,16 @@ func main() {
 	
 	// Add security middleware
 	r.Use(middleware.SecurityMiddleware)
+	
+	// Add no-cache middleware for development
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+			next.ServeHTTP(w, r)
+		})
+	})
 	
 	// Static files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))

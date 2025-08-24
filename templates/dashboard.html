@@ -317,7 +317,7 @@
 
         // Navigation variables with caching
         let currentDisplayedWeek = {{.CurrentWeek}};
-        let currentDisplayedSeason = parseInt(new URLSearchParams(window.location.search).get('season') || '2025');
+        let currentDisplayedSeason = {{.CurrentSeason}}; // Use server-provided season
         const MIN_SEASON = 2023;
         const MAX_SEASON = 2025;
         
@@ -328,6 +328,7 @@
 
         // Fast AJAX navigation for arrow keys - loads complete dashboard data
         async function loadDashboardData(week, season) {
+            console.log('loadDashboardData called with week:', week, 'season:', season);
             if (isLoading) return null;
             
             const url = `/api/dashboard?week=${week}&season=${season}`;
@@ -337,6 +338,7 @@
                 const response = await fetch(url);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
+                console.log('loadDashboardData received data for week:', data?.currentWeek, 'season:', data?.season);
                 return data;
             } catch (error) {
                 console.error('Failed to load dashboard data:', error);
@@ -348,6 +350,7 @@
 
         // Update the dashboard display with new data
         async function updateDashboardDisplay(data) {
+            console.log('updateDashboardDisplay called with week:', data?.currentWeek, 'season:', data?.season);
             if (!data) {
                 console.warn('No data provided to updateDashboardDisplay');
                 return;
@@ -617,6 +620,7 @@
                 if (prevWeek >= 1 && prevSeason >= MIN_SEASON) {
                     loadDashboardData(prevWeek, prevSeason).then(data => {
                         if (data && typeof data === 'object' && data.userPicks) {
+                            if (!seasonCache[prevSeason]) seasonCache[prevSeason] = {};
                             seasonCache[prevSeason][prevWeek] = data;
                             console.log(`Preloaded ${prevSeason} Week ${prevWeek}`);
                         } else {
@@ -635,6 +639,7 @@
                 if (nextWeek <= 18 && nextSeason <= MAX_SEASON) {
                     loadDashboardData(nextWeek, nextSeason).then(data => {
                         if (data && typeof data === 'object' && data.userPicks) {
+                            if (!seasonCache[nextSeason]) seasonCache[nextSeason] = {};
                             seasonCache[nextSeason][nextWeek] = data;
                             console.log(`Preloaded ${nextSeason} Week ${nextWeek}`);
                         } else {
