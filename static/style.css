@@ -1,20 +1,46 @@
-/* CSS Variables for theming */
+/* CSS Variables - Legacy PC Dashboard Theme */
 :root {
-    --bg-color: #f5f5f5;
-    --text-color: #333;
-    --card-bg: #ffffff;
-    --header-color: #2c3e50;
-    --border-color: #e0e0e0;
-    --shadow: rgba(0, 0, 0, 0.1);
+    --bg-color: #1e1e1e;
+    --text-color: #ffffff;
+    --text-primary: #ffffff;
+    --text-secondary: #cccccc;
+    --card-bg: #2d2d2d;  /* Changed: Dark cards for dark theme */
+    --card-text: #ffffff; /* New: White text on dark cards */
+    --header-color: #ffffff;
+    --nav-bg: #3f51b5;
+    --nav-hover: #303f9f;
+    --border-color: #1e1e1e;
+    --shadow: rgba(0, 0, 0, 0.3);
+    --accent-color: #a02c2c;
+    --accent-hover: #8a2525;
+    --success-color: #4caf50;
+    --warning-color: #ff9800;
+    --error-color: #f44336;
+    --error-bg: #ffebee;
+    --error-border: #ffcdd2;
+    --info-bg: #e3f2fd;
+    --info-border: #bbdefb;
+    --input-bg: #2d2d2d;
 }
 
-[data-theme="dark"] {
-    --bg-color: #1a1a1a;
-    --text-color: #e0e0e0;
-    --card-bg: #2d2d2d;
-    --header-color: #ffffff;
-    --border-color: #404040;
-    --shadow: rgba(0, 0, 0, 0.3);
+[data-theme="light"] {
+    --bg-color: #f5f5f5;
+    --text-color: #333;
+    --text-primary: #333;
+    --text-secondary: #666;
+    --card-bg: #ffffff;
+    --card-text: #333; /* New: Dark text on light cards */
+    --header-color: #2c3e50;
+    --nav-bg: #3f51b5;
+    --nav-hover: #303f9f;
+    --border-color: #e0e0e0;
+    --shadow: rgba(0, 0, 0, 0.1);
+    --accent-color: #a02c2c;
+    --accent-hover: #8a2525;
+    --success-color: #4caf50;
+    --warning-color: #ff9800;
+    --error-color: #f44336;
+    --input-bg: #ffffff;
 }
 
 /* Reset and base styles */
@@ -25,230 +51,595 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background-color: var(--bg-color);
     color: var(--text-color);
     line-height: 1.6;
+    margin: 0;
+    padding: 0;
     transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-}
-
-header {
+/* Navigation Bar - Exact Material Design mat-toolbar */
+mat-toolbar, .mat-toolbar {
+    background-color: var(--nav-bg);
+    color: white;
+    height: 64px;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    padding: 0 24px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.14), 0 3px 4px rgba(0,0,0,0.12), 0 1px 5px rgba(0,0,0,0.2);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
 }
 
-h1 {
-    color: var(--header-color);
-    font-size: 2.2rem;
-    margin: 0;
+.nav-brand {
+    font-size: 20px;
+    font-weight: 500;
+    margin-right: 32px;
+    color: white;
+    text-decoration: none;
+}
+
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex: 1;
+}
+
+.nav-link {
+    color: rgba(255,255,255,0.87);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.nav-link:hover {
+    background-color: var(--nav-hover);
+    color: white;
+}
+
+.nav-link.active {
+    background-color: rgba(255,255,255,0.12);
+    color: white;
+}
+
+.flex-expand {
+    flex: 1;
+}
+
+.nav-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Main content container */
+.dashboard-container {
+    margin-top: 64px;
+    background-color: var(--bg-color);
+    min-height: calc(100vh - 64px);
+}
+
+.dashboard-content {
+    display: flex;
+    gap: 16px;
+    padding: 16px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Three column layout */
+.pick-flex-item {
+    flex: 1;
+    min-width: 300px;
+}
+
+.game-flex-item {
+    flex: 2;
+    min-width: 400px;
+}
+
+.score-flex-item {
+    flex: 1;
+    min-width: 300px;
+}
+
+.user-info {
+    color: rgba(255,255,255,0.87);
+    font-size: 14px;
+    margin-right: 8px;
+}
+
+.login-button, .logout-button {
+    padding: 8px 16px;
+    background: var(--accent-color);
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.2s;
+    border: none;
+    cursor: pointer;
+}
+
+.login-button:hover, .logout-button:hover {
+    background: var(--accent-hover);
+}
+
+/* Material Design Form Field - mat-form-field */
+.week-selector-container {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    background: var(--card-bg);
+    padding: 16px;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+}
+
+mat-form-field, .mat-form-field, .form-field {
+    display: inline-flex;
+    flex-direction: column;
+    position: relative;
+    min-width: 150px;
+}
+
+mat-form-field[appearance="fill"], .mat-form-field[appearance="fill"] {
+    background-color: var(--input-bg);
+    border-radius: 4px 4px 0 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+mat-label, .form-label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.125;
+    padding: 4px 0;
+}
+
+mat-select, .week-select {
+    background: var(--input-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    min-height: 24px;
+    outline: none;
+}
+
+mat-option {
+    background: var(--input-bg);
+    color: var(--text-color);
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+mat-option:hover {
+    background: var(--nav-hover);
+}
+
+.keyboard-hint {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    margin-left: 10px;
+}
+
+.update-picks-btn {
+    background: var(--nav-bg);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.update-picks-btn:hover {
+    background: var(--nav-hover);
 }
 
 .theme-toggle {
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    color: var(--text-color);
-    padding: 8px 16px;
-    border-radius: 20px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.23);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 0.9rem;
-    transition: all 0.3s ease;
-    box-shadow: 0 1px 3px var(--shadow);
+    font-size: 12px;
+    transition: all 0.2s ease;
 }
 
 .theme-toggle:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 6px var(--shadow);
+    background: rgba(255,255,255,0.2);
 }
 
-/* Games list */
+/* Material Design Grid List - mat-grid-list */
+.games-container {
+    background-color: var(--bg-color);
+}
+
 .games-grid {
+    background-color: var(--bg-color);
+}
+
+mat-grid-list, .mat-grid-list {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    max-width: 800px;
-    margin: 0 auto;
+    position: relative;
+    background: var(--bg-color);
+}
+
+mat-grid-tile {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    min-height: 3em;
+    transition: all 0.2s ease;
+    padding: 8px;
+    margin-bottom: 4px;
 }
 
 .game-card {
     background: var(--card-bg);
-    border-radius: 6px;
-    padding: 12px 16px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    border-left: 3px solid transparent;
+    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    min-height: 3em;
     transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 50px;
+    padding: 8px;
+    width: 100%;
 }
 
-.game-card:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.game-card.in_play {
-    border-left-color: #e74c3c;
+mat-grid-tile.game-card {
     background: var(--card-bg);
-    box-shadow: 0 1px 3px var(--shadow), inset 0 0 0 1px rgba(231, 76, 60, 0.1);
-}
-
-.game-card.completed {
-    border-left-color: #27ae60;
-}
-
-.game-card.scheduled {
-    border-left-color: #3498db;
-}
-
-.game-info {
+    border: 1px solid var(--border-color);
     display: flex;
     align-items: center;
-    flex: 1;
+    min-height: 3em;
+    transition: all 0.2s ease;
+    padding: 8px;
+    width: 100%;
 }
 
-.matchup {
+.game-card:hover, mat-grid-tile.game-card:hover {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.12);
+}
+
+.game-card.in_play, mat-grid-tile.game-card.in_play {
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.game-card.completed, mat-grid-tile.game-card.completed {
+    background: rgba(39, 174, 96, 0.1);
+}
+
+.game-card.scheduled, mat-grid-tile.game-card.scheduled {
+    background: var(--card-bg);
+}
+
+/* Team display in grid format */
+.team-section {
     display: flex;
     align-items: center;
-    flex: 1;
+    padding: 0 8px;
+    height: 100%;
+    font-weight: bold;
 }
 
-.team {
-    display: flex;
-    align-items: center;
-    min-width: 120px;
-}
-
-.team.away {
+.team-section.away {
     justify-content: flex-end;
     text-align: right;
 }
 
-.team.home {
+.team-section.home {
     justify-content: flex-start;
     text-align: left;
 }
 
-.team-abbr {
-    font-size: 1rem;
-    font-weight: bold;
-    color: var(--text-color);
-    margin: 0 8px;
+.team-img {
+    width: 2em;
+    height: 2em;
+    margin: 0 4px;
+    object-fit: contain;
 }
 
-.score {
-    font-size: 1.2rem;
-    font-weight: bold;
-    color: #e74c3c;
-    min-width: 28px;
-}
-
-.vs-section {
+.team-name {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    margin: 0 20px;
-    min-width: 70px;
+    font-weight: bold;
+    color: var(--card-text);
 }
 
-.game-status {
-    font-size: 0.8rem;
-    color: var(--text-color);
-    opacity: 0.7;
+.team-spread {
+    font-size: 0.8em;
+    color: var(--card-text);
+    margin-top: 2px;
+}
+
+.vs-separator {
     text-align: center;
-    line-height: 1.2;
+    font-weight: bold;
+    color: var(--card-text);
+}
+
+.ou-section {
+    text-align: center;
+    font-size: 0.9em;
+    color: var(--card-text);
+}
+
+.game-status-section {
+    padding: 0 8px;
+    text-align: center;
+    color: var(--card-text);
 }
 
 .live-indicator {
     background: #e74c3c;
     color: white;
     padding: 2px 6px;
-    border-radius: 10px;
+    border-radius: 4px;
     font-size: 0.7rem;
     font-weight: bold;
     animation: pulse 2s infinite;
-    border: none;
+    display: inline-block;
+    margin-bottom: 4px;
 }
 
-.game-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    min-width: 100px;
-    font-size: 0.8rem;
-    color: var(--text-color);
-    opacity: 0.7;
-}
-
-.week-info {
-    font-weight: 600;
-    color: var(--text-color);
+.game-time {
+    font-size: 0.8em;
+    color: var(--text-secondary);
     line-height: 1.2;
 }
 
-.date-info {
-    color: var(--text-color);
-    opacity: 0.6;
-    line-height: 1.2;
+.game-week {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
 }
 
-/* Odds display */
-.spread-info, .ou-info {
-    font-size: 0.7rem;
-    color: var(--text-color);
-    opacity: 0.8;
-    line-height: 1.1;
-    margin-top: 2px;
-}
-
-.spread-info {
-    font-weight: 600;
-    color: #3498db;
-}
-
-/* Spread result indicators */
-.spread-result {
-    font-size: 0.7rem;
+.score-display {
+    font-size: 1.1em;
     font-weight: bold;
-    padding: 2px 6px;
-    border-radius: 8px;
-    margin-top: 4px;
+    color: var(--accent-color);
+    margin-left: 8px;
+}
+
+/* Pick result colors */
+.pick-class { 
+    background-color: var(--card-bg); 
+    color: var(--card-text);
+}
+
+.red-pick-class { 
+    background-color: var(--card-bg); 
+    color: var(--error-color); 
+}
+
+.green-pick-class { 
+    background-color: var(--card-bg); 
+    color: var(--success-color); 
+}
+
+.yellow-pick-class { 
+    background-color: var(--card-bg); 
+    color: var(--warning-color); 
+}
+
+/* List container styling */
+.list-container {
+    background-color: var(--bg-color);
+    margin-bottom: 5px;
+}
+
+.section-header {
+    background-color: var(--nav-bg);
+    color: white;
+    padding: 12px 16px;
+    font-weight: 500;
+    font-size: 16px;
+    margin-bottom: 8px;
+}
+
+/* Fieldset and Legend styling for pick lists */
+fieldset {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin: 8px 0;
+    padding: 16px;
+    background: var(--card-bg);
+}
+
+fieldset legend {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 0 8px;
+    background: var(--card-bg);
+}
+
+.user-picks-section, .bonus-picks-section {
+    margin-bottom: 16px;
+}
+
+.user-picks-list, .bonus-picks-list {
+    padding: 8px 0;
+}
+
+.no-picks {
+    color: var(--text-secondary);
+    font-style: italic;
     text-align: center;
+    padding: 16px;
 }
 
-.spread-result.push {
-    background: #f39c12;
-    color: white;
+.user-picks-header {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    padding: 8px 16px;
+    font-weight: bold;
+    border-bottom: 1px solid var(--border-color);
 }
 
-.spread-result.home-covered {
-    background: #27ae60;
-    color: white;
+.user-picks-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border-color);
 }
 
-.spread-result.away-covered {
-    background: #27ae60;
-    color: white;
+.user-picks-item:last-child {
+    border-bottom: none;
 }
 
-/* Game card result highlighting */
-.game-card.push {
-    border-left-color: #f39c12;
+.user-name {
+    font-weight: 500;
+    color: var(--text-primary);
 }
 
-.game-card.home-covered {
-    border-left-color: #27ae60;
+.user-record {
+    font-size: 0.9em;
+    color: var(--text-secondary);
 }
 
-.game-card.away-covered {
-    border-left-color: #27ae60;
+.other-picks-section {
+    background: var(--card-bg);
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+}
+
+/* Pick item styling */
+.pick-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    margin: 4px 0;
+    border-radius: 4px;
+    border-left: 4px solid var(--border-color);
+    background: var(--card-bg);
+    transition: all 0.2s ease;
+}
+
+.pick-item:hover {
+    transform: translateX(2px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.pick-item.green-pick-class {
+    border-left-color: var(--success-color);
+    background: rgba(76, 175, 80, 0.1);
+}
+
+.pick-item.red-pick-class {
+    border-left-color: var(--error-color);
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.pick-item.yellow-pick-class {
+    border-left-color: var(--warning-color);
+    background: rgba(255, 152, 0, 0.1);
+}
+
+.pick-info {
+    font-size: 0.9em;
+    color: var(--card-text);
+    font-weight: 500;
+}
+
+.pick-result {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+/* Historical picks info */
+.historical-picks-info {
+    padding: 12px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.historical-picks-info p {
+    margin: 4px 0;
+    font-size: 0.9em;
+}
+
+.historical-picks-info p:last-child {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Club scores section */
+.club-scores {
+    background: var(--card-bg);
+    border-radius: 4px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+}
+
+.score-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--card-text);
+}
+
+.score-item:last-child {
+    border-bottom: none;
+}
+
+.score-item .user-name {
+    color: var(--card-text);
+    font-weight: 500;
+}
+
+.score-item .user-score {
+    color: var(--card-text);
+}
+
+/* Week Summary section */
+.week-summary {
+    background: var(--card-bg);
+    border-radius: 4px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+}
+
+.summary-stats {
+    padding: 8px 0;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--card-text);
+}
+
+.stat-item:last-child {
+    border-bottom: none;
 }
 
 @keyframes pulse {
@@ -257,29 +648,69 @@ h1 {
     100% { opacity: 1; }
 }
 
+/* Utility classes */
+.text-center { text-align: center; }
+.text-bold { font-weight: bold; }
+.mb-4 { margin-bottom: 16px; }
+.mt-4 { margin-top: 16px; }
+.p-4 { padding: 16px; }
+
 /* Responsive design */
 @media (max-width: 768px) {
-    .container {
-        padding: 15px;
+    .dashboard-content {
+        flex-direction: column;
+        padding: 8px;
     }
     
-    h1 {
-        font-size: 2rem;
+    mat-toolbar, .mat-toolbar {
+        padding: 0 16px;
     }
     
-    .games-grid {
-        grid-template-columns: 1fr;
+    .nav-brand {
+        font-size: 18px;
+        margin-right: 16px;
     }
     
-    .game-card {
-        padding: 15px;
+    .nav-links {
+        gap: 8px;
     }
     
-    .team-abbr {
-        font-size: 1.5rem;
+    .nav-link {
+        font-size: 12px;
+        padding: 6px 12px;
     }
     
-    .score {
-        font-size: 1.8rem;
+    .game-card, mat-grid-tile, mat-grid-tile.game-card {
+        min-height: 2.5em;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    
+    .team-img {
+        width: 1.5em;
+        height: 1.5em;
+    }
+    
+    .week-selector-container {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    mat-form-field, .mat-form-field, .form-field {
+        min-width: 120px;
+    }
+    
+    fieldset {
+        padding: 12px;
+    }
+    
+    fieldset legend {
+        font-size: 12px;
+    }
+    
+    .pick-flex-item,
+    .game-flex-item,
+    .score-flex-item {
+        min-width: unset;
     }
 }

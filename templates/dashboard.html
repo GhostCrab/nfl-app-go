@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script>
+        // Apply dark theme by default to match legacy
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            if (savedTheme === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Navigation Bar - Exact Material Design mat-toolbar -->
+    <mat-toolbar class="mat-toolbar">
+        <a href="/" class="nav-brand">PC '25</a>
+        <div class="nav-links">
+            <a href="/" class="nav-link active">Dashboard</a>
+            <a href="/analytics" class="nav-link">Statistics</a>
+            <a href="/survivor" class="nav-link">Survivor</a>
+        </div>
+        <div class="flex-expand"></div>
+        <div class="nav-controls">
+            {{if .User}}
+                <span class="user-info">{{.User.Name}}</span>
+                <a href="/logout" class="logout-button">Logout</a>
+            {{else}}
+                <a href="/login" class="login-button">Login</a>
+            {{end}}
+            <button class="theme-toggle" onclick="toggleTheme()">☀️</button>
+        </div>
+    </mat-toolbar>
+
+    <!-- Dashboard Container - Exact legacy three-column layout -->
+    <div class="dashboard-container">
+        <div class="dashboard-content">
+            <!-- Left Column: Pick Lists - Material Design Structure -->
+            <div class="pick-flex-item">
+                <div class="section-header">MY PICKS</div>
+                
+                {{if .User}}
+                    <!-- Logged in user's picks -->
+                    <fieldset class="user-picks-section">
+                        <legend>{{.User.Name}}'s Picks</legend>
+                        <div class="user-picks-list">
+                            {{if .UserPicks}}
+                                {{$currentUserName := .User.Name}}
+                                {{$userHasPicks := false}}
+                                {{range .UserPicks}}
+                                    {{if eq .UserName $currentUserName}}
+                                        {{$userHasPicks = true}}
+                                        {{if .Picks}}
+                                            {{range .Picks}}
+                                                <div class="pick-item {{.GetResultClass}}">
+                                                    <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
+                                                    <span class="pick-result">{{.Result}}</span>
+                                                </div>
+                                            {{end}}
+                                        {{end}}
+                                    {{end}}
+                                {{end}}
+                                {{if not $userHasPicks}}
+                                    <div class="no-picks">No picks yet for this week</div>
+                                {{end}}
+                            {{else}}
+                                <div class="no-picks">No picks yet for this week</div>
+                            {{end}}
+                        </div>
+                    </fieldset>
+                {{else if .UserPicks}}
+                    <!-- Not logged in - show historical picks overview -->
+                    <fieldset class="user-picks-section">
+                        <legend>Historical Picks Available</legend>
+                        <div class="user-picks-list">
+                            <div class="historical-picks-info">
+                                <p>Historical picks are available for this week.</p>
+                                <p>Log in to see detailed pick information.</p>
+                                <p>{{len .UserPicks}} users made picks this week.</p>
+                            </div>
+                        </div>
+                    </fieldset>
+                {{else}}
+                    <!-- No user, no picks -->
+                    <fieldset class="user-picks-section">
+                        <legend>My Picks</legend>
+                        <div class="user-picks-list">
+                            <div class="no-picks">Please log in to see picks</div>
+                        </div>
+                    </fieldset>
+                {{end}}
+
+                <!-- Bonus picks sections matching legacy -->
+                <fieldset class="bonus-picks-section">
+                    <legend>BONUS THURSDAY</legend>
+                    <div class="bonus-picks-list">
+                        <!-- Bonus Thursday picks -->
+                    </div>
+                </fieldset>
+
+                <fieldset class="bonus-picks-section">
+                    <legend>BONUS FRIDAY</legend>
+                    <div class="bonus-picks-list">
+                        <!-- Bonus Friday picks -->
+                    </div>
+                </fieldset>
+
+                <!-- Other users' picks -->
+                <div class="other-picks-section mt-4">
+                    <div class="user-picks-header">Club Members</div>
+                    {{if .UserPicks}}
+                        {{$currentUserName := ""}}
+                        {{if .User}}{{$currentUserName = .User.Name}}{{end}}
+                        {{range .UserPicks}}
+                            {{if ne .UserName $currentUserName}}
+                                <div class="user-picks-item">
+                                    <div class="user-name">{{.UserName}}</div>
+                                    <div class="user-record">{{.Record.String}}</div>
+                                </div>
+                            {{end}}
+                        {{end}}
+                    {{else}}
+                        {{$currentUserName := ""}}
+                        {{if .User}}{{$currentUserName = .User.Name}}{{end}}
+                        {{range .Users}}
+                            {{if ne .Name $currentUserName}}
+                                <div class="user-picks-item">
+                                    <div class="user-name">{{.Name}}</div>
+                                    <div class="user-record">0-0-0</div>
+                                </div>
+                            {{end}}
+                        {{end}}
+                    {{end}}
+                </div>
+            </div>
+
+            <!-- Center Column: Current Games - Material Design Structure -->
+            <div class="game-flex-item">
+                <!-- Week Selector with mat-form-field structure -->
+                <div class="week-selector-container">
+                    <div class="form-field">
+                        <label for="week-select" class="form-label">View Week</label>
+                        <select id="week-select" class="week-select" onchange="selectWeek(this.value)">
+                            {{range .Weeks}}
+                                <option value="{{.}}" {{if eq . $.CurrentWeek}}selected{{end}}>
+                                    Week {{.}}
+                                </option>
+                            {{end}}
+                        </select>
+                    </div>
+                    <span class="keyboard-hint">
+                        Use ← → arrow keys to navigate
+                    </span>
+                    {{if .User}}
+                        <button class="update-picks-btn" onclick="window.location.href='/picker'">
+                            Update Picks
+                        </button>
+                    {{end}}
+                </div>
+
+                <!-- Games Grid with mat-grid-list structure -->
+                <div class="games-container" hx-ext="sse" sse-connect="/events">
+                    <div class="section-header" id="games-header">CURRENT GAMES</div>
+                    <div class="games-grid">
+                        {{template "game-grid" .}}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Club Scores - Material Design Structure -->
+            <div class="score-flex-item">
+                <div class="section-header">CLUB SCORE</div>
+                <div class="club-scores">
+                    {{if .UserPicks}}
+                        {{range .UserPicks}}
+                            <div class="score-item">
+                                <span class="user-name">{{.UserName}}</span>
+                                <span class="user-score">{{.Record.String}}</span>
+                            </div>
+                        {{end}}
+                    {{else}}
+                        {{range .Users}}
+                            <div class="score-item">
+                                <span class="user-name">{{.Name}}</span>
+                                <span class="user-score">0-0-0</span>
+                            </div>
+                        {{end}}
+                    {{end}}
+                </div>
+
+                <!-- Week Summary -->
+                <div class="week-summary mt-4">
+                    <div class="section-header">Week Summary</div>
+                    <div class="summary-stats">
+                        <div class="stat-item">
+                            <span>Games Played:</span>
+                            <span>{{len .Games}}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Games Remaining:</span>
+                            <span id="games-remaining">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template for game grid that will be updated via SSE - Mat Grid Tile Structure -->
+    {{define "game-grid"}}
+        <mat-grid-list class="mat-grid-list" cols="21" sse-swap="gameUpdate">
+            {{range .Games}}
+                <mat-grid-tile class="game-card {{.State}}" id="game-{{.ID}}" colspan="21" rowspan="1">
+                    <!-- Away Team - colspan equivalent for flex layout -->
+                    <div class="team-section away" style="flex: 5;">
+                        <div class="team-name">
+                            <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" 
+                                 onerror="this.style.display='none'"/>
+                            <div>
+                                <div>{{.Away}}</div>
+                                {{if .HasOdds}}
+                                    <div class="team-spread">{{.FormatAwaySpread}}</div>
+                                {{end}}
+                            </div>
+                            {{if ne .State "scheduled"}}
+                                <span class="score-display">{{.AwayScore}}</span>
+                            {{end}}
+                        </div>
+                    </div>
+
+                    <!-- VS Separator - colspan equivalent -->
+                    <div class="vs-separator" style="flex: 2;">@</div>
+
+                    <!-- Home Team - colspan equivalent -->
+                    <div class="team-section home" style="flex: 5;">
+                        <div class="team-name">
+                            {{if ne .State "scheduled"}}
+                                <span class="score-display">{{.HomeScore}}</span>
+                            {{end}}
+                            <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" 
+                                 onerror="this.style.display='none'"/>
+                            <div>
+                                <div>{{.Home}}</div>
+                                {{if .HasOdds}}
+                                    <div class="team-spread">{{.FormatHomeSpread}}</div>
+                                {{end}}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Over/Under - colspan equivalent -->
+                    <div class="ou-section" style="flex: 3;">
+                        {{if .HasOdds}}
+                            O/U {{.Odds.OU}}
+                        {{else}}
+                            -
+                        {{end}}
+                    </div>
+
+                    <!-- Game Status - colspan equivalent -->
+                    <div class="game-status-section" style="flex: 6;">
+                        {{if eq .State "scheduled"}}
+                            <div class="game-week">Week {{.Week}}</div>
+                            <div class="game-time">{{.FormatGameTime}}</div>
+                        {{else if eq .State "in_play"}}
+                            <div class="live-indicator">LIVE</div>
+                            <div class="game-time">Q{{.Quarter}}</div>
+                        {{else if eq .State "completed"}}
+                            <div class="game-time">FINAL</div>
+                            {{if and .HasOdds .IsCompleted}}
+                                <div class="spread-result">
+                                    {{if eq .SpreadResult "push"}}
+                                        PUSH
+                                    {{else if eq .SpreadResult "home-covered"}}
+                                        {{.Home}} ✓
+                                    {{else if eq .SpreadResult "away-covered"}}
+                                        {{.Away}} ✓
+                                    {{end}}
+                                </div>
+                            {{end}}
+                        {{end}}
+                    </div>
+                </mat-grid-tile>
+            {{end}}
+        </mat-grid-list>
+    {{end}}
+
+    <script>
+        function toggleTheme() {
+            const html = document.documentElement;
+            const button = document.querySelector('.theme-toggle');
+            
+            if (html.getAttribute('data-theme') === 'light') {
+                html.removeAttribute('data-theme');
+                button.textContent = '☀️';
+                localStorage.setItem('theme', 'dark');
+            } else {
+                html.setAttribute('data-theme', 'light');
+                button.textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            }
+        }
+
+        function selectWeek(week) {
+            // For historical picks to work properly, we need full page reload to load pick data
+            const url = new URL(window.location);
+            url.searchParams.set('week', week);
+            window.location.href = url.toString();
+        }
+
+        // Navigation variables with caching
+        let currentDisplayedWeek = {{.CurrentWeek}};
+        let currentDisplayedSeason = parseInt(new URLSearchParams(window.location.search).get('season') || '2025');
+        const MIN_SEASON = 2023;
+        const MAX_SEASON = 2025;
+        
+        // Cache for storing game data by season and week
+        let seasonCache = {};
+        let isLoading = false;
+        
+
+        // Fast AJAX navigation for arrow keys - loads complete dashboard data
+        async function loadDashboardData(week, season) {
+            if (isLoading) return null;
+            
+            const url = `/api/dashboard?week=${week}&season=${season}`;
+            
+            try {
+                isLoading = true;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('Failed to load dashboard data:', error);
+                return null;
+            } finally {
+                isLoading = false;
+            }
+        }
+
+        // Update the dashboard display with new data
+        async function updateDashboardDisplay(data) {
+            if (!data) {
+                console.warn('No data provided to updateDashboardDisplay');
+                return;
+            }
+            
+            // Check if data is HTML string instead of JSON object
+            if (typeof data === 'string') {
+                console.error('ERROR: updateDashboardDisplay received HTML string instead of JSON object:', data.substring(0, 200));
+                console.error('Stack trace:', new Error().stack);
+                return;
+            }
+            
+            console.log('updateDashboardDisplay received data:', data);
+            const { games, userPicks, user, currentWeek: week, season } = data;
+            console.log('Extracted userPicks:', userPicks);
+            console.log('Extracted user:', user);
+            
+            // Update games grid using the existing games API (it's fast)
+            await updateGamesGrid(week, season);
+            
+            // Update picks display with client-side rendering
+            updatePicksDisplay(userPicks, user);
+            
+            // Update header
+            const gamesHeader = document.getElementById('games-header');
+            if (gamesHeader) {
+                if (season === 2025) {
+                    gamesHeader.textContent = `Week ${week} Games`;
+                } else {
+                    gamesHeader.textContent = `Week ${week} Games (${season})`;
+                }
+            }
+            
+            // Update URL without reload
+            const url = new URL(window.location);
+            url.searchParams.set('week', week);
+            if (season !== 2025) {
+                url.searchParams.set('season', season);
+            } else {
+                url.searchParams.delete('season');
+            }
+            history.pushState({week, season}, '', url.toString());
+            
+            // Update current displayed values
+            currentDisplayedWeek = week;
+            currentDisplayedSeason = season;
+            
+            // Update dropdown selection
+            const weekSelect = document.getElementById('week-select');
+            if (weekSelect) {
+                weekSelect.value = week;
+            }
+        }
+
+        // Update games grid using existing games API
+        async function updateGamesGrid(week, season) {
+            try {
+                const response = await fetch(`/api/games?week=${week}&season=${season}`);
+                if (response.ok) {
+                    const html = await response.text();
+                    const gamesGrid = document.querySelector('.games-grid');
+                    if (gamesGrid) {
+                        gamesGrid.innerHTML = html;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to update games grid:', error);
+            }
+        }
+
+        // Helper function to map pick results to CSS classes (matches Go GetResultClass method)
+        function getPickResultClass(result) {
+            switch (result) {
+                case 'win':
+                    return 'green-pick-class';
+                case 'loss':
+                    return 'red-pick-class';
+                case 'push':
+                    return 'yellow-pick-class';
+                default: // pending or any other state
+                    return 'pick-class';
+            }
+        }
+
+        // Render picks display from JSON data (simplified client-side rendering)
+        function updatePicksDisplay(userPicks, currentUser) {
+            console.log('Updating picks display:', { userPicks, currentUser });
+            
+            // Check if userPicks is valid
+            if (!userPicks || !Array.isArray(userPicks)) {
+                console.warn('Invalid userPicks data:', userPicks);
+                userPicks = []; // Default to empty array
+            }
+            
+            // Update current user's picks
+            if (currentUser) {
+                const userPicksList = document.querySelector('.user-picks-list');
+                console.log('Found user picks list element:', userPicksList);
+                
+                if (userPicksList) {
+                    console.log('Looking for current user ID:', currentUser.id);
+                    console.log('Available user IDs in userPicks:');
+                    userPicks.forEach(up => console.log(`  - user_id: ${up.user_id}, user_name: ${up.user_name}`));
+                    const currentUserPicks = userPicks.find(up => up.user_id === currentUser.id);
+                    console.log('Current user picks:', currentUserPicks);
+                    
+                    if (currentUserPicks && currentUserPicks.picks && currentUserPicks.picks.length > 0) {
+                        userPicksList.innerHTML = currentUserPicks.picks.map(pick => 
+                            `<div class="pick-item ${getPickResultClass(pick.result)}">
+                                <span class="pick-info">${pick.pick_description || 'Game ' + pick.game_id + ' - Team ' + pick.team_id + ' (' + pick.pick_type + ')'}</span>
+                                <span class="pick-result">${pick.result}</span>
+                            </div>`
+                        ).join('');
+                    } else {
+                        userPicksList.innerHTML = '<div class="no-picks">No picks yet for this week</div>';
+                    }
+                }
+            } else {
+                console.log('No current user, showing generic message');
+                const userPicksList = document.querySelector('.user-picks-list');
+                if (userPicksList) {
+                    if (userPicks && userPicks.length > 0) {
+                        userPicksList.innerHTML = `
+                            <div class="historical-picks-info">
+                                <p>Historical picks are available for this week.</p>
+                                <p>Log in to see detailed pick information.</p>
+                                <p>${userPicks.length} users made picks this week.</p>
+                            </div>
+                        `;
+                    } else {
+                        userPicksList.innerHTML = '<div class="no-picks">Please log in to see picks</div>';
+                    }
+                }
+            }
+
+            // Update other users list
+            const otherPicksSection = document.querySelector('.other-picks-section .user-picks-item');
+            if (otherPicksSection && otherPicksSection.parentElement) {
+                const container = otherPicksSection.parentElement;
+                // Clear existing users except header
+                const existingItems = container.querySelectorAll('.user-picks-item');
+                existingItems.forEach(item => item.remove());
+                
+                // Add updated user list
+                userPicks.forEach(up => {
+                    if (!currentUser || up.user_id !== currentUser.id) {
+                        const userItem = document.createElement('div');
+                        userItem.className = 'user-picks-item';
+                        userItem.innerHTML = `
+                            <div class="user-name">${up.user_name}</div>
+                            <div class="user-record">${up.record.wins}-${up.record.losses}</div>
+                        `;
+                        container.appendChild(userItem);
+                    }
+                });
+            }
+
+            // Update club scores
+            const clubScores = document.querySelector('.club-scores');
+            if (clubScores && userPicks && Array.isArray(userPicks)) {
+                clubScores.innerHTML = userPicks.map(up => 
+                    `<div class="score-item">
+                        <span class="user-name">${up.user_name || 'Unknown'}</span>
+                        <span class="user-score">${(up.record && up.record.wins !== undefined) ? `${up.record.wins}-${up.record.losses}` : '0-0'}</span>
+                    </div>`
+                ).join('');
+            }
+        }
+
+        // Fast keyboard navigation with AJAX caching
+        async function handleKeyboardNavigation(event) {
+            // Only handle arrow keys when not typing in an input field
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || isLoading) {
+                return;
+            }
+            
+            let newWeek = currentDisplayedWeek;
+            let newSeason = currentDisplayedSeason;
+            
+            if (event.key === 'ArrowLeft') {
+                if (currentDisplayedWeek > 1) {
+                    newWeek = currentDisplayedWeek - 1;
+                } else if (currentDisplayedSeason > MIN_SEASON) {
+                    newWeek = 18;
+                    newSeason = currentDisplayedSeason - 1;
+                }
+            } else if (event.key === 'ArrowRight') {
+                if (currentDisplayedWeek < 18) {
+                    newWeek = currentDisplayedWeek + 1;
+                } else if (currentDisplayedSeason < MAX_SEASON) {
+                    newWeek = 1;
+                    newSeason = currentDisplayedSeason + 1;
+                }
+            } else {
+                return; // Not an arrow key
+            }
+            
+            if (newWeek !== currentDisplayedWeek || newSeason !== currentDisplayedSeason) {
+                event.preventDefault();
+                
+                // Check cache first
+                if (!seasonCache[newSeason]) seasonCache[newSeason] = {};
+                
+                let data = seasonCache[newSeason][newWeek];
+                
+                if (!data) {
+                    // Load from server
+                    data = await loadDashboardData(newWeek, newSeason);
+                    if (data && typeof data === 'object' && data.userPicks) {
+                        console.log(`Caching data for ${newSeason} Week ${newWeek}, type:`, typeof data);
+                        seasonCache[newSeason][newWeek] = data;
+                    } else {
+                        console.warn(`Not caching invalid data for ${newSeason} Week ${newWeek}, type:`, typeof data);
+                    }
+                } else {
+                    console.log(`Using cached data for ${newSeason} Week ${newWeek}, type:`, typeof data);
+                }
+                
+                if (data) {
+                    console.log(`About to call updateDashboardDisplay with data type:`, typeof data);
+                    updateDashboardDisplay(data);
+                }
+            }
+        }
+
+        // Initialize theme button and keyboard navigation
+        document.addEventListener('DOMContentLoaded', function() {
+            
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            const button = document.querySelector('.theme-toggle');
+            
+            if (savedTheme === 'light') {
+                button.textContent = '🌙';
+            }
+
+            // Update games remaining counter
+            const scheduledGames = document.querySelectorAll('.game-card.scheduled').length;
+            const gamesRemainingEl = document.getElementById('games-remaining');
+            if (gamesRemainingEl) {
+                gamesRemainingEl.textContent = scheduledGames;
+            }
+
+            // Initialize the games header on page load
+            const gamesHeader = document.getElementById('games-header');
+            if (gamesHeader) {
+                if (currentDisplayedSeason === 2025) {
+                    gamesHeader.textContent = `Week ${currentDisplayedWeek} Games`;
+                } else {
+                    gamesHeader.textContent = `Week ${currentDisplayedWeek} Games (${currentDisplayedSeason})`;
+                }
+            }
+
+            // Add keyboard navigation listener
+            document.addEventListener('keydown', handleKeyboardNavigation);
+            
+            // Note: Caching is now handled by the JSON-based dashboard API system
+            
+            // Preload adjacent weeks in background for faster navigation
+            setTimeout(() => {
+                // Preload previous week
+                let prevWeek = currentDisplayedWeek - 1;
+                let prevSeason = currentDisplayedSeason;
+                if (prevWeek < 1 && currentDisplayedSeason > MIN_SEASON) {
+                    prevWeek = 18;
+                    prevSeason = currentDisplayedSeason - 1;
+                }
+                if (prevWeek >= 1 && prevSeason >= MIN_SEASON) {
+                    loadDashboardData(prevWeek, prevSeason).then(data => {
+                        if (data && typeof data === 'object' && data.userPicks) {
+                            seasonCache[prevSeason][prevWeek] = data;
+                            console.log(`Preloaded ${prevSeason} Week ${prevWeek}`);
+                        } else {
+                            console.warn(`Not preloading invalid data for ${prevSeason} Week ${prevWeek}, type:`, typeof data);
+                        }
+                    });
+                }
+                
+                // Preload next week
+                let nextWeek = currentDisplayedWeek + 1;
+                let nextSeason = currentDisplayedSeason;
+                if (nextWeek > 18 && currentDisplayedSeason < MAX_SEASON) {
+                    nextWeek = 1;
+                    nextSeason = currentDisplayedSeason + 1;
+                }
+                if (nextWeek <= 18 && nextSeason <= MAX_SEASON) {
+                    loadDashboardData(nextWeek, nextSeason).then(data => {
+                        if (data && typeof data === 'object' && data.userPicks) {
+                            seasonCache[nextSeason][nextWeek] = data;
+                            console.log(`Preloaded ${nextSeason} Week ${nextWeek}`);
+                        } else {
+                            console.warn(`Not preloading invalid data for ${nextSeason} Week ${nextWeek}, type:`, typeof data);
+                        }
+                    });
+                }
+            }, 1000); // Wait 1s before preloading to let page fully load
+        });
+    </script>
+</body>
+</html>

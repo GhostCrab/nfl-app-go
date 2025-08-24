@@ -21,7 +21,15 @@
     <div class="container">
         <header>
             <h1>{{.Title}}</h1>
-            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark Mode</button>
+            <div class="header-controls">
+                {{if .User}}
+                <span class="user-info">Welcome, {{.User.Name}}</span>
+                <a href="/logout" class="logout-button">Logout</a>
+                {{else}}
+                <a href="/login" class="login-button">Login</a>
+                {{end}}
+                <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark Mode</button>
+            </div>
         </header>
         
         <main hx-ext="sse" sse-connect="/events">

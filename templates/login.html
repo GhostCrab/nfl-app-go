@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script>
+        // Apply theme before page renders to prevent flash
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.3.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .login-container {
+            max-width: 400px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-group label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .form-group input {
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 1rem;
+            background: var(--input-bg);
+            color: var(--text-primary);
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        .password-input-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .password-input-container input {
+            width: 100%;
+            padding-right: 3rem;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            user-select: none;
+        }
+
+        .password-toggle:hover {
+            color: var(--accent-color);
+        }
+
+        .login-button {
+            padding: 0.75rem 1.5rem;
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .login-button:hover {
+            background: var(--accent-hover);
+        }
+
+        .error-message {
+            color: var(--error-color);
+            background: var(--error-bg);
+            padding: 0.75rem;
+            border-radius: 4px;
+            border: 1px solid var(--error-border);
+            margin-bottom: 1rem;
+        }
+
+        .success-message {
+            color: #059669;
+            background: #d1fae5;
+            padding: 0.75rem;
+            border-radius: 4px;
+            border: 1px solid #6ee7b7;
+            margin-bottom: 1rem;
+        }
+
+        .forgot-password {
+            text-align: center;
+            margin-top: 1rem;
+        }
+
+        .forgot-password a {
+            color: var(--accent-color);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        .forgot-password a:hover {
+            text-decoration: underline;
+        }
+
+        .help-text {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--info-bg);
+            border-radius: 4px;
+            border: 1px solid var(--info-border);
+        }
+
+        .theme-toggle {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            padding: 0.5rem 1rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+    <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark Mode</button>
+    
+    <div class="login-container">
+        <h1>NFL Games - Login</h1>
+        
+        {{if .Error}}
+        <div class="error-message">
+            {{.Error}}
+        </div>
+        {{end}}
+
+        {{if .Success}}
+        <div class="success-message">
+            {{.Success}}
+        </div>
+        {{end}}
+        
+        <form class="login-form" method="POST" action="/login">
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="email" id="email" name="email" required autocomplete="email">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <div class="password-input-container">
+                    <input type="password" id="password" name="password" required autocomplete="current-password">
+                    <i class="bi bi-eye-slash password-toggle" id="togglePassword"></i>
+                </div>
+            </div>
+            
+            <button type="submit" class="login-button">Login</button>
+        </form>
+        
+        <div class="forgot-password">
+            <a href="/forgot-password">Forgot your password?</a>
+        </div>
+        
+        <div class="help-text">
+            <strong>Development Credentials:</strong><br>
+            Email: Any of the user emails (e.g., ryan.pielow@gmail.com)<br>
+            Password: password123<br><br>
+            <strong>Available Users:</strong><br>
+            • andrew@email.com<br>
+            • bardia@email.com<br>
+            • cooper@email.com<br>
+            • micah@email.com<br>
+            • ryan.pielow@gmail.com<br>
+            • tj@email.com<br>
+            • brad@email.com
+        </div>
+    </div>
+    
+    <script>
+        function toggleTheme() {
+            const html = document.documentElement;
+            const button = document.querySelector('.theme-toggle');
+            
+            if (html.getAttribute('data-theme') === 'dark') {
+                html.removeAttribute('data-theme');
+                button.textContent = '🌙 Dark Mode';
+                localStorage.setItem('theme', 'light');
+            } else {
+                html.setAttribute('data-theme', 'dark');
+                button.textContent = '☀️ Light Mode';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        function setupPasswordToggle() {
+            const togglePassword = document.querySelector("#togglePassword");
+            const password = document.querySelector("#password");
+
+            if (togglePassword && password) {
+                togglePassword.addEventListener("click", function () {
+                    // Toggle the type attribute
+                    const type = password.getAttribute("type") === "password" ? "text" : "password";
+                    password.setAttribute("type", type);
+                    
+                    // Toggle the icon
+                    this.classList.toggle("bi-eye");
+                });
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme');
+            const button = document.querySelector('.theme-toggle');
+            
+            if (savedTheme === 'dark') {
+                button.textContent = '☀️ Light Mode';
+            }
+            
+            // Setup password toggle functionality
+            setupPasswordToggle();
+        });
+    </script>
+</body>
+</html>

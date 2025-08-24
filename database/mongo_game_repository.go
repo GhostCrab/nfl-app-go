@@ -19,12 +19,12 @@ type MongoGameRepository struct {
 func NewMongoGameRepository(db *MongoDB) *MongoGameRepository {
 	collection := db.GetCollection("games")
 	
-	// Create index on game ID for faster upserts
+	// Create compound index on game ID and season for faster upserts across seasons
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	
 	indexModel := mongo.IndexModel{
-		Keys: bson.D{{"id", 1}},
+		Keys: bson.D{{"id", 1}, {"season", 1}},
 		Options: options.Index().SetUnique(true),
 	}
 	
@@ -42,7 +42,8 @@ func (r *MongoGameRepository) UpsertGame(game *models.Game) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	filter := bson.M{"id": game.ID}
+	// Use both ID and season for unique identification across seasons
+	filter := bson.M{"id": game.ID, "season": game.Season}
 	
 	// Use ReplaceOne with upsert option
 	opts := options.Replace().SetUpsert(true)
@@ -73,18 +74,54 @@ func (r *MongoGameRepository) GetAllGames() ([]*models.Game, error) {
 	return games, nil
 }
 
+// GetGamesBySeason gets all games for a specific season
+func (r *MongoGameRepository) GetGamesBySeason(season int) ([]*models.Game, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	filter := bson.M{"season": season}
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find games for season %d: %w", season, err)
+	}
+	defer cursor.Close(ctx)
+
+	var games []*models.Game
+	if err := cursor.All(ctx, &games); err != nil {
+		return nil, fmt.Errorf("failed to decode games: %w", err)
+	}
+
+	return games, nil
+}
+
+// FindByID gets a game by its ESPN ID (legacy method name for compatibility)
+func (r *MongoGameRepository) FindByESPNID(ctx context.Context, espnID int) (*models.Game, error) {
+	filter := bson.M{"id": espnID}
+	
+	var game models.Game
+	err := r.collection.FindOne(ctx, filter).Decode(&game)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil // Not found
+		}
+		return nil, fmt.Errorf("failed to find game by ESPN ID %d: %w", espnID, err)
+	}
+	
+	return &game, nil
+}
+
 func (r *MongoGameRepository) GetGamesByWeekSeason(week, season int) ([]*models.Game, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	filter := bson.M{
-		"week": week,
-		// Note: We'll need to add season to the Game model
+		"week":   week,
+		"season": season,
 	}
 
 	cursor, err := r.collection.Find(ctx, filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find games for week %d: %w", week, err)
+		return nil, fmt.Errorf("failed to find games for week %d season %d: %w", week, season, err)
 	}
 	defer cursor.Close(ctx)
 
@@ -111,7 +148,8 @@ func (r *MongoGameRepository) BulkUpsertGames(games []*models.Game) error {
 	var operations []mongo.WriteModel
 	
 	for _, game := range games {
-		filter := bson.M{"id": game.ID}
+		// Use both ID and season for unique identification across seasons  
+		filter := bson.M{"id": game.ID, "season": game.Season}
 		replacement := game
 		
 		operation := mongo.NewReplaceOneModel().

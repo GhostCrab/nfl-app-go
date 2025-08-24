@@ -210,6 +210,7 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 	
 	return models.Game{
 		ID:        gameID,
+		Season:    event.Season.Year,
 		Date:      gameDate,
 		Week:      event.Week.Number,
 		Away:      awayTeam,

@@ -10,6 +10,7 @@ import (
 // GameService interface defines methods for getting game data
 type GameService interface {
 	GetGames() ([]models.Game, error)
+	GetGamesBySeason(season int) ([]models.Game, error)
 	HealthCheck() bool
 }
 
@@ -25,22 +26,27 @@ func NewDemoGameService() *DemoGameService {
 	}
 }
 
-// GetGames returns games modified for demo purposes
+// GetGames returns games for current season (2025) modified for demo purposes
 func (d *DemoGameService) GetGames() ([]models.Game, error) {
-	log.Println("DemoGameService: Fetching games for 2024")
-	games, err := d.espnService.GetScoreboardForYear(2024)
+	return d.GetGamesBySeason(2025)
+}
+
+// GetGamesBySeason returns games for specified season modified for demo purposes
+func (d *DemoGameService) GetGamesBySeason(season int) ([]models.Game, error) {
+	log.Printf("DemoGameService: Fetching games for %d", season)
+	games, err := d.espnService.GetScoreboardForYear(season)
 	if err != nil {
-		log.Printf("DemoGameService: ESPN API failed, using sample data: %v", err)
-		return d.getSampleGames(), nil
+		log.Printf("DemoGameService: ESPN API failed for %d, using sample data: %v", season, err)
+		return d.getSampleGames(season), nil
 	}
 
-	log.Printf("DemoGameService: Got %d games from ESPN", len(games))
+	log.Printf("DemoGameService: Got %d games from ESPN for %d", len(games), season)
 	
 	// Try to enrich a limited number of games with odds to avoid hanging
 	enrichedGames := d.espnService.EnrichGamesWithOddsLimited(games, 20) // Only try first 20 games
 	
 	demoGames := d.makeDemoGames(enrichedGames)
-	log.Printf("DemoGameService: Returning %d demo games", len(demoGames))
+	log.Printf("DemoGameService: Returning %d demo games for %d", len(demoGames), season)
 	return demoGames, nil
 }
 
@@ -52,7 +58,7 @@ func (d *DemoGameService) HealthCheck() bool {
 // makeDemoGames modifies real games to create live demo scenarios
 func (d *DemoGameService) makeDemoGames(games []models.Game) []models.Game {
 	if len(games) == 0 {
-		return d.getSampleGames()
+		return d.getSampleGames(2025)
 	}
 
 	demoGames := make([]models.Game, len(games))
@@ -95,12 +101,13 @@ func (d *DemoGameService) makeGameLive(game models.Game) models.Game {
 }
 
 // getSampleGames returns fallback sample data when ESPN is unavailable
-func (d *DemoGameService) getSampleGames() []models.Game {
+func (d *DemoGameService) getSampleGames(season int) []models.Game {
 	now := time.Now()
 	
 	return []models.Game{
 		{
 			ID:        1,
+			Season:    season,
 			Date:      now.AddDate(0, 0, -1),
 			Week:      1,
 			Away:      "KC",
@@ -112,6 +119,7 @@ func (d *DemoGameService) getSampleGames() []models.Game {
 		},
 		{
 			ID:        2,
+			Season:    season,
 			Date:      now,
 			Week:      1,
 			Away:      "GB",
@@ -123,6 +131,7 @@ func (d *DemoGameService) getSampleGames() []models.Game {
 		},
 		{
 			ID:        3,
+			Season:    season,
 			Date:      now.AddDate(0, 0, 1),
 			Week:      1,
 			Away:      "DAL",
