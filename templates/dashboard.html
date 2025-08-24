@@ -42,103 +42,64 @@
     <!-- Dashboard Container - Exact legacy three-column layout -->
     <div class="dashboard-container">
         <div class="dashboard-content">
-            <!-- Left Column: Pick Lists - Material Design Structure -->
-            <div class="pick-flex-item">
-                <div class="section-header">MY PICKS</div>
-                
-                {{if .User}}
-                    <!-- Logged in user's picks -->
-                    <fieldset class="user-picks-section">
-                        <legend>{{.User.Name}}'s Picks</legend>
-                        <div class="user-picks-list">
-                            {{if .UserPicks}}
-                                {{$currentUserName := .User.Name}}
-                                {{$userHasPicks := false}}
-                                {{range .UserPicks}}
-                                    {{if eq .UserName $currentUserName}}
-                                        {{$userHasPicks = true}}
-                                        {{if .Picks}}
-                                            {{range .Picks}}
-                                                <div class="pick-item {{.GetResultClass}}">
-                                                    <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                    <span class="pick-result">{{.Result}}</span>
-                                                </div>
-                                            {{end}}
-                                        {{end}}
-                                    {{end}}
-                                {{end}}
-                                {{if not $userHasPicks}}
-                                    <div class="no-picks">No picks yet for this week</div>
-                                {{end}}
-                            {{else}}
-                                <div class="no-picks">No picks yet for this week</div>
-                            {{end}}
-                        </div>
-                    </fieldset>
-                {{else if .UserPicks}}
-                    <!-- Not logged in - show historical picks overview -->
-                    <fieldset class="user-picks-section">
-                        <legend>Historical Picks Available</legend>
-                        <div class="user-picks-list">
-                            <div class="historical-picks-info">
-                                <p>Historical picks are available for this week.</p>
-                                <p>Log in to see detailed pick information.</p>
-                                <p>{{len .UserPicks}} users made picks this week.</p>
+            <!-- Left Column: All Users' Picks -->
+            <div class="pick-flex-item" id="all-picks-container">
+                <!-- This will be populated by JavaScript with all users' picks organized by day -->
+                {{if .UserPicks}}
+                    {{range .UserPicks}}
+                        <div class="user-picks-section" data-user-id="{{.UserID}}" data-user-name="{{.UserName}}">
+                            <h2 class="user-picks-header">{{.UserName}} PICKS</h2>
+                            
+                            <!-- Thursday picks section -->
+                            <fieldset class="bonus-picks-section thursday-section" data-day="thursday">
+                                <legend>BONUS THURSDAY</legend>
+                                <div class="pick-count thursday-count" style="display: none;">
+                                    <h3>THURSDAY PICKS: <span class="count">0</span></h3>
+                                </div>
+                                <div class="picks-list thursday-picks">
+                                    <!-- Populated by JavaScript -->
+                                </div>
+                            </fieldset>
+                            
+                            <!-- Friday picks section -->
+                            <fieldset class="bonus-picks-section friday-section" data-day="friday">
+                                <legend>BONUS FRIDAY</legend>
+                                <div class="pick-count friday-count" style="display: none;">
+                                    <h3>FRIDAY PICKS: <span class="count">0</span></h3>
+                                </div>
+                                <div class="picks-list friday-picks">
+                                    <!-- Populated by JavaScript -->
+                                </div>
+                            </fieldset>
+                            
+                            <!-- Saturday picks section -->
+                            <div class="pick-count saturday-count" style="display: none;">
+                                <h3>SATURDAY PICKS: <span class="count">0</span></h3>
+                            </div>
+                            <div class="picks-list saturday-picks" data-day="saturday">
+                                <!-- Populated by JavaScript -->
+                            </div>
+                            
+                            <!-- Sunday/Monday picks section -->
+                            <div class="pick-count other-count" style="display: none;">
+                                <h3>SUN/MON PICKS: <span class="count">0</span></h3>
+                            </div>
+                            <div class="picks-list other-picks" data-day="other">
+                                <!-- Populated by JavaScript -->
                             </div>
                         </div>
-                    </fieldset>
-                {{else}}
-                    <!-- No user, no picks -->
-                    <fieldset class="user-picks-section">
-                        <legend>My Picks</legend>
-                        <div class="user-picks-list">
-                            <div class="no-picks">Please log in to see picks</div>
-                        </div>
-                    </fieldset>
-                {{end}}
-
-                <!-- Bonus picks sections matching legacy -->
-                <fieldset class="bonus-picks-section">
-                    <legend>BONUS THURSDAY</legend>
-                    <div class="bonus-picks-list">
-                        <!-- Bonus Thursday picks -->
-                    </div>
-                </fieldset>
-
-                <fieldset class="bonus-picks-section">
-                    <legend>BONUS FRIDAY</legend>
-                    <div class="bonus-picks-list">
-                        <!-- Bonus Friday picks -->
-                    </div>
-                </fieldset>
-
-                <!-- Other users' picks -->
-                <div class="other-picks-section mt-4">
-                    <div class="user-picks-header">Club Members</div>
-                    {{if .UserPicks}}
-                        {{$currentUserName := ""}}
-                        {{if .User}}{{$currentUserName = .User.Name}}{{end}}
-                        {{range .UserPicks}}
-                            {{if ne .UserName $currentUserName}}
-                                <div class="user-picks-item">
-                                    <div class="user-name">{{.UserName}}</div>
-                                    <div class="user-record">{{.Record.String}}</div>
-                                </div>
-                            {{end}}
-                        {{end}}
-                    {{else}}
-                        {{$currentUserName := ""}}
-                        {{if .User}}{{$currentUserName = .User.Name}}{{end}}
-                        {{range .Users}}
-                            {{if ne .Name $currentUserName}}
-                                <div class="user-picks-item">
-                                    <div class="user-name">{{.Name}}</div>
-                                    <div class="user-record">0-0-0</div>
-                                </div>
-                            {{end}}
-                        {{end}}
                     {{end}}
-                </div>
+                {{else}}
+                    <!-- No picks available -->
+                    <div class="no-picks-available">
+                        <p>No picks available for this week.</p>
+                        {{if .User}}
+                            <p><a href="/picker">Make your picks here</a></p>
+                        {{else}}
+                            <p>Please log in to see picks.</p>
+                        {{end}}
+                    </div>
+                {{end}}
             </div>
 
             <!-- Center Column: Current Games - Material Design Structure -->
@@ -309,17 +270,79 @@
         }
 
         function selectWeek(week) {
-            // For historical picks to work properly, we need full page reload to load pick data
+            // Use unified navigation system (same as arrow keys)
+            const weekNum = parseInt(week);
+            navigateToWeek(weekNum, currentDisplayedSeason);
+        }
+
+        // Unified navigation function for both dropdown and arrow keys
+        async function navigateToWeek(week, season) {
+            console.log(`navigateToWeek called: week=${week}, season=${season}, current=(${currentDisplayedWeek},${currentDisplayedSeason}), isLoading=${isLoading}`);
+            
+            if (isLoading) {
+                console.log('navigateToWeek: Already loading, skipping');
+                return;
+            }
+            
+            if (week === currentDisplayedWeek && season === currentDisplayedSeason) {
+                console.log('navigateToWeek: Already at this week/season, but proceeding anyway for initial load');
+                // Don't return early on first load, we need to load the data
+            }
+            
+            // Update current displayed values
+            currentDisplayedWeek = week;
+            currentDisplayedSeason = season;
+            
+            // Update dropdown selection
+            const weekSelect = document.getElementById('week-select');
+            if (weekSelect) {
+                weekSelect.value = week;
+            }
+            
+            // Update URL without page reload
             const url = new URL(window.location);
             url.searchParams.set('week', week);
-            window.location.href = url.toString();
+            if (season !== 2025) {
+                url.searchParams.set('season', season);
+            } else {
+                url.searchParams.delete('season');
+            }
+            history.pushState({week, season}, '', url.toString());
+            
+            // Check cache first
+            if (!seasonCache[season]) seasonCache[season] = {};
+            
+            let data = seasonCache[season][week];
+            
+            if (!data) {
+                // Load from server
+                data = await loadDashboardData(week, season);
+                if (data && typeof data === 'object' && data.userPicks) {
+                    console.log(`Caching data for ${season} Week ${week}, type:`, typeof data);
+                    seasonCache[season][week] = data;
+                } else {
+                    console.warn(`Not caching invalid data for ${season} Week ${week}, type:`, typeof data);
+                }
+            } else {
+                console.log(`Using cached data for ${season} Week ${week}, type:`, typeof data);
+            }
+            
+            if (data) {
+                console.log(`About to call updateDashboardDisplay with data type:`, typeof data);
+                updateDashboardDisplay(data);
+            }
         }
 
         // Navigation variables with caching
         let currentDisplayedWeek = {{.CurrentWeek}};
-        let currentDisplayedSeason = parseInt(new URLSearchParams(window.location.search).get('season') || '2025');
+        let currentDisplayedSeason = {{.CurrentSeason}}; // Use server-provided season
         const MIN_SEASON = 2023;
         const MAX_SEASON = 2025;
+        
+        // Initial server-rendered data (using manual JSON encoding)
+        let initialGamesData = JSON.parse('{{.GamesJSON}}');
+        let initialUserPicksData = JSON.parse('{{.UserPicksJSON}}');
+        let initialUserData = {{if .User}}JSON.parse('{{.UserJSON}}'){{else}}null{{end}};
         
         // Cache for storing game data by season and week
         let seasonCache = {};
@@ -364,12 +387,13 @@
             const { games, userPicks, user, currentWeek: week, season } = data;
             console.log('Extracted userPicks:', userPicks);
             console.log('Extracted user:', user);
+            console.log('Extracted games:', games);
             
             // Update games grid using the existing games API (it's fast)
             await updateGamesGrid(week, season);
             
-            // Update picks display with client-side rendering
-            updatePicksDisplay(userPicks, user);
+            // Update picks display with client-side rendering, passing games data
+            updatePicksDisplay(userPicks, user, games, week, season);
             
             // Update header
             const gamesHeader = document.getElementById('games-header');
@@ -432,89 +456,313 @@
             }
         }
 
-        // Render picks display from JSON data (simplified client-side rendering)
-        function updatePicksDisplay(userPicks, currentUser) {
-            console.log('Updating picks display:', { userPicks, currentUser });
+        // Helper function to get game day from date
+        function getGameDay(gameDate) {
+            const date = new Date(gameDate);
+            const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+            
+            switch (dayOfWeek) {
+                case 4: return 'thursday';   // Thursday
+                case 5: return 'friday';     // Friday
+                case 6: return 'saturday';   // Saturday
+                default: return 'other';     // Sunday (0), Monday (1), other days
+            }
+        }
+
+        // Helper function to organize picks by game day
+        function organizePicksByDay(picks, games) {
+            const organized = {
+                thursday: [],
+                friday: [],
+                saturday: [],
+                other: []
+            };
+            
+            picks.forEach(pick => {
+                // Find the game for this pick to get the date
+                const game = games.find(g => g.id === pick.game_id);
+                if (game && game.date) {
+                    const day = getGameDay(game.date);
+                    organized[day].push(pick);
+                } else {
+                    // If we can't find the game, default to "other"
+                    organized.other.push(pick);
+                }
+            });
+            
+            return organized;
+        }
+
+        // Render a single pick using original styling
+        function renderPickItem(pick, games) {
+            const game = games.find(g => g.id === pick.game_id);
+            
+            return `<div class="pick-item ${getPickResultClass(pick.result)}">
+                <span class="pick-info">${pick.pick_description || 'Game ' + pick.game_id + ' - Team ' + pick.team_id + ' (' + pick.pick_type + ')'}</span>
+                <span class="pick-result">${pick.result}</span>
+            </div>`;
+        }
+
+        // Main function to render all users' picks organized by day (similar to Angular app)
+        function updatePicksDisplay(userPicks, currentUser, games = [], week = null, season = null) {
+            console.log('Updating picks display:', { userPicks, currentUser, games });
             
             // Check if userPicks is valid
             if (!userPicks || !Array.isArray(userPicks)) {
                 console.warn('Invalid userPicks data:', userPicks);
                 userPicks = []; // Default to empty array
             }
-            
-            // Update current user's picks
-            if (currentUser) {
-                const userPicksList = document.querySelector('.user-picks-list');
-                console.log('Found user picks list element:', userPicksList);
-                
-                if (userPicksList) {
-                    console.log('Looking for current user ID:', currentUser.id);
-                    console.log('Available user IDs in userPicks:');
-                    userPicks.forEach(up => console.log(`  - user_id: ${up.user_id}, user_name: ${up.user_name}`));
-                    const currentUserPicks = userPicks.find(up => up.user_id === currentUser.id);
-                    console.log('Current user picks:', currentUserPicks);
-                    
-                    if (currentUserPicks && currentUserPicks.picks && currentUserPicks.picks.length > 0) {
-                        userPicksList.innerHTML = currentUserPicks.picks.map(pick => 
-                            `<div class="pick-item ${getPickResultClass(pick.result)}">
-                                <span class="pick-info">${pick.pick_description || 'Game ' + pick.game_id + ' - Team ' + pick.team_id + ' (' + pick.pick_type + ')'}</span>
-                                <span class="pick-result">${pick.result}</span>
-                            </div>`
-                        ).join('');
-                    } else {
-                        userPicksList.innerHTML = '<div class="no-picks">No picks yet for this week</div>';
-                    }
-                }
-            } else {
-                console.log('No current user, showing generic message');
-                const userPicksList = document.querySelector('.user-picks-list');
-                if (userPicksList) {
-                    if (userPicks && userPicks.length > 0) {
-                        userPicksList.innerHTML = `
-                            <div class="historical-picks-info">
-                                <p>Historical picks are available for this week.</p>
-                                <p>Log in to see detailed pick information.</p>
-                                <p>${userPicks.length} users made picks this week.</p>
-                            </div>
-                        `;
-                    } else {
-                        userPicksList.innerHTML = '<div class="no-picks">Please log in to see picks</div>';
-                    }
+
+            // Use the passed week/season or fall back to current displayed values
+            const displayWeek = week !== null ? week : currentDisplayedWeek;
+            const displaySeason = season !== null ? season : currentDisplayedSeason;
+
+            // Get games data for organizing by day
+            if (!games || games.length === 0) {
+                // Use initial server-rendered data if available and matches current display
+                if (initialGamesData && initialGamesData.length > 0 && 
+                    displayWeek === currentDisplayedWeek && displaySeason === currentDisplayedSeason) {
+                    games = initialGamesData;
+                } else {
+                    // Fetch games data if not provided
+                    loadGamesData(currentDisplayedWeek, currentDisplayedSeason).then(gamesData => {
+                        updatePicksDisplay(userPicks, currentUser, gamesData, displayWeek, displaySeason);
+                    });
+                    return;
                 }
             }
 
-            // Update other users list
-            const otherPicksSection = document.querySelector('.other-picks-section .user-picks-item');
-            if (otherPicksSection && otherPicksSection.parentElement) {
-                const container = otherPicksSection.parentElement;
-                // Clear existing users except header
-                const existingItems = container.querySelectorAll('.user-picks-item');
-                existingItems.forEach(item => item.remove());
+            // Hide/show bonus sections for all users based on current week and season rules
+            const allUserSections = document.querySelectorAll('.user-picks-section');
+            allUserSections.forEach(userSection => {
+                const thursdaySection = userSection.querySelector('.thursday-section');
+                const fridaySection = userSection.querySelector('.friday-section');
                 
-                // Add updated user list
-                userPicks.forEach(up => {
-                    if (!currentUser || up.user_id !== currentUser.id) {
-                        const userItem = document.createElement('div');
-                        userItem.className = 'user-picks-item';
-                        userItem.innerHTML = `
-                            <div class="user-name">${up.user_name}</div>
-                            <div class="user-record">${up.record.wins}-${up.record.losses}</div>
-                        `;
-                        container.appendChild(userItem);
-                    }
-                });
-            }
+                if (thursdaySection) {
+                    thursdaySection.style.display = shouldShowBonusDay('thursday', displayWeek, displaySeason) ? 'block' : 'none';
+                }
+                if (fridaySection) {
+                    fridaySection.style.display = shouldShowBonusDay('friday', displayWeek, displaySeason) ? 'block' : 'none';
+                }
+            });
 
-            // Update club scores
+            // Update each user's picks section
+            userPicks.forEach(userPickData => {
+                const userSection = document.querySelector(`.user-picks-section[data-user-id="${userPickData.user_id}"]`);
+                if (!userSection) return;
+
+                const picks = userPickData.picks || [];
+                const organizedPicks = organizePicksByDay(picks, games);
+
+                // Update Thursday picks
+                updateDaySection(userSection, 'thursday', organizedPicks.thursday, games, displayWeek, displaySeason);
+                // Update Friday picks  
+                updateDaySection(userSection, 'friday', organizedPicks.friday, games, displayWeek, displaySeason);
+                // Update Saturday picks
+                updateDaySection(userSection, 'saturday', organizedPicks.saturday, games, displayWeek, displaySeason);
+                // Update other picks (Sun/Mon)
+                updateDaySection(userSection, 'other', organizedPicks.other, games, displayWeek, displaySeason);
+            });
+
+            // Update club scores with season points and (+#) indicators
             const clubScores = document.querySelector('.club-scores');
             if (clubScores && userPicks && Array.isArray(userPicks)) {
-                clubScores.innerHTML = userPicks.map(up => 
-                    `<div class="score-item">
+                clubScores.innerHTML = userPicks.map(up => {
+                    const seasonPoints = up.season_points || 0;
+                    const weekPoints = up.week_points || 0;
+                    const weekIndicator = weekPoints > 0 ? ` (+${weekPoints})` : '';
+                    
+                    return `<div class="score-item">
                         <span class="user-name">${up.user_name || 'Unknown'}</span>
-                        <span class="user-score">${(up.record && up.record.wins !== undefined) ? `${up.record.wins}-${up.record.losses}` : '0-0'}</span>
-                    </div>`
-                ).join('');
+                        <span class="user-score">${seasonPoints}${weekIndicator}</span>
+                    </div>`;
+                }).join('');
             }
+        }
+
+        // Helper function to check if a game has started (for hiding future picks)
+        function gameHasStarted(gameDate) {
+            const now = new Date();
+            const gameTime = new Date(gameDate);
+            return gameTime <= now;
+        }
+
+        // Helper function to calculate Thanksgiving week for a given season
+        function getThanksgivingWeek(season) {
+            // Known Thanksgiving weeks for validation
+            const knownThanksgivingWeeks = {
+                2023: 12, // Thanksgiving was Nov 23, 2023
+                2024: 13, // Thanksgiving was Nov 28, 2024
+                2025: 13  // Thanksgiving is Nov 27, 2025
+            };
+            
+            // Use known values if available
+            if (knownThanksgivingWeeks[season]) {
+                return knownThanksgivingWeeks[season];
+            }
+            
+            // For unknown years, calculate based on typical NFL schedule
+            // Calculate Thanksgiving date (4th Thursday of November)
+            const november1 = new Date(season, 10, 1); // November 1st
+            const firstThursday = new Date(november1);
+            
+            // Find first Thursday of November
+            while (firstThursday.getDay() !== 4) { // 4 = Thursday
+                firstThursday.setDate(firstThursday.getDate() + 1);
+            }
+            
+            // 4th Thursday is 21 days later
+            const thanksgiving = new Date(firstThursday);
+            thanksgiving.setDate(firstThursday.getDate() + 21);
+            
+            // NFL typically starts the Thursday after Labor Day (first Monday of September)
+            // Labor Day is first Monday of September
+            const september1 = new Date(season, 8, 1); // September 1st
+            const laborDay = new Date(september1);
+            while (laborDay.getDay() !== 1) { // Find first Monday
+                laborDay.setDate(laborDay.getDate() + 1);
+            }
+            
+            // NFL season typically starts the Thursday after Labor Day
+            const nflStart = new Date(laborDay);
+            nflStart.setDate(laborDay.getDate() + 3); // Thursday after Monday
+            
+            // Calculate weeks between season start and Thanksgiving
+            const timeDiff = thanksgiving.getTime() - nflStart.getTime();
+            const daysDiff = Math.floor(timeDiff / (24 * 60 * 60 * 1000));
+            const weeksDiff = Math.floor(daysDiff / 7);
+            
+            // NFL Week 1 starts on the season start date
+            const thanksgivingWeek = weeksDiff + 1;
+            
+            // Clamp to reasonable range
+            return Math.max(1, Math.min(18, thanksgivingWeek));
+        }
+
+        // Helper function to check if current week has bonus games
+        function hasBonusGames(week, season = null) {
+            // Use current displayed season if not provided
+            const checkSeason = season !== null ? season : currentDisplayedSeason;
+            const thanksgivingWeek = getThanksgivingWeek(checkSeason);
+            
+            // Bonus week rules evolved over time:
+            // 2023: Only opening Thursday and Thanksgiving Thursday were bonus weeks
+            // 2024: Added Thanksgiving Friday as bonus week (Thu+Fri for both weeks)  
+            // 2025: Added opening Friday as bonus week (Thu+Fri for both weeks)
+            
+            const isOpeningWeek = week === 1;
+            const isThanksgivingWeek = week === thanksgivingWeek;
+            
+            return isOpeningWeek || isThanksgivingWeek;
+        }
+
+        // Helper function to check if a specific day should show bonus section for a given week/season
+        function shouldShowBonusDay(day, week, season = null) {
+            const checkSeason = season !== null ? season : currentDisplayedSeason;
+            const thanksgivingWeek = getThanksgivingWeek(checkSeason);
+            
+            const isOpeningWeek = week === 1;
+            const isThanksgivingWeek = week === thanksgivingWeek;
+            
+            if (day === 'thursday') {
+                // Thursday bonus games: all seasons for both opening and thanksgiving weeks
+                return isOpeningWeek || isThanksgivingWeek;
+            } else if (day === 'friday') {
+                if (checkSeason >= 2025) {
+                    // 2025+: Friday bonus for both opening week and thanksgiving week
+                    return isOpeningWeek || isThanksgivingWeek;
+                } else if (checkSeason >= 2024) {
+                    // 2024: Friday bonus only for thanksgiving week
+                    return isThanksgivingWeek;
+                } else {
+                    // 2023: No Friday bonus games
+                    return false;
+                }
+            }
+            
+            return false;
+        }
+
+        // Helper function to update a specific day section for a user
+        function updateDaySection(userSection, day, picks, games, week = null, season = null) {
+            const dayMapping = {
+                'thursday': { selector: '.thursday-picks', countSelector: '.thursday-count', sectionSelector: '.thursday-section' },
+                'friday': { selector: '.friday-picks', countSelector: '.friday-count', sectionSelector: '.friday-section' },
+                'saturday': { selector: '.saturday-picks', countSelector: '.saturday-count' },
+                'other': { selector: '.other-picks', countSelector: '.other-count' }
+            };
+
+            const config = dayMapping[day];
+            if (!config) return;
+
+            const picksContainer = userSection.querySelector(config.selector);
+            const countContainer = userSection.querySelector(config.countSelector);
+            const sectionContainer = config.sectionSelector ? userSection.querySelector(config.sectionSelector) : null;
+            
+            // For Thursday and Friday, check if this specific day should show bonus section
+            if ((day === 'thursday' || day === 'friday') && sectionContainer) {
+                const checkWeek = week !== null ? week : currentDisplayedWeek;
+                const checkSeason = season !== null ? season : currentDisplayedSeason;
+                if (!shouldShowBonusDay(day, checkWeek, checkSeason)) {
+                    // Hide the bonus section if this day isn't a bonus day for this season/week
+                    sectionContainer.style.display = 'none';
+                    return;
+                } else {
+                    // Show the bonus section if this day is a bonus day
+                    sectionContainer.style.display = 'block';
+                }
+            }
+            
+            if (picks && picks.length > 0) {
+                // Separate picks into visible and hidden based on game start times
+                const visiblePicks = [];
+                const hiddenPicks = [];
+                
+                picks.forEach(pick => {
+                    const game = games.find(g => g.id === pick.game_id);
+                    if (game && game.date && !gameHasStarted(game.date)) {
+                        hiddenPicks.push(pick);
+                    } else {
+                        visiblePicks.push(pick);
+                    }
+                });
+
+                if (visiblePicks.length > 0) {
+                    // Show actual picks for games that have started
+                    picksContainer.innerHTML = visiblePicks.map(pick => renderPickItem(pick, games)).join('');
+                    if (countContainer) countContainer.style.display = 'none';
+                } else if (hiddenPicks.length > 0) {
+                    // Show pick count for hidden picks (games haven't started)
+                    picksContainer.innerHTML = '';
+                    const countSpan = countContainer.querySelector('.count');
+                    if (countSpan) countSpan.textContent = hiddenPicks.length.toString();
+                    if (countContainer) countContainer.style.display = 'block';
+                } else {
+                    // No picks at all
+                    picksContainer.innerHTML = '';
+                    if (countContainer) countContainer.style.display = 'none';
+                }
+            } else if (countContainer) {
+                // No picks for this day
+                picksContainer.innerHTML = '';
+                const countSpan = countContainer.querySelector('.count');
+                if (countSpan) countSpan.textContent = '0';
+                countContainer.style.display = 'none';
+            }
+        }
+
+        // Helper function to load games data
+        async function loadGamesData(week, season) {
+            try {
+                const response = await fetch(`/api/dashboard?week=${week}&season=${season}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.games || [];
+                }
+            } catch (error) {
+                console.error('Failed to load games data:', error);
+            }
+            return [];
         }
 
         // Fast keyboard navigation with AJAX caching
@@ -547,29 +795,7 @@
             
             if (newWeek !== currentDisplayedWeek || newSeason !== currentDisplayedSeason) {
                 event.preventDefault();
-                
-                // Check cache first
-                if (!seasonCache[newSeason]) seasonCache[newSeason] = {};
-                
-                let data = seasonCache[newSeason][newWeek];
-                
-                if (!data) {
-                    // Load from server
-                    data = await loadDashboardData(newWeek, newSeason);
-                    if (data && typeof data === 'object' && data.userPicks) {
-                        console.log(`Caching data for ${newSeason} Week ${newWeek}, type:`, typeof data);
-                        seasonCache[newSeason][newWeek] = data;
-                    } else {
-                        console.warn(`Not caching invalid data for ${newSeason} Week ${newWeek}, type:`, typeof data);
-                    }
-                } else {
-                    console.log(`Using cached data for ${newSeason} Week ${newWeek}, type:`, typeof data);
-                }
-                
-                if (data) {
-                    console.log(`About to call updateDashboardDisplay with data type:`, typeof data);
-                    updateDashboardDisplay(data);
-                }
+                navigateToWeek(newWeek, newSeason);
             }
         }
 
@@ -582,6 +808,20 @@
             if (savedTheme === 'light') {
                 button.textContent = '🌙';
             }
+
+            // Hide/show bonus sections on initial page load with season-specific rules
+            const allUserSections = document.querySelectorAll('.user-picks-section');
+            allUserSections.forEach(userSection => {
+                const thursdaySection = userSection.querySelector('.thursday-section');
+                const fridaySection = userSection.querySelector('.friday-section');
+                
+                if (thursdaySection) {
+                    thursdaySection.style.display = shouldShowBonusDay('thursday', currentDisplayedWeek, currentDisplayedSeason) ? 'block' : 'none';
+                }
+                if (fridaySection) {
+                    fridaySection.style.display = shouldShowBonusDay('friday', currentDisplayedWeek, currentDisplayedSeason) ? 'block' : 'none';
+                }
+            });
 
             // Update games remaining counter
             const scheduledGames = document.querySelectorAll('.game-card.scheduled').length;
@@ -602,6 +842,13 @@
 
             // Add keyboard navigation listener
             document.addEventListener('keydown', handleKeyboardNavigation);
+            
+            // Initialize client-side picks display with server-rendered data
+            if (initialUserPicksData && initialGamesData) {
+                updatePicksDisplay(initialUserPicksData, initialUserData, initialGamesData, currentDisplayedWeek, currentDisplayedSeason);
+            }
+            
+            // Initial page load - data is already rendered by server, no need to reload
             
             // Note: Caching is now handled by the JSON-based dashboard API system
             

@@ -138,6 +138,10 @@ func main() {
 	pickRepo := database.NewMongoPickRepository(db)
 	pickService := services.NewPickService(pickRepo, gameRepo, userRepo)
 	
+	// Create scoring service
+	weeklyScoreRepo := database.NewMongoWeeklyScoreRepository(db)
+	scoringService := services.NewScoringService(pickRepo, gameRepo, weeklyScoreRepo)
+	
 	// Create middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
 	
@@ -145,8 +149,9 @@ func main() {
 	gameHandler := handlers.NewGameHandler(templates, gameService)
 	authHandler := handlers.NewAuthHandler(templates, authService, emailService)
 	
-	// Wire up pick service to game handler
+	// Wire up services to game handler
 	gameHandler.SetPickService(pickService)
+	gameHandler.SetScoringService(scoringService)
 	
 	// Start change stream watcher for real-time updates
 	changeWatcher := services.NewChangeStreamWatcher(db, gameHandler.BroadcastUpdate)
@@ -184,6 +189,9 @@ func main() {
 	apiRouter := r.PathPrefix("/api").Subrouter()
 	apiRouter.Use(authMiddleware.RequireAuth)
 	apiRouter.HandleFunc("/me", authHandler.Me).Methods("GET")
+	
+	// Scoring routes (for testing/admin use)
+	r.HandleFunc("/api/scoring/calculate", gameHandler.CalculateWeeklyScores).Methods("POST")
 
 	// Server configuration
 	useTLS := getEnv("USE_TLS", "true") == "true"

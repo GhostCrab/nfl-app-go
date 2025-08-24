@@ -16,12 +16,13 @@ import (
 
 // GameHandler handles game-related HTTP requests
 type GameHandler struct {
-	templates   *template.Template
-	gameService services.GameService
-	pickService *services.PickService
-	sseClients  map[chan string]bool
-	authService *services.AuthService
-	dataLoader  *services.DataLoader
+	templates      *template.Template
+	gameService    services.GameService
+	pickService    *services.PickService
+	scoringService *services.ScoringService
+	sseClients     map[chan string]bool
+	authService    *services.AuthService
+	dataLoader     *services.DataLoader
 }
 
 // NewGameHandler creates a new game handler
@@ -36,6 +37,11 @@ func NewGameHandler(templates *template.Template, gameService services.GameServi
 // SetPickService sets the pick service for pick operations
 func (h *GameHandler) SetPickService(pickService *services.PickService) {
 	h.pickService = pickService
+}
+
+// SetScoringService sets the scoring service for scoring operations
+func (h *GameHandler) SetScoringService(scoringService *services.ScoringService) {
+	h.scoringService = scoringService
 }
 
 // SetAuthService sets the auth service for user operations
@@ -152,15 +158,26 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	
 	log.Printf("GameHandler: Rendering %d games for week %d, season %d", len(games), currentWeek, season)
 	
+	// Create JSON representations for JavaScript
+	gamesJSON, _ := json.Marshal(games)
+	userPicksJSON, _ := json.Marshal(userPicks)
+	var userJSON []byte
+	if user != nil {
+		userJSON, _ = json.Marshal(user)
+	}
+	
 	data := struct {
-		Games       []models.Game
-		Title       string
-		User        *models.User
-		Users       []*models.User
-		UserPicks   []*models.UserPicks
-		Weeks       []int
-		CurrentWeek int
+		Games         []models.Game
+		Title         string
+		User          *models.User
+		Users         []*models.User
+		UserPicks     []*models.UserPicks
+		Weeks         []int
+		CurrentWeek   int
 		CurrentSeason int
+		GamesJSON     string
+		UserPicksJSON string
+		UserJSON      string
 	}{
 		Games:         games,
 		Title:         fmt.Sprintf("PC '%d - Dashboard", season%100), // Show last 2 digits of season
@@ -170,6 +187,9 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		Weeks:         weeks,
 		CurrentWeek:   currentWeek,
 		CurrentSeason: season,
+		GamesJSON:     string(gamesJSON),
+		UserPicksJSON: string(userPicksJSON),
+		UserJSON:      string(userJSON),
 	}
 
 	// Use dashboard template instead of games template
@@ -518,10 +538,47 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 		log.Printf("API: WARNING - No pick service available")
 	}
 	
+	// Add scoring data to each user if scoring service is available
+	type UserWithScoring struct {
+		*models.UserPicks
+		SeasonPoints int `json:"season_points"`
+		WeekPoints   int `json:"week_points"`
+	}
+	
+	var usersWithScoring []*UserWithScoring
+	if h.scoringService != nil {
+		for _, up := range userPicks {
+			userWithScoring := &UserWithScoring{
+				UserPicks: up,
+			}
+			
+			// Get season total points
+			if seasonScore, err := h.scoringService.GetUserSeasonScore(r.Context(), up.UserID, season); err == nil {
+				userWithScoring.SeasonPoints = seasonScore.TotalPoints
+			}
+			
+			// Get points earned this week
+			if weekPoints, err := h.scoringService.GetWeeklyPointsForUser(r.Context(), up.UserID, season, currentWeek); err == nil {
+				userWithScoring.WeekPoints = weekPoints
+			}
+			
+			usersWithScoring = append(usersWithScoring, userWithScoring)
+		}
+	} else {
+		// Convert regular userPicks to UserWithScoring format without scoring
+		for _, up := range userPicks {
+			usersWithScoring = append(usersWithScoring, &UserWithScoring{
+				UserPicks:    up,
+				SeasonPoints: 0,
+				WeekPoints:   0,
+			})
+		}
+	}
+	
 	// Create response data structure
 	data := struct {
 		Games       []models.Game         `json:"games"`
-		UserPicks   []*models.UserPicks   `json:"userPicks"`
+		UserPicks   []*UserWithScoring    `json:"userPicks"`
 		Users       []*models.User        `json:"users"`
 		User        *models.User          `json:"user"`
 		CurrentWeek int                   `json:"currentWeek"`
@@ -530,7 +587,7 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 		Title       string                `json:"title"`
 	}{
 		Games:       games,
-		UserPicks:   userPicks,
+		UserPicks:   usersWithScoring,
 		Users:       users,
 		User:        user,
 		CurrentWeek: currentWeek,
@@ -547,5 +604,54 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 	}
 	
 	log.Printf("API: Successfully returned dashboard data for week %d, season %d", currentWeek, season)
+}
+
+// CalculateWeeklyScores handles POST /api/scoring/calculate - calculates scores for a specific week
+func (h *GameHandler) CalculateWeeklyScores(w http.ResponseWriter, r *http.Request) {
+	log.Printf("API: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	
+	if h.scoringService == nil {
+		http.Error(w, "Scoring service not available", http.StatusServiceUnavailable)
+		return
+	}
+	
+	// Get week and season from query params
+	weekStr := r.URL.Query().Get("week")
+	seasonStr := r.URL.Query().Get("season")
+	
+	week := 12 // Default to a week with data
+	season := 2024 // Default to 2024 season
+	
+	if weekStr != "" {
+		if w, err := strconv.Atoi(weekStr); err == nil && w >= 1 && w <= 18 {
+			week = w
+		}
+	}
+	
+	if seasonStr != "" {
+		if s, err := strconv.Atoi(seasonStr); err == nil && s >= 2020 && s <= 2030 {
+			season = s
+		}
+	}
+	
+	// Calculate scores for the week
+	err := h.scoringService.RecalculateWeeklyScores(r.Context(), season, week)
+	if err != nil {
+		log.Printf("API: Error calculating scores for season %d week %d: %v", season, week, err)
+		http.Error(w, fmt.Sprintf("Failed to calculate scores: %v", err), http.StatusInternalServerError)
+		return
+	}
+	
+	log.Printf("API: Successfully calculated scores for season %d week %d", season, week)
+	
+	response := map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Calculated scores for season %d week %d", season, week),
+		"season":  season,
+		"week":    week,
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
