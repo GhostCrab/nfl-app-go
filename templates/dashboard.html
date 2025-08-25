@@ -46,101 +46,189 @@
         <div class="dashboard-content">
             <!-- Left Column: Pick Lists - Material Design Structure -->
             <div class="pick-flex-item">
-                <div class="section-header">MY PICKS</div>
-                
-                {{if .User}}
-                    <!-- Logged in user's picks -->
-                    <fieldset class="user-picks-section">
-                        <legend>{{.User.Name}}'s Picks</legend>
-                        <div class="user-picks-list">
-                            {{if .UserPicks}}
-                                {{$currentUserName := .User.Name}}
-                                {{$userHasPicks := false}}
-                                {{range .UserPicks}}
-                                    {{if eq .UserName $currentUserName}}
-                                        {{$userHasPicks = true}}
-                                        {{if .Picks}}
+                <!-- Unified rendering for all users (current user first, then others) -->
+                {{if .UserPicks}}
+                    {{$currentUserName := ""}}
+                    {{if .User}}{{$currentUserName = .User.Name}}{{end}}
+                    
+                    <!-- Render current user first if logged in -->
+                    {{if .User}}
+                        {{range .UserPicks}}
+                            {{if eq .UserName $currentUserName}}
+                                <fieldset class="user-picks-section">
+                                    <legend>MY PICKS</legend>
+                                    <div class="user-picks-content">
+
+                                    <!-- Bonus Thursday picks -->
+                                    {{if .BonusThursdayPicks}}
+                                        <div class="regular-picks-section">
+                                            <div class="picks-category-header">BONUS THURSDAY</div>
+                                            <div class="picks-list">
+                                                {{range .BonusThursdayPicks}}
+                                                    <div class="pick-item {{.GetResultClass}}">
+                                                        <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
+                                                        <span class="pick-result">{{.Result}}</span>
+                                                    </div>
+                                                {{end}}
+                                            </div>
+                                        </div>
+                                    {{end}}
+
+                                    <!-- Bonus Friday picks -->
+                                    {{if .BonusFridayPicks}}
+                                        <div class="regular-picks-section">
+                                            <div class="picks-category-header">BONUS FRIDAY</div>
+                                            <div class="picks-list">
+                                                {{range .BonusFridayPicks}}
+                                                    <div class="pick-item {{.GetResultClass}}">
+                                                        <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
+                                                        <span class="pick-result">{{.Result}}</span>
+                                                    </div>
+                                                {{end}}
+                                            </div>
+                                        </div>
+                                    {{end}}
+
+                                    <!-- Remaining picks (filtered to exclude bonus picks) -->
+                                    {{if .Picks}}
+                                        {{$hasAnyBonusPicks := or .BonusThursdayPicks .BonusFridayPicks}}
+                                        {{if $hasAnyBonusPicks}}
+                                            <div class="regular-picks-section">
+                                                <div class="picks-category-header">REMAINING PICKS</div>
+                                                <div class="picks-list">
+                                                    {{$userPicks := .}}
+                                                    {{range .Picks}}
+                                                        {{$currentPick := .}}
+                                                        {{$isBonus := false}}
+                                                        {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                                        {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                                        {{if not $isBonus}}
+                                                        <div class="pick-item {{.GetResultClass}}">
+                                                            <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
+                                                            <span class="pick-result">{{.Result}}</span>
+                                                        </div>
+                                                        {{end}}
+                                                    {{end}}
+                                                </div>
+                                            </div>
+                                        {{else}}
+                                            <!-- No bonus picks - use same container structure but no header -->
+                                            <div class="picks-list">
+                                                {{range .Picks}}
+                                                    <div class="pick-item {{.GetResultClass}}">
+                                                        <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
+                                                        <span class="pick-result">{{.Result}}</span>
+                                                    </div>
+                                                {{end}}
+                                            </div>
+                                        {{end}}
+                                    {{else}}
+                                        <div class="no-picks">No picks yet for this week</div>
+                                    {{end}}
+                                    </div>
+                                </fieldset>
+                            {{end}}
+                        {{end}}
+                    {{else}}
+                        <!-- Not logged in - show historical picks overview -->
+                        <fieldset class="user-picks-section mt-4">
+                            <legend>Historical Picks Available</legend>
+                            <div class="user-picks-content">
+                                <div class="historical-picks-info">
+                                    <p>Historical picks are available for this week.</p>
+                                    <p>Log in to see detailed pick information.</p>
+                                    <p>{{len .UserPicks}} users made picks this week.</p>
+                                </div>
+                            </div>
+                        </fieldset>
+                    {{end}}
+
+                    <!-- Render all other users -->
+                    {{range .UserPicks}}
+                        {{if ne .UserName $currentUserName}}
+                            <fieldset class="user-picks-section mt-4">
+                                <legend>{{.UserName}}'S PICKS</legend>
+                                <div class="user-picks-content">
+
+                                <!-- Bonus Thursday picks -->
+                                {{if .BonusThursdayPicks}}
+                                    <div class="regular-picks-section">
+                                        <div class="picks-category-header">BONUS THURSDAY</div>
+                                        <div class="picks-list">
+                                            {{range .BonusThursdayPicks}}
+                                                <div class="pick-item {{.GetResultClass}}">
+                                                    <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
+                                                    <span class="pick-result">{{.Result}}</span>
+                                                </div>
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                {{end}}
+
+                                <!-- Bonus Friday picks -->
+                                {{if .BonusFridayPicks}}
+                                    <div class="regular-picks-section">
+                                        <div class="picks-category-header">BONUS FRIDAY</div>
+                                        <div class="picks-list">
+                                            {{range .BonusFridayPicks}}
+                                                <div class="pick-item {{.GetResultClass}}">
+                                                    <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
+                                                    <span class="pick-result">{{.Result}}</span>
+                                                </div>
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                {{end}}
+
+                                <!-- Remaining picks (filtered to exclude bonus picks) -->
+                                {{if .Picks}}
+                                    {{$hasAnyBonusPicks := or .BonusThursdayPicks .BonusFridayPicks}}
+                                    {{if $hasAnyBonusPicks}}
+                                        <div class="regular-picks-section">
+                                            <div class="picks-category-header">REMAINING PICKS</div>
+                                            <div class="picks-list">
+                                                {{$userPicks := .}}
+                                                {{range .Picks}}
+                                                    {{$currentPick := .}}
+                                                    {{$isBonus := false}}
+                                                    {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                                    {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                                    {{if not $isBonus}}
+                                                    <div class="pick-item {{.GetResultClass}}">
+                                                        <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
+                                                        <span class="pick-result">{{.Result}}</span>
+                                                    </div>
+                                                    {{end}}
+                                                {{end}}
+                                            </div>
+                                        </div>
+                                    {{else}}
+                                        <!-- No bonus picks - use same container structure but no header -->
+                                        <div class="picks-list">
                                             {{range .Picks}}
                                                 <div class="pick-item {{.GetResultClass}}">
                                                     <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
                                                     <span class="pick-result">{{.Result}}</span>
                                                 </div>
                                             {{end}}
-                                        {{end}}
+                                        </div>
                                     {{end}}
+                                {{else}}
+                                    <div class="no-picks">No picks for this week</div>
                                 {{end}}
-                                {{if not $userHasPicks}}
-                                    <div class="no-picks">No picks yet for this week</div>
-                                {{end}}
-                            {{else}}
-                                <div class="no-picks">No picks yet for this week</div>
-                            {{end}}
-                        </div>
-                    </fieldset>
-                {{else if .UserPicks}}
-                    <!-- Not logged in - show historical picks overview -->
-                    <fieldset class="user-picks-section">
-                        <legend>Historical Picks Available</legend>
-                        <div class="user-picks-list">
-                            <div class="historical-picks-info">
-                                <p>Historical picks are available for this week.</p>
-                                <p>Log in to see detailed pick information.</p>
-                                <p>{{len .UserPicks}} users made picks this week.</p>
-                            </div>
-                        </div>
-                    </fieldset>
+                                </div>
+                            </fieldset>
+                        {{end}}
+                    {{end}}
                 {{else}}
-                    <!-- No user, no picks -->
-                    <fieldset class="user-picks-section">
+                    <!-- No picks data available -->
+                    <fieldset class="user-picks-section mt-4">
                         <legend>My Picks</legend>
-                        <div class="user-picks-list">
+                        <div class="user-picks-content">
                             <div class="no-picks">Please log in to see picks</div>
                         </div>
                     </fieldset>
                 {{end}}
-
-                <!-- Bonus picks sections matching legacy -->
-                <fieldset class="bonus-picks-section">
-                    <legend>BONUS THURSDAY</legend>
-                    <div class="bonus-picks-list">
-                        <!-- Bonus Thursday picks -->
-                    </div>
-                </fieldset>
-
-                <fieldset class="bonus-picks-section">
-                    <legend>BONUS FRIDAY</legend>
-                    <div class="bonus-picks-list">
-                        <!-- Bonus Friday picks -->
-                    </div>
-                </fieldset>
-
-                <!-- Other users' picks -->
-                <div class="other-picks-section mt-4">
-                    <div class="user-picks-header">Club Members</div>
-                    {{if .UserPicks}}
-                        {{$currentUserName := ""}}
-                        {{if .User}}{{$currentUserName = .User.Name}}{{end}}
-                        {{range .UserPicks}}
-                            {{if ne .UserName $currentUserName}}
-                                <div class="user-picks-item">
-                                    <div class="user-name">{{.UserName}}</div>
-                                    <div class="user-record">{{.Record.String}}</div>
-                                </div>
-                            {{end}}
-                        {{end}}
-                    {{else}}
-                        {{$currentUserName := ""}}
-                        {{if .User}}{{$currentUserName = .User.Name}}{{end}}
-                        {{range .Users}}
-                            {{if ne .Name $currentUserName}}
-                                <div class="user-picks-item">
-                                    <div class="user-name">{{.Name}}</div>
-                                    <div class="user-record">0-0-0</div>
-                                </div>
-                            {{end}}
-                        {{end}}
-                    {{end}}
-                </div>
             </div>
 
             <!-- Center Column: Current Games - Material Design Structure -->
@@ -398,6 +486,9 @@
             // Update picks display with client-side rendering
             updatePicksDisplay(userPicks, user);
             
+            // Update other players' picks display
+            updateOtherPlayersDisplay(userPicks, user);
+            
             // Update header
             const gamesHeader = document.getElementById('games-header');
             if (gamesHeader) {
@@ -459,7 +550,177 @@
             }
         }
 
-        // Render picks display from JSON data (simplified client-side rendering)
+        // Helper function to format parlay score (matches Go UserRecord.String() method)
+        function formatParlayScore(record) {
+            if (!record) return '0';
+            
+            // Use parlay points if available, otherwise fallback to W-L format
+            if (record.parlay_points !== undefined) {
+                if (record.weekly_points && record.weekly_points > 0) {
+                    return `${record.parlay_points} (+${record.weekly_points})`;
+                }
+                return `${record.parlay_points}`;
+            }
+            
+            // Fallback to legacy W-L-P format
+            return `${record.wins || 0}-${record.losses || 0}-${record.pushes || 0}`;
+        }
+
+
+        // Filter out bonus picks from regular picks
+        function filterRegularPicks(allPicks, bonusThursdayPicks, bonusFridayPicks) {
+            if (!allPicks || !Array.isArray(allPicks)) return [];
+            
+            const bonusGameIds = new Set();
+            
+            // Add bonus Thursday game IDs
+            if (bonusThursdayPicks && Array.isArray(bonusThursdayPicks)) {
+                bonusThursdayPicks.forEach(pick => bonusGameIds.add(pick.game_id));
+            }
+            
+            // Add bonus Friday game IDs
+            if (bonusFridayPicks && Array.isArray(bonusFridayPicks)) {
+                bonusFridayPicks.forEach(pick => bonusGameIds.add(pick.game_id));
+            }
+            
+            // Return picks that are not in bonus games
+            return allPicks.filter(pick => !bonusGameIds.has(pick.game_id));
+        }
+
+        // Unified function to create any user's picks section (current user or others)
+        function createUnifiedUserPicksSection(userPicksData, isCurrentUser = false) {
+            const section = document.createElement('fieldset');
+            section.className = isCurrentUser ? 'user-picks-section' : 'user-picks-section mt-4';
+            
+            const legend = document.createElement('legend');
+            legend.textContent = isCurrentUser ? 'MY PICKS' : `${userPicksData.user_name || 'Unknown'}'S PICKS`;
+            section.appendChild(legend);
+            
+            const content = document.createElement('div');
+            content.className = 'user-picks-content';
+            
+            // Add bonus Thursday picks if they exist
+            if (userPicksData.bonus_thursday_picks && userPicksData.bonus_thursday_picks.length > 0) {
+                const bonusSection = createRegularPicksSection('BONUS THURSDAY', userPicksData.bonus_thursday_picks);
+                content.appendChild(bonusSection);
+            }
+            
+            // Add bonus Friday picks if they exist  
+            if (userPicksData.bonus_friday_picks && userPicksData.bonus_friday_picks.length > 0) {
+                const bonusSection = createRegularPicksSection('BONUS FRIDAY', userPicksData.bonus_friday_picks);
+                content.appendChild(bonusSection);
+            }
+            
+            // Add regular picks if they exist
+            if (userPicksData.picks && userPicksData.picks.length > 0) {
+                const hasAnyBonusPicks = (userPicksData.bonus_thursday_picks && userPicksData.bonus_thursday_picks.length > 0) ||
+                                       (userPicksData.bonus_friday_picks && userPicksData.bonus_friday_picks.length > 0);
+                
+                if (hasAnyBonusPicks) {
+                    // Has bonus picks - show "REMAINING PICKS" header with filtered picks
+                    const regularPicks = filterRegularPicks(
+                        userPicksData.picks, 
+                        userPicksData.bonus_thursday_picks, 
+                        userPicksData.bonus_friday_picks
+                    );
+                    const regularSection = createRegularPicksSection('REMAINING PICKS', regularPicks);
+                    content.appendChild(regularSection);
+                } else {
+                    // No bonus picks - use same container structure but no header
+                    const picksList = document.createElement('div');
+                    picksList.className = 'picks-list';
+                    
+                    userPicksData.picks.forEach(pick => {
+                        const pickItem = createPickItem(pick);
+                        picksList.appendChild(pickItem);
+                    });
+                    
+                    content.appendChild(picksList);
+                }
+            } else {
+                const noPicks = document.createElement('div');
+                noPicks.className = 'no-picks';
+                noPicks.textContent = isCurrentUser ? 'No picks yet for this week' : 'No picks for this week';
+                content.appendChild(noPicks);
+            }
+            
+            section.appendChild(content);
+            return section;
+        }
+        
+        // Update other players' detailed picks display using unified rendering
+        function updateOtherPlayersDisplay(userPicks, currentUser) {
+            if (!userPicks || !Array.isArray(userPicks)) {
+                console.warn('No valid userPicks data for other players');
+                return;
+            }
+            
+            // Find the container for other players (everything after current user's picks)
+            const pickFlexItem = document.querySelector('.pick-flex-item');
+            if (!pickFlexItem) {
+                console.warn('Pick flex item not found');
+                return;
+            }
+            
+            // Remove existing other player sections (but keep current user section which is first)
+            const allSections = pickFlexItem.querySelectorAll('.user-picks-section');
+            // Remove all sections except the first one (current user)
+            for (let i = 1; i < allSections.length; i++) {
+                allSections[i].remove();
+            }
+            
+            // Add other players' sections using unified rendering
+            userPicks.forEach(up => {
+                if (!currentUser || up.user_id !== currentUser.id) {
+                    const userSection = createUnifiedUserPicksSection(up, false);
+                    pickFlexItem.appendChild(userSection);
+                }
+            });
+        }
+        
+        // Create regular picks section
+        function createRegularPicksSection(title, picks) {
+            const section = document.createElement('div');
+            section.className = 'regular-picks-section';
+            
+            const categoryHeader = document.createElement('div');
+            categoryHeader.className = 'picks-category-header';
+            categoryHeader.textContent = title;
+            section.appendChild(categoryHeader);
+            
+            const picksList = document.createElement('div');
+            picksList.className = 'picks-list';
+            
+            picks.forEach(pick => {
+                const pickItem = createPickItem(pick);
+                picksList.appendChild(pickItem);
+            });
+            
+            section.appendChild(picksList);
+            return section;
+        }
+
+        
+        // Create individual pick item
+        function createPickItem(pick) {
+            const pickItem = document.createElement('div');
+            pickItem.className = `pick-item ${getPickResultClass(pick.result)}`;
+            
+            const pickInfo = document.createElement('span');
+            pickInfo.className = 'pick-info';
+            pickInfo.textContent = pick.pick_description || `Game ${pick.game_id} - Team ${pick.team_id} (${pick.pick_type})`;
+            
+            const pickResult = document.createElement('span');
+            pickResult.className = 'pick-result';
+            pickResult.textContent = pick.result || 'pending';
+            
+            pickItem.appendChild(pickInfo);
+            pickItem.appendChild(pickResult);
+            
+            return pickItem;
+        }
+
+        // Update current user's picks display using unified rendering
         function updatePicksDisplay(userPicks, currentUser) {
             console.log('Updating picks display:', { userPicks, currentUser });
             
@@ -469,35 +730,38 @@
                 userPicks = []; // Default to empty array
             }
             
-            // Update current user's picks
+            // Find the current user's fieldset (first one)
+            const currentUserFieldset = document.querySelector('.user-picks-section');
+            if (!currentUserFieldset) {
+                console.warn('Current user fieldset not found');
+                return;
+            }
+            
+            // Update current user's picks using unified rendering
             if (currentUser) {
-                const userPicksList = document.querySelector('.user-picks-list');
-                console.log('Found user picks list element:', userPicksList);
+                console.log('Looking for current user ID:', currentUser.id);
+                console.log('Available user IDs in userPicks:');
+                userPicks.forEach(up => console.log(`  - user_id: ${up.user_id}, user_name: ${up.user_name}`));
+                const currentUserPicks = userPicks.find(up => up.user_id === currentUser.id);
+                console.log('Current user picks:', currentUserPicks);
                 
-                if (userPicksList) {
-                    console.log('Looking for current user ID:', currentUser.id);
-                    console.log('Available user IDs in userPicks:');
-                    userPicks.forEach(up => console.log(`  - user_id: ${up.user_id}, user_name: ${up.user_name}`));
-                    const currentUserPicks = userPicks.find(up => up.user_id === currentUser.id);
-                    console.log('Current user picks:', currentUserPicks);
-                    
-                    if (currentUserPicks && currentUserPicks.picks && currentUserPicks.picks.length > 0) {
-                        userPicksList.innerHTML = currentUserPicks.picks.map(pick => 
-                            `<div class="pick-item ${getPickResultClass(pick.result)}">
-                                <span class="pick-info">${pick.pick_description || 'Game ' + pick.game_id + ' - Team ' + pick.team_id + ' (' + pick.pick_type + ')'}</span>
-                                <span class="pick-result">${pick.result}</span>
-                            </div>`
-                        ).join('');
-                    } else {
-                        userPicksList.innerHTML = '<div class="no-picks">No picks yet for this week</div>';
+                if (currentUserPicks) {
+                    // Replace the entire current user section with unified rendering
+                    const newCurrentUserSection = createUnifiedUserPicksSection(currentUserPicks, true);
+                    currentUserFieldset.parentNode.replaceChild(newCurrentUserSection, currentUserFieldset);
+                } else {
+                    // No picks found for current user
+                    const content = currentUserFieldset.querySelector('.user-picks-content');
+                    if (content) {
+                        content.innerHTML = '<div class="no-picks">No picks yet for this week</div>';
                     }
                 }
             } else {
                 console.log('No current user, showing generic message');
-                const userPicksList = document.querySelector('.user-picks-list');
-                if (userPicksList) {
+                const content = currentUserFieldset.querySelector('.user-picks-content');
+                if (content) {
                     if (userPicks && userPicks.length > 0) {
-                        userPicksList.innerHTML = `
+                        content.innerHTML = `
                             <div class="historical-picks-info">
                                 <p>Historical picks are available for this week.</p>
                                 <p>Log in to see detailed pick information.</p>
@@ -505,7 +769,7 @@
                             </div>
                         `;
                     } else {
-                        userPicksList.innerHTML = '<div class="no-picks">Please log in to see picks</div>';
+                        content.innerHTML = '<div class="no-picks">Please log in to see picks</div>';
                     }
                 }
             }
@@ -525,7 +789,7 @@
                         userItem.className = 'user-picks-item';
                         userItem.innerHTML = `
                             <div class="user-name">${up.user_name}</div>
-                            <div class="user-record">${up.record.wins}-${up.record.losses}</div>
+                            <div class="user-record">${formatParlayScore(up.record)}</div>
                         `;
                         container.appendChild(userItem);
                     }
@@ -538,7 +802,7 @@
                 clubScores.innerHTML = userPicks.map(up => 
                     `<div class="score-item">
                         <span class="user-name">${up.user_name || 'Unknown'}</span>
-                        <span class="user-score">${(up.record && up.record.wins !== undefined) ? `${up.record.wins}-${up.record.losses}` : '0-0'}</span>
+                        <span class="user-score">${formatParlayScore(up.record)}</span>
                     </div>`
                 ).join('');
             }

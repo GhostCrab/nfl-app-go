@@ -169,11 +169,8 @@ func CalculateParlayPoints(picks []Pick) int {
 		}
 	}
 	
-	// Must have at least 2 winning picks to earn points
-	if winningPicks < 2 {
-		return 0
-	}
-	
+	// Return points equal to the number of winning picks
+	// Pushes are excluded, any loss = 0 points
 	return winningPicks
 }
 
@@ -194,16 +191,79 @@ type GameDayInfo struct {
 	Category ParlayCategory
 }
 
-// CategorizeGameByDate determines the parlay category based on game date and season
-func CategorizeGameByDate(gameDate time.Time, season int) ParlayCategory {
-	weekday := gameDate.Weekday()
+// GetThanksgivingDate returns the date of Thanksgiving for a given year (4th Thursday of November)
+func GetThanksgivingDate(year int) time.Time {
+	// Start with November 1st
+	nov1 := time.Date(year, time.November, 1, 0, 0, 0, 0, time.UTC)
+	
+	// Find the first Thursday of November
+	daysUntilFirstThursday := (int(time.Thursday) - int(nov1.Weekday()) + 7) % 7
+	firstThursday := nov1.AddDate(0, 0, daysUntilFirstThursday)
+	
+	// The 4th Thursday is 3 weeks later
+	thanksgiving := firstThursday.AddDate(0, 0, 21)
+	
+	return thanksgiving
+}
+
+// GetNFLWeekForDate calculates which NFL week a given date falls into
+// NFL seasons typically start the first Thursday after Labor Day (first Monday of September)
+func GetNFLWeekForDate(gameDate time.Time, season int) int {
+	// Estimate season start - typically the Thursday after Labor Day
+	// Labor Day is first Monday of September
+	sep1 := time.Date(season, time.September, 1, 0, 0, 0, 0, time.UTC)
+	daysUntilFirstMonday := (int(time.Monday) - int(sep1.Weekday()) + 7) % 7
+	laborDay := sep1.AddDate(0, 0, daysUntilFirstMonday)
+	
+	// NFL season usually starts the Thursday after Labor Day
+	seasonStart := laborDay.AddDate(0, 0, 3) // 3 days after Monday = Thursday
+	
+	// Calculate days since season start
+	daysSinceStart := int(gameDate.Sub(seasonStart).Hours() / 24)
+	
+	// NFL weeks start on Thursday, so week = (days since start / 7) + 1
+	week := (daysSinceStart / 7) + 1
+	
+	// Ensure week is at least 1
+	if week < 1 {
+		week = 1
+	}
+	
+	return week
+}
+
+// GetThanksgivingWeek dynamically calculates which NFL week Thanksgiving falls in
+func GetThanksgivingWeek(season int) int {
+	thanksgiving := GetThanksgivingDate(season)
+	return GetNFLWeekForDate(thanksgiving, season)
+}
+
+// CategorizeGameByDate determines the parlay category based on game date, season, and week
+func CategorizeGameByDate(gameDate time.Time, season, week int) ParlayCategory {
+	// Convert UTC time to US Eastern timezone for proper day-of-week categorization
+	// NFL games are scheduled based on US time zones, not UTC
+	eastern, _ := time.LoadLocation("America/New_York")
+	gameTimeEastern := gameDate.In(eastern)
+	weekday := gameTimeEastern.Weekday()
+	
+	// Dynamically calculate Thanksgiving week
+	thanksgivingWeek := GetThanksgivingWeek(season)
 	
 	switch weekday {
 	case time.Thursday:
-		return ParlayBonusThursday
+		// Thursday bonus weeks: Week 1 (Opening) and Thanksgiving week
+		if week == 1 || week == thanksgivingWeek {
+			return ParlayBonusThursday
+		}
+		return ParlayRegular
 	case time.Friday:
-		// Friday games only started in 2024
-		if season >= 2024 {
+		// Friday bonus weeks by season:
+		// 2023: Thanksgiving Friday only
+		// 2024: Thanksgiving Friday only
+		// 2025+: Week 1 (Opening Friday) and Thanksgiving Friday
+		if season >= 2025 && (week == 1 || week == thanksgivingWeek) {
+			return ParlayBonusFriday
+		} else if (season == 2023 || season == 2024) && week == thanksgivingWeek {
 			return ParlayBonusFriday
 		}
 		return ParlayRegular

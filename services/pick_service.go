@@ -103,6 +103,13 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 		record.WeeklyPoints = weekParlayScore.TotalPoints
 	}
 	
+	// Get game information for categorizing picks by day
+	gameInfoMap, err := s.getGameInfoForWeek(ctx, season, week)
+	if err != nil {
+		log.Printf("Warning: failed to get game info for pick categorization: %v", err)
+		gameInfoMap = make(map[int]models.GameDayInfo) // Empty map as fallback
+	}
+	
 	// Organize picks by type
 	userPicks := &models.UserPicks{
 		UserID:   userID,
@@ -115,6 +122,7 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 	for i, pick := range picks {
 		userPicks.Picks[i] = *pick
 		
+		// Categorize by pick type
 		switch pick.PickType {
 		case models.PickTypeSpread:
 			userPicks.SpreadPicks = append(userPicks.SpreadPicks, *pick)
@@ -122,8 +130,15 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 			userPicks.OverUnderPicks = append(userPicks.OverUnderPicks, *pick)
 		}
 		
-		// Categorize bonus picks based on game day
-		// This will be populated when we call CategorizePicks method
+		// Categorize by game day for bonus weeks
+		if gameInfo, exists := gameInfoMap[pick.GameID]; exists {
+			switch gameInfo.Category {
+			case models.ParlayBonusThursday:
+				userPicks.BonusThursdayPicks = append(userPicks.BonusThursdayPicks, *pick)
+			case models.ParlayBonusFriday:
+				userPicks.BonusFridayPicks = append(userPicks.BonusFridayPicks, *pick)
+			}
+		}
 	}
 	
 	return userPicks, nil
@@ -141,6 +156,13 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 	picksByUser := make(map[int][]*models.Pick)
 	for _, pick := range allPicks {
 		picksByUser[pick.UserID] = append(picksByUser[pick.UserID], pick)
+	}
+	
+	// Get game information for categorizing picks by day
+	gameInfoMap, err := s.getGameInfoForWeek(ctx, season, week)
+	if err != nil {
+		log.Printf("Warning: failed to get game info for pick categorization: %v", err)
+		gameInfoMap = make(map[int]models.GameDayInfo) // Empty map as fallback
 	}
 	
 	// Get all users
@@ -190,12 +212,35 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 			record.WeeklyPoints = weekParlayScore.TotalPoints
 		}
 		
-		result = append(result, &models.UserPicks{
+		// Create user picks with categorization
+		userPicksData := &models.UserPicks{
 			UserID:   user.ID,
 			UserName: user.Name,
 			Picks:    picks,
 			Record:   *record,
-		})
+		}
+		
+		// Categorize picks by game day for bonus weeks
+		for _, pick := range picks {
+			if gameInfo, exists := gameInfoMap[pick.GameID]; exists {
+				switch gameInfo.Category {
+				case models.ParlayBonusThursday:
+					userPicksData.BonusThursdayPicks = append(userPicksData.BonusThursdayPicks, pick)
+				case models.ParlayBonusFriday:
+					userPicksData.BonusFridayPicks = append(userPicksData.BonusFridayPicks, pick)
+				}
+			}
+			
+			// Also categorize by pick type
+			switch pick.PickType {
+			case models.PickTypeSpread:
+				userPicksData.SpreadPicks = append(userPicksData.SpreadPicks, pick)
+			case models.PickTypeOverUnder:
+				userPicksData.OverUnderPicks = append(userPicksData.OverUnderPicks, pick)
+			}
+		}
+		
+		result = append(result, userPicksData)
 	}
 	
 	// Sort by user name
@@ -364,7 +409,6 @@ func (s *PickService) enrichPickWithGameData(pick *models.Pick) error {
 	case models.PickTypeSpread:
 		// Get team abbreviation from ID mapping
 		teamAbbr := s.getTeamNameFromID(pick.TeamID, game)
-		teamName := GetTeamName(teamAbbr)
 		
 		// Add spread information if available
 		if game.Odds != nil && game.Odds.Spread != 0 {
@@ -372,21 +416,21 @@ func (s *PickService) enrichPickWithGameData(pick *models.Pick) error {
 			if teamAbbr == game.Home {
 				// Home team spread
 				if game.Odds.Spread > 0 {
-					pick.TeamName = fmt.Sprintf("%s +%.1f", teamName, game.Odds.Spread)
+					pick.TeamName = fmt.Sprintf("%s +%.1f", teamAbbr, game.Odds.Spread)
 				} else {
-					pick.TeamName = fmt.Sprintf("%s %.1f", teamName, game.Odds.Spread)
+					pick.TeamName = fmt.Sprintf("%s %.1f", teamAbbr, game.Odds.Spread)
 				}
 			} else {
 				// Away team spread (inverse of home spread)
 				awaySpread := -game.Odds.Spread
 				if awaySpread > 0 {
-					pick.TeamName = fmt.Sprintf("%s +%.1f", teamName, awaySpread)
+					pick.TeamName = fmt.Sprintf("%s +%.1f", teamAbbr, awaySpread)
 				} else {
-					pick.TeamName = fmt.Sprintf("%s %.1f", teamName, awaySpread)
+					pick.TeamName = fmt.Sprintf("%s %.1f", teamAbbr, awaySpread)
 				}
 			}
 		} else {
-			pick.TeamName = teamName
+			pick.TeamName = teamAbbr
 		}
 	}
 	
@@ -551,7 +595,7 @@ func (s *PickService) getGameInfoForWeek(ctx context.Context, season, week int) 
 	
 	gameInfoMap := make(map[int]models.GameDayInfo)
 	for _, game := range games {
-		category := models.CategorizeGameByDate(game.Date, season)
+		category := models.CategorizeGameByDate(game.Date, season, week)
 		gameInfoMap[game.ID] = models.GameDayInfo{
 			GameID:   game.ID,
 			GameDate: game.Date,

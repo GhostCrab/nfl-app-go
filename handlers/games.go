@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -137,9 +138,9 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		} else {
 			log.Printf("GameHandler: SUCCESS - Loaded picks for %d users in week %d, season %d", len(userPicks), currentWeek, season)
-			for _, up := range userPicks {
-				log.Printf("GameHandler:   User %s (ID %d): %d picks", up.UserName, up.UserID, len(up.Picks))
-			}
+			
+			// Check if we should calculate parlay scores for this week
+			go h.maybeCalculateParlayScores(season, currentWeek)
 		}
 	} else {
 		log.Printf("GameHandler: WARNING - No pick service available")
@@ -513,6 +514,9 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		} else {
 			log.Printf("API: SUCCESS - Loaded picks for %d users in week %d, season %d", len(userPicks), currentWeek, season)
+			
+			// Check if we should calculate parlay scores for this week
+			go h.maybeCalculateParlayScores(season, currentWeek)
 		}
 	} else {
 		log.Printf("API: WARNING - No pick service available")
@@ -547,5 +551,44 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 	}
 	
 	log.Printf("API: Successfully returned dashboard data for week %d, season %d", currentWeek, season)
+}
+
+// maybeCalculateParlayScores checks if parlay scores should be calculated for a week
+// and triggers the calculation if games are complete
+func (h *GameHandler) maybeCalculateParlayScores(season, week int) {
+	if h.pickService == nil {
+		return
+	}
+	
+	ctx := context.Background()
+	
+	// Check if all games for the week are complete
+	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+		games, err := gameServiceWithSeason.GetGamesBySeason(season)
+		if err != nil {
+			log.Printf("Failed to get games for parlay scoring check: %v", err)
+			return
+		}
+		
+		// Filter to current week and check if all are complete
+		weekGames := make([]models.Game, 0)
+		allComplete := true
+		for _, game := range games {
+			if game.Week == week {
+				weekGames = append(weekGames, game)
+				if !game.IsCompleted() {
+					allComplete = false
+				}
+			}
+		}
+		
+		// Only calculate if we have games and they're all complete
+		if len(weekGames) > 0 && allComplete {
+			log.Printf("All games complete for Season %d Week %d, calculating parlay scores", season, week)
+			if err := h.pickService.ProcessWeekParlayScoring(ctx, season, week); err != nil {
+				log.Printf("Failed to process parlay scoring for Season %d Week %d: %v", season, week, err)
+			}
+		}
+	}
 }
 
