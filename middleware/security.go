@@ -33,7 +33,7 @@ func SecurityMiddleware(next http.Handler) http.Handler {
 			"script-src 'self' 'unsafe-inline' https://unpkg.com; " +
 			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
 			"font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
-			"img-src 'self' data: https://ssl.gstatic.com; " +
+			"img-src 'self' data: https://ssl.gstatic.com https://a.espncdn.com; " +
 			"connect-src 'self'"
 		w.Header().Set("Content-Security-Policy", csp)
 		

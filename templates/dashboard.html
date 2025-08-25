@@ -13,7 +13,9 @@
             }
         })();
     </script>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=block" rel="stylesheet">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
     <link rel="stylesheet" href="/static/style.css">
@@ -308,11 +310,33 @@
             }
         }
 
-        function selectWeek(week) {
-            // For historical picks to work properly, we need full page reload to load pick data
-            const url = new URL(window.location);
-            url.searchParams.set('week', week);
-            window.location.href = url.toString();
+        async function selectWeek(week) {
+            // Use the same fast AJAX navigation logic as keyboard navigation
+            const newWeek = parseInt(week);
+            const newSeason = currentDisplayedSeason; // Keep current season
+            
+            if (newWeek !== currentDisplayedWeek) {
+                // Load data using the same method as keyboard navigation
+                let data = null;
+                
+                // Check cache first
+                if (!seasonCache[newSeason]) seasonCache[newSeason] = {};
+                data = seasonCache[newSeason][newWeek];
+                
+                if (!data && !isLoading) {
+                    // Load from server
+                    data = await loadDashboardData(newWeek, newSeason);
+                    if (data && typeof data === 'object' && data.userPicks) {
+                        console.log(`Caching data for ${newSeason} Week ${newWeek} from dropdown`);
+                        seasonCache[newSeason][newWeek] = data;
+                    }
+                }
+                
+                if (data) {
+                    console.log(`Updating display from dropdown to week ${newWeek}`);
+                    updateDashboardDisplay(data);
+                }
+            }
         }
 
         // Navigation variables with caching

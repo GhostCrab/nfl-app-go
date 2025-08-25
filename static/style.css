@@ -357,6 +357,8 @@ mat-grid-tile.game-card {
     height: 2em;
     margin: 0 4px;
     object-fit: contain;
+    -webkit-filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 1)) !important;
+    filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 1)) !important;
 }
 
 .team-name {
