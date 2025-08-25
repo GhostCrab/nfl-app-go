@@ -15,17 +15,19 @@ import (
 
 // PickService handles business logic for picks
 type PickService struct {
-	pickRepo *database.MongoPickRepository
-	gameRepo *database.MongoGameRepository
-	userRepo *database.MongoUserRepository
+	pickRepo   *database.MongoPickRepository
+	gameRepo   *database.MongoGameRepository
+	userRepo   *database.MongoUserRepository
+	parlayRepo *database.MongoParlayRepository
 }
 
 // NewPickService creates a new pick service
-func NewPickService(pickRepo *database.MongoPickRepository, gameRepo *database.MongoGameRepository, userRepo *database.MongoUserRepository) *PickService {
+func NewPickService(pickRepo *database.MongoPickRepository, gameRepo *database.MongoGameRepository, userRepo *database.MongoUserRepository, parlayRepo *database.MongoParlayRepository) *PickService {
 	return &PickService{
-		pickRepo: pickRepo,
-		gameRepo: gameRepo,
-		userRepo: userRepo,
+		pickRepo:   pickRepo,
+		gameRepo:   gameRepo,
+		userRepo:   userRepo,
+		parlayRepo: parlayRepo,
 	}
 }
 
@@ -79,10 +81,26 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 		return nil, fmt.Errorf("user not found")
 	}
 	
-	// Get user's record for the season
+	// Get user's basic record for the season
 	record, err := s.pickRepo.GetUserRecord(ctx, userID, season)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user record: %w", err)
+	}
+	
+	// Get parlay points for the season
+	seasonParlayTotal, err := s.parlayRepo.GetUserSeasonTotal(ctx, userID, season)
+	if err != nil {
+		log.Printf("Warning: failed to get parlay total for user %d season %d: %v", userID, season, err)
+	} else {
+		record.ParlayPoints = seasonParlayTotal
+	}
+	
+	// Get parlay points for this specific week
+	weekParlayScore, err := s.parlayRepo.GetUserParlayScore(ctx, userID, season, week)
+	if err != nil {
+		log.Printf("Warning: failed to get weekly parlay score for user %d week %d: %v", userID, week, err)
+	} else if weekParlayScore != nil {
+		record.WeeklyPoints = weekParlayScore.TotalPoints
 	}
 	
 	// Organize picks by type
@@ -104,8 +122,8 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 			userPicks.OverUnderPicks = append(userPicks.OverUnderPicks, *pick)
 		}
 		
-		// Categorize bonus picks based on game day (this would need game data to determine)
-		// For now, we'll leave bonus picks empty as we need to implement day-of-week logic
+		// Categorize bonus picks based on game day
+		// This will be populated when we call CategorizePicks method
 	}
 	
 	return userPicks, nil
@@ -149,11 +167,27 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 			}
 		}
 		
-		// Get user's record for the season
+		// Get user's basic record for the season
 		record, err := s.pickRepo.GetUserRecord(ctx, user.ID, season)
 		if err != nil {
 			log.Printf("Warning: failed to get record for user %d: %v", user.ID, err)
 			record = &models.UserRecord{} // Empty record on error
+		}
+		
+		// Get parlay points for the season
+		seasonParlayTotal, err := s.parlayRepo.GetUserSeasonTotal(ctx, user.ID, season)
+		if err != nil {
+			log.Printf("Warning: failed to get parlay total for user %d season %d: %v", user.ID, season, err)
+		} else {
+			record.ParlayPoints = seasonParlayTotal
+		}
+		
+		// Get parlay points for this specific week
+		weekParlayScore, err := s.parlayRepo.GetUserParlayScore(ctx, user.ID, season, week)
+		if err != nil {
+			log.Printf("Warning: failed to get weekly parlay score for user %d week %d: %v", user.ID, week, err)
+		} else if weekParlayScore != nil {
+			record.WeeklyPoints = weekParlayScore.TotalPoints
 		}
 		
 		result = append(result, &models.UserPicks{
@@ -437,4 +471,116 @@ func (s *PickService) calculatePickResult(pick *models.Pick, game *models.Game) 
 	default:
 		return models.PickResultPending
 	}
+}
+
+// CalculateUserParlayScore calculates parlay club points for a user in a specific week
+// Handles bonus weeks separately from regular weekend picks
+func (s *PickService) CalculateUserParlayScore(ctx context.Context, userID, season, week int) (map[models.ParlayCategory]int, error) {
+	// Get all user's picks for the week
+	userPicks, err := s.GetUserPicksForWeek(ctx, userID, season, week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user picks: %w", err)
+	}
+	
+	// Get game information for categorization
+	gameInfoMap, err := s.getGameInfoForWeek(ctx, season, week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game info: %w", err)
+	}
+	
+	// Categorize picks by parlay type
+	categories := models.CategorizePicksByGame(userPicks.Picks, gameInfoMap)
+	
+	// Calculate points for each category
+	scores := make(map[models.ParlayCategory]int)
+	for category, picks := range categories {
+		scores[category] = models.CalculateParlayPoints(picks)
+	}
+	
+	return scores, nil
+}
+
+// CalculateAllUsersParlayScores calculates parlay scores for all users in a week
+func (s *PickService) CalculateAllUsersParlayScores(ctx context.Context, season, week int) (map[int]map[models.ParlayCategory]int, error) {
+	// Get all users
+	users, err := s.userRepo.GetAllUsers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users: %w", err)
+	}
+	
+	result := make(map[int]map[models.ParlayCategory]int)
+	
+	for _, user := range users {
+		scores, err := s.CalculateUserParlayScore(ctx, user.ID, season, week)
+		if err != nil {
+			log.Printf("Warning: failed to calculate parlay score for user %d: %v", user.ID, err)
+			continue
+		}
+		result[user.ID] = scores
+	}
+	
+	return result, nil
+}
+
+// UpdateUserParlayRecord updates a user's parlay record with weekly points
+func (s *PickService) UpdateUserParlayRecord(ctx context.Context, userID, season, week int, weeklyScores map[models.ParlayCategory]int) error {
+	// Create parlay score entry
+	parlayScore := models.CreateParlayScore(userID, season, week, weeklyScores)
+	
+	// Save to database
+	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
+		return fmt.Errorf("failed to save parlay score: %w", err)
+	}
+	
+	log.Printf("User %d earned %d parlay points in week %d (Regular: %d, Thu: %d, Fri: %d)", 
+		userID, parlayScore.TotalPoints, week,
+		weeklyScores[models.ParlayRegular],
+		weeklyScores[models.ParlayBonusThursday], 
+		weeklyScores[models.ParlayBonusFriday])
+	
+	return nil
+}
+
+// getGameInfoForWeek retrieves game date information for categorizing picks
+func (s *PickService) getGameInfoForWeek(ctx context.Context, season, week int) (map[int]models.GameDayInfo, error) {
+	// Get all games for the week
+	games, err := s.gameRepo.FindByWeek(ctx, season, week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get games for week: %w", err)
+	}
+	
+	gameInfoMap := make(map[int]models.GameDayInfo)
+	for _, game := range games {
+		category := models.CategorizeGameByDate(game.Date, season)
+		gameInfoMap[game.ID] = models.GameDayInfo{
+			GameID:   game.ID,
+			GameDate: game.Date,
+			Weekday:  game.Date.Weekday(),
+			Category: category,
+		}
+	}
+	
+	return gameInfoMap, nil
+}
+
+// ProcessWeekParlayScoring calculates and saves parlay scores for all users when a week is complete
+func (s *PickService) ProcessWeekParlayScoring(ctx context.Context, season, week int) error {
+	log.Printf("Processing parlay scoring for Season %d, Week %d", season, week)
+	
+	// Calculate scores for all users
+	allScores, err := s.CalculateAllUsersParlayScores(ctx, season, week)
+	if err != nil {
+		return fmt.Errorf("failed to calculate parlay scores: %w", err)
+	}
+	
+	// Save each user's score
+	for userID, weeklyScores := range allScores {
+		if err := s.UpdateUserParlayRecord(ctx, userID, season, week, weeklyScores); err != nil {
+			log.Printf("Warning: failed to save parlay score for user %d: %v", userID, err)
+			continue
+		}
+	}
+	
+	log.Printf("Completed parlay scoring for Season %d, Week %d", season, week)
+	return nil
 }

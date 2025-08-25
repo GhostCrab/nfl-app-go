@@ -91,10 +91,21 @@ type UserRecord struct {
 	Wins   int `json:"wins"`
 	Losses int `json:"losses"`
 	Pushes int `json:"pushes"`
+	// Parlay Club scoring
+	ParlayPoints    int `json:"parlay_points"`     // Total points earned in parlay club
+	WeeklyPoints    int `json:"weekly_points"`     // Points earned this specific week (for display)
 }
 
-// String returns the record in "W-L-P" format
+// String returns the record in parlay points format, showing weekly bonus if applicable
 func (r *UserRecord) String() string {
+	if r.WeeklyPoints > 0 {
+		return fmt.Sprintf("%d (+%d)", r.ParlayPoints, r.WeeklyPoints)
+	}
+	return fmt.Sprintf("%d", r.ParlayPoints)
+}
+
+// LegacyString returns the record in "W-L-P" format (for backwards compatibility)
+func (r *UserRecord) LegacyString() string {
 	return fmt.Sprintf("%d-%d-%d", r.Wins, r.Losses, r.Pushes)
 }
 
@@ -136,4 +147,92 @@ func CreatePickFromLegacyData(userID, gameID, teamID, season, week int) *Pick {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
+}
+
+// CalculateParlayPoints calculates parlay club points for a set of picks
+// Returns 0 if any pick loses, otherwise returns count of winning picks (pushes excluded)
+func CalculateParlayPoints(picks []Pick) int {
+	winningPicks := 0
+	
+	for _, pick := range picks {
+		switch pick.Result {
+		case PickResultLoss:
+			return 0 // Any loss = no points
+		case PickResultWin:
+			winningPicks++
+		case PickResultPush:
+			// Pushes are excluded from count but don't cause failure
+			continue
+		case PickResultPending:
+			// Can't calculate points for incomplete parlays
+			return 0
+		}
+	}
+	
+	// Must have at least 2 winning picks to earn points
+	if winningPicks < 2 {
+		return 0
+	}
+	
+	return winningPicks
+}
+
+// ParlayCategory represents different parlay scoring categories
+type ParlayCategory string
+
+const (
+	ParlayRegular        ParlayCategory = "regular"          // Weekend games (Sat/Sun/Mon)
+	ParlayBonusThursday  ParlayCategory = "bonus_thursday"   // Thursday games
+	ParlayBonusFriday    ParlayCategory = "bonus_friday"     // Friday games (2024+)
+)
+
+// GameDayInfo contains information about when a game is played
+type GameDayInfo struct {
+	GameID   int
+	GameDate time.Time
+	Weekday  time.Weekday
+	Category ParlayCategory
+}
+
+// CategorizeGameByDate determines the parlay category based on game date and season
+func CategorizeGameByDate(gameDate time.Time, season int) ParlayCategory {
+	weekday := gameDate.Weekday()
+	
+	switch weekday {
+	case time.Thursday:
+		return ParlayBonusThursday
+	case time.Friday:
+		// Friday games only started in 2024
+		if season >= 2024 {
+			return ParlayBonusFriday
+		}
+		return ParlayRegular
+	case time.Saturday, time.Sunday, time.Monday, time.Tuesday:
+		return ParlayRegular
+	default:
+		// Wednesday and other days default to regular
+		return ParlayRegular
+	}
+}
+
+// CategorizePicksByGame separates picks into parlay categories based on their game dates
+func CategorizePicksByGame(picks []Pick, gameInfoMap map[int]GameDayInfo) map[ParlayCategory][]Pick {
+	categories := map[ParlayCategory][]Pick{
+		ParlayRegular:       {},
+		ParlayBonusThursday: {},
+		ParlayBonusFriday:   {},
+	}
+	
+	for _, pick := range picks {
+		gameInfo, exists := gameInfoMap[pick.GameID]
+		if !exists {
+			// If we don't have game info, default to regular
+			categories[ParlayRegular] = append(categories[ParlayRegular], pick)
+			continue
+		}
+		
+		categories[gameInfo.Category] = append(categories[gameInfo.Category], pick)
+	}
+	
+	return categories
 }

@@ -133,6 +133,11 @@ func (r *MongoGameRepository) GetGamesByWeekSeason(week, season int) ([]*models.
 	return games, nil
 }
 
+// FindByWeek retrieves all games for a specific season/week (alias for GetGamesByWeekSeason)
+func (r *MongoGameRepository) FindByWeek(ctx context.Context, season, week int) ([]*models.Game, error) {
+	return r.GetGamesByWeekSeason(week, season)
+}
+
 func (r *MongoGameRepository) BulkUpsertGames(games []*models.Game) error {
 	if len(games) == 0 {
 		return nil

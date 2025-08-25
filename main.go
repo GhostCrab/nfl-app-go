@@ -56,6 +56,7 @@ func main() {
 		// Create demo service as fallback
 		gameService := services.NewDemoGameService()
 		gameHandler := handlers.NewGameHandler(templates, gameService)
+		// Note: Demo mode doesn't support parlay scoring
 		
 		// Setup routes without database
 		r := mux.NewRouter()
@@ -80,6 +81,7 @@ func main() {
 	// Create database repositories
 	gameRepo := database.NewMongoGameRepository(db)
 	userRepo := database.NewMongoUserRepository(db)
+	parlayRepo := database.NewMongoParlayRepository(db)
 
 	// Create ESPN service and data loader
 	espnService := services.NewESPNService()
@@ -138,7 +140,7 @@ func main() {
 	authService := services.NewAuthService(userRepo, jwtSecret)
 	gameService := services.NewDatabaseGameService(gameRepo)
 	pickRepo := database.NewMongoPickRepository(db)
-	pickService := services.NewPickService(pickRepo, gameRepo, userRepo)
+	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
 	
 	// Create middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
