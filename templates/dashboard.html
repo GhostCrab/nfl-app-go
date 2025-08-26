@@ -255,12 +255,10 @@
                     {{end}}
                 </div>
 
-                <!-- Games Grid with mat-grid-list structure -->
+                <!-- Games Grid with inline structure -->
                 <div class="games-container" hx-ext="sse" sse-connect="/events">
                     <div class="section-header" id="games-header">CURRENT GAMES</div>
-                    <div class="games-grid">
-                        {{template "game-grid" .}}
-                    </div>
+                    {{template "game-grid" .}}
                 </div>
             </div>
 
@@ -285,36 +283,23 @@
                     {{end}}
                 </div>
 
-                <!-- Week Summary -->
-                <div class="week-summary mt-4">
-                    <div class="section-header">Week Summary</div>
-                    <div class="summary-stats">
-                        <div class="stat-item">
-                            <span>Games Played:</span>
-                            <span>{{len .Games}}</span>
-                        </div>
-                        <div class="stat-item">
-                            <span>Games Remaining:</span>
-                            <span id="games-remaining">0</span>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
 
-    <!-- Template for game grid that will be updated via SSE - Mat Grid Tile Structure -->
+    <!-- Template for game grid that will be updated via SSE - Inline Grid Structure -->
     {{define "game-grid"}}
-        <mat-grid-list class="mat-grid-list" cols="21" sse-swap="gameUpdate">
+        <div class="games-list-container" sse-swap="gameUpdate">
             {{range .Games}}
-                <mat-grid-tile class="game-card {{.State}}" id="game-{{.ID}}" colspan="21" rowspan="1">
-                    <!-- Away Team - colspan equivalent for flex layout -->
-                    <div class="team-section away" style="flex: 5;">
+                <div class="game-row inline-game {{.State}}" id="game-{{.ID}}">
+                     
+                    <!-- Away Team Section -->
+                    <div class="team-section away">
                         <div class="team-name">
                             <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" 
                                  onerror="this.style.display='none'"/>
-                            <div>
-                                <div>{{.Away}}</div>
+                            <div class="team-info">
+                                <div class="team-abbr">{{.Away}}</div>
                                 {{if .HasOdds}}
                                     <div class="team-spread">{{.FormatAwaySpread}}</div>
                                 {{end}}
@@ -325,19 +310,19 @@
                         </div>
                     </div>
 
-                    <!-- VS Separator - colspan equivalent -->
-                    <div class="vs-separator" style="flex: 2;">@</div>
+                    <!-- VS/@ separator -->
+                    <div class="vs-section">@</div>
 
-                    <!-- Home Team - colspan equivalent -->
-                    <div class="team-section home" style="flex: 5;">
+                    <!-- Home Team Section -->
+                    <div class="team-section home">
                         <div class="team-name">
                             {{if ne .State "scheduled"}}
                                 <span class="score-display">{{.HomeScore}}</span>
                             {{end}}
                             <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" 
                                  onerror="this.style.display='none'"/>
-                            <div>
-                                <div>{{.Home}}</div>
+                            <div class="team-info">
+                                <div class="team-abbr">{{.Home}}</div>
                                 {{if .HasOdds}}
                                     <div class="team-spread">{{.FormatHomeSpread}}</div>
                                 {{end}}
@@ -345,8 +330,8 @@
                         </div>
                     </div>
 
-                    <!-- Over/Under - colspan equivalent -->
-                    <div class="ou-section" style="flex: 3;">
+                    <!-- Over/Under Section -->
+                    <div class="ou-section">
                         {{if .HasOdds}}
                             O/U {{.Odds.OU}}
                         {{else}}
@@ -354,18 +339,16 @@
                         {{end}}
                     </div>
 
-                    <!-- Game Status - colspan equivalent -->
-                    <div class="game-status-section" style="flex: 6;">
+                    <!-- Game Status Section -->
+                    <div class="game-status-section">
                         {{if eq .State "scheduled"}}
-                            <div class="game-week">Week {{.Week}}</div>
                             <div class="game-time">{{.FormatGameTime}}</div>
                         {{else if eq .State "in_play"}}
-                            <div class="live-indicator">LIVE</div>
-                            <div class="game-time">Q{{.Quarter}}</div>
+                            <span class="live-indicator">LIVE</span><span class="game-time">Q{{.Quarter}}</span>
                         {{else if eq .State "completed"}}
-                            <div class="game-time">FINAL</div>
+                            <span class="game-time">FINAL</span>
                             {{if and .HasOdds .IsCompleted}}
-                                <div class="spread-result">
+                                <span class="spread-result">
                                     {{if eq .SpreadResult "push"}}
                                         PUSH
                                     {{else if eq .SpreadResult "home-covered"}}
@@ -373,13 +356,30 @@
                                     {{else if eq .SpreadResult "away-covered"}}
                                         {{.Away}} ✓
                                     {{end}}
-                                </div>
+                                </span>
                             {{end}}
                         {{end}}
                     </div>
-                </mat-grid-tile>
+                </div>
+                {{if eq .State "in_play"}}
+                    <!-- Always visible game expansion -->
+                    <div class="live-game-expansion">
+                        {{if .HasOdds}}
+                            {{if gt .HomeScore .AwayScore}}
+                                <span class="status-item covering-team">{{.Home}} leading {{.HomeScore}}-{{.AwayScore}}</span>
+                            {{else if lt .HomeScore .AwayScore}}
+                                <span class="status-item covering-team">{{.Away}} leading {{.AwayScore}}-{{.HomeScore}}</span>
+                            {{else}}
+                                <span class="status-item push-status">Tied {{.HomeScore}}-{{.AwayScore}}</span>
+                            {{end}}
+                            <span class="status-divider"> || </span><span class="status-item ou-current">Total: {{add .HomeScore .AwayScore}} (O/U {{.Odds.OU}})</span>
+                        {{else}}
+                            <span class="status-item no-odds">{{.AwayScore}} - {{.HomeScore}}</span>
+                        {{end}}
+                    </div>
+                {{end}}
             {{end}}
-        </mat-grid-list>
+        </div>
     {{end}}
 
     <script>
@@ -398,30 +398,16 @@
             }
         }
 
+
         async function selectWeek(week) {
             // Use the same fast AJAX navigation logic as keyboard navigation
             const newWeek = parseInt(week);
             const newSeason = currentDisplayedSeason; // Keep current season
             
             if (newWeek !== currentDisplayedWeek) {
-                // Load data using the same method as keyboard navigation
-                let data = null;
-                
-                // Check cache first
-                if (!seasonCache[newSeason]) seasonCache[newSeason] = {};
-                data = seasonCache[newSeason][newWeek];
-                
-                if (!data && !isLoading) {
-                    // Load from server
-                    data = await loadDashboardData(newWeek, newSeason);
-                    if (data && typeof data === 'object' && data.userPicks) {
-                        console.log(`Caching data for ${newSeason} Week ${newWeek} from dropdown`);
-                        seasonCache[newSeason][newWeek] = data;
-                    }
-                }
-                
-                if (data) {
-                    console.log(`Updating display from dropdown to week ${newWeek}`);
+                // Use the unified loading system with deduplication
+                const data = await loadDashboardData(newWeek, newSeason);
+                if (data && typeof data === 'object' && data.userPicks) {
                     updateDashboardDisplay(data);
                 }
             }
@@ -437,51 +423,111 @@
         let seasonCache = {};
         let isLoading = false;
         
+        // Track pending requests to prevent duplicate loads of the same week
+        let pendingRequests = new Map(); // Map<string, Promise>
+        
+        // Preload all NFL team logos at startup
+        const NFL_TEAMS = ['ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE', 'DAL', 'DEN', 'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC', 'LAC', 'LAR', 'LV', 'MIA', 'MIN', 'NE', 'NO', 'NYG', 'NYJ', 'PHI', 'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WSH'];
+        let preloadedImages = new Set();
+        
+        // Map team abbreviations to their correct ESPN logo names
+        const TEAM_LOGO_MAP = {
+            'WAS': 'wsh', // Washington uses 'wsh' for ESPN logos, not 'was'
+            'WSH': 'wsh'
+        };
+        
+        // Preload all team images at startup
+        function preloadAllTeamImages() {
+            NFL_TEAMS.forEach(team => {
+                const img = new Image();
+                img.onload = () => {
+                    preloadedImages.add(team);
+                };
+                const logoName = TEAM_LOGO_MAP[team] || team.toLowerCase();
+                img.src = `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/${logoName}.png`;
+            });
+        }
+        
+        // Get team image element - will be served from browser cache if preloaded
+        function getTeamImageElement(teamAbbr) {
+            const img = document.createElement('img');
+            img.className = 'team-img';
+            img.alt = teamAbbr;
+            img.onerror = function() { this.style.display = 'none'; };
+            
+            // Use the correct logo name for ESPN
+            const logoName = TEAM_LOGO_MAP[teamAbbr] || teamAbbr.toLowerCase();
+            img.src = `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/${logoName}.png`;
+            return img;
+        }
+        
 
-        // Fast AJAX navigation for arrow keys - loads complete dashboard data
+        // Fast AJAX navigation for arrow keys - loads complete dashboard data with deduplication
         async function loadDashboardData(week, season) {
-            console.log('loadDashboardData called with week:', week, 'season:', season);
-            if (isLoading) return null;
+            const requestKey = `${season}-${week}`;
+            
+            // Check if this exact request is already in progress
+            if (pendingRequests.has(requestKey)) {
+                console.log(`Reusing pending request for ${requestKey}`);
+                return await pendingRequests.get(requestKey);
+            }
+            
+            // Check cache first
+            if (seasonCache[season] && seasonCache[season][week]) {
+                console.log(`Using cached data for ${requestKey}`);
+                return seasonCache[season][week];
+            }
             
             const url = `/api/dashboard?week=${week}&season=${season}`;
+            console.log(`Starting new request for ${requestKey}`);
             
-            try {
-                isLoading = true;
-                const response = await fetch(url);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const data = await response.json();
-                console.log('loadDashboardData received data for week:', data?.currentWeek, 'season:', data?.season);
-                return data;
-            } catch (error) {
-                console.error('Failed to load dashboard data:', error);
-                return null;
-            } finally {
-                isLoading = false;
-            }
+            // Create the request promise
+            const requestPromise = (async () => {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    
+                    // Cache the result
+                    if (data && typeof data === 'object' && data.userPicks) {
+                        if (!seasonCache[season]) seasonCache[season] = {};
+                        seasonCache[season][week] = data;
+                    }
+                    
+                    return data;
+                } catch (error) {
+                    console.error(`Failed to load dashboard data for ${requestKey}:`, error);
+                    return null;
+                } finally {
+                    // Remove from pending requests when done
+                    pendingRequests.delete(requestKey);
+                }
+            })();
+            
+            // Store the promise to prevent duplicate requests
+            pendingRequests.set(requestKey, requestPromise);
+            
+            return await requestPromise;
         }
 
         // Update the dashboard display with new data
         async function updateDashboardDisplay(data) {
-            console.log('updateDashboardDisplay called with week:', data?.currentWeek, 'season:', data?.season);
-            if (!data) {
-                console.warn('No data provided to updateDashboardDisplay');
-                return;
-            }
+            if (!data) return;
             
             // Check if data is HTML string instead of JSON object
             if (typeof data === 'string') {
-                console.error('ERROR: updateDashboardDisplay received HTML string instead of JSON object:', data.substring(0, 200));
-                console.error('Stack trace:', new Error().stack);
+                console.error('ERROR: updateDashboardDisplay received HTML string instead of JSON object');
                 return;
             }
             
-            console.log('updateDashboardDisplay received data:', data);
             const { games, userPicks, user, currentWeek: week, season } = data;
-            console.log('Extracted userPicks:', userPicks);
-            console.log('Extracted user:', user);
             
-            // Update games grid using the existing games API (it's fast)
-            await updateGamesGrid(week, season);
+            // Update games grid - use cached games data if available, otherwise fetch from API
+            if (games && Array.isArray(games) && games.length > 0) {
+                updateGamesGridFromData(games);
+            } else {
+                await updateGamesGrid(week, season);
+            }
             
             // Update picks display with client-side rendering
             updatePicksDisplay(userPicks, user);
@@ -520,13 +566,482 @@
             }
         }
 
-        // Update games grid using existing games API
+        // Update games grid from cached data (avoids API call and image reloading)
+        function updateGamesGridFromData(games) {
+            const gamesContainer = document.querySelector('.games-container');
+            if (!gamesContainer || !games || !Array.isArray(games)) {
+                console.warn('Cannot update games grid: missing container or games data');
+                return;
+            }
+            
+            const gamesGrid = gamesContainer.querySelector('.games-list-container');
+            if (!gamesGrid) {
+                console.warn('Cannot find games-list-container within games-container');
+                return;
+            }
+            
+            
+            // No need to harvest - all teams are preloaded at startup
+            
+            // Try to update existing cards in place first to preserve images
+            const existingCards = gamesGrid.querySelectorAll('[id^="game-"]');
+            const gameIds = new Set(games.map(g => `game-${g.id}`));
+            const existingGameIds = new Set([...existingCards].map(card => card.id));
+            
+            // Calculate which games can be updated in place vs need to be added/removed
+            const toUpdate = games.filter(g => existingGameIds.has(`game-${g.id}`));
+            const toAdd = games.filter(g => !existingGameIds.has(`game-${g.id}`));
+            const toRemove = [...existingCards].filter(card => !gameIds.has(card.id));
+            
+            // Always try surgical updates first unless it's a completely different week
+            const canPreserveGrid = toUpdate.length > 0;
+            
+            if (canPreserveGrid) {
+                // Update existing cards in place (preserves images)
+                toUpdate.forEach(game => {
+                    const gameCard = document.getElementById(`game-${game.id}`);
+                    if (gameCard) {
+                        updateGameCardContentMinimal(gameCard, game);
+                    }
+                });
+                
+                // Remove cards that are no longer needed
+                toRemove.forEach(card => {
+                    card.remove();
+                });
+                
+                // Add new cards at the end
+                toAdd.forEach(game => {
+                    const newCard = createGameCard(game);
+                    gamesGrid.appendChild(newCard);
+                });
+                
+            } else {
+                // Too many changes - rebuild the entire grid
+                const newGameGrid = generateGameGridWithRecycledImages(games);
+                gamesGrid.replaceWith(newGameGrid);
+            }
+        }
+        
+        // Generate game grid with recycled DOM elements to prevent reloads
+        function generateGameGridWithRecycledImages(games) {
+            const gridContainer = document.createElement('div');
+            gridContainer.className = 'games-list-container';
+            gridContainer.setAttribute('sse-swap', 'gameUpdate');
+            
+            games.forEach(game => {
+                const gameRow = document.createElement('div');
+                gameRow.className = `game-row inline-game ${game.state}`;
+                gameRow.id = `game-${game.id}`;
+                
+                
+                // Away team section
+                const awaySection = document.createElement('div');
+                awaySection.className = 'team-section away';
+                
+                const awayTeamName = document.createElement('div');
+                awayTeamName.className = 'team-name';
+                
+                // Use cached image element
+                const awayImg = getTeamImageElement(game.away);
+                awayTeamName.appendChild(awayImg);
+                
+                const awayInfo = document.createElement('div');
+                awayInfo.className = 'team-info';
+                awayInfo.innerHTML = `
+                    <div class="team-abbr">${game.away}</div>
+                    ${game.odds ? `<div class="team-spread">${formatAwaySpread(game)}</div>` : ''}
+                `;
+                awayTeamName.appendChild(awayInfo);
+                
+                if (game.state !== 'scheduled') {
+                    const awayScore = document.createElement('span');
+                    awayScore.className = 'score-display';
+                    awayScore.textContent = game.awayScore || game.away_score || 0;
+                    awayTeamName.appendChild(awayScore);
+                }
+                
+                awaySection.appendChild(awayTeamName);
+                gameRow.appendChild(awaySection);
+                
+                // VS separator
+                const vsSeparator = document.createElement('div');
+                vsSeparator.className = 'vs-section';
+                vsSeparator.textContent = '@';
+                gameRow.appendChild(vsSeparator);
+                
+                // Home team section
+                const homeSection = document.createElement('div');
+                homeSection.className = 'team-section home';
+                
+                const homeTeamName = document.createElement('div');
+                homeTeamName.className = 'team-name';
+                
+                if (game.state !== 'scheduled') {
+                    const homeScore = document.createElement('span');
+                    homeScore.className = 'score-display';
+                    homeScore.textContent = game.homeScore || game.home_score || 0;
+                    homeTeamName.appendChild(homeScore);
+                }
+                
+                // Use cached image element
+                const homeImg = getTeamImageElement(game.home);
+                homeTeamName.appendChild(homeImg);
+                
+                const homeInfo = document.createElement('div');
+                homeInfo.className = 'team-info';
+                homeInfo.innerHTML = `
+                    <div class="team-abbr">${game.home}</div>
+                    ${game.odds ? `<div class="team-spread">${formatHomeSpread(game)}</div>` : ''}
+                `;
+                homeTeamName.appendChild(homeInfo);
+                
+                homeSection.appendChild(homeTeamName);
+                gameRow.appendChild(homeSection);
+                
+                // O/U section
+                const ouSection = document.createElement('div');
+                ouSection.className = 'ou-section';
+                ouSection.textContent = game.odds ? `O/U ${game.odds.ou || '-'}` : '-';
+                gameRow.appendChild(ouSection);
+                
+                // Game status section
+                const statusSection = document.createElement('div');
+                statusSection.className = 'game-status-section';
+                statusSection.innerHTML = generateGameStatusHTML(game);
+                
+                
+                gameRow.appendChild(statusSection);
+                
+                gridContainer.appendChild(gameRow);
+                
+                // Add expansion row for in-progress games
+                if (game.state === 'in_play') {
+                    const expansionRow = document.createElement('div');
+                    expansionRow.className = 'live-game-expansion';
+                    
+                    const homeScore = game.homeScore || game.home_score || 0;
+                    const awayScore = game.awayScore || game.away_score || 0;
+                    
+                    let expansionHTML = '';
+                    if (game.odds) {
+                        if (homeScore > awayScore) {
+                            expansionHTML = `<span class="status-item covering-team">${game.home} leading ${homeScore}-${awayScore}</span>`;
+                        } else if (awayScore > homeScore) {
+                            expansionHTML = `<span class="status-item covering-team">${game.away} leading ${awayScore}-${homeScore}</span>`;
+                        } else {
+                            expansionHTML = `<span class="status-item push-status">Tied ${homeScore}-${awayScore}</span>`;
+                        }
+                        expansionHTML += `<span class="status-divider"> || </span><span class="status-item ou-current">Total: ${homeScore + awayScore} (O/U ${game.odds.ou})</span>`;
+                    } else {
+                        expansionHTML = `<span class="status-item no-odds">${awayScore} - ${homeScore}</span>`;
+                    }
+                    
+                    expansionRow.innerHTML = expansionHTML;
+                    gridContainer.appendChild(expansionRow);
+                }
+            });
+            
+            return gridContainer;
+        }
+        
+        // Generate game grid HTML (matches the Go template structure)
+        function generateGameGridHTML(games) {
+            return `<div class="games-list-container" sse-swap="gameUpdate">
+                ${games.map(game => {
+                    if (game.state === 'in_play') {
+                        return generateExpandedGameHTML(game);
+                    } else {
+                        return generateRegularGameHTML(game);
+                    }
+                }).join('')}
+            </div>`;
+        }
+        
+        // Generate expanded game HTML for in-progress games (with always-visible expansion)
+        function generateExpandedGameHTML(game) {
+            const homeScore = game.homeScore || game.home_score || 0;
+            const awayScore = game.awayScore || game.away_score || 0;
+            
+            let expansionHTML = '';
+            if (game.odds) {
+                if (homeScore > awayScore) {
+                    expansionHTML = `<span class="status-item covering-team">${game.home} leading ${homeScore}-${awayScore}</span>`;
+                } else if (awayScore > homeScore) {
+                    expansionHTML = `<span class="status-item covering-team">${game.away} leading ${awayScore}-${homeScore}</span>`;
+                } else {
+                    expansionHTML = `<span class="status-item push-status">Tied ${homeScore}-${awayScore}</span>`;
+                }
+                expansionHTML += `<span class="status-divider"> || </span><span class="status-item ou-current">Total: ${homeScore + awayScore} (O/U ${game.odds.ou})</span>`;
+            } else {
+                expansionHTML = `<span class="status-item no-odds">${awayScore} - ${homeScore}</span>`;
+            }
+            
+            return `
+                <div class="game-row inline-game ${game.state}" id="game-${game.id}">
+                    <div class="team-section away">
+                        <div class="team-name">
+                            <img class="team-img" src="${getAwayTeamIconURL(game)}" alt="${game.away}" onerror="this.style.display='none'"/>
+                            <div class="team-info">
+                                <div class="team-abbr">${game.away}</div>
+                                ${game.odds ? `<div class="team-spread">${formatAwaySpread(game)}</div>` : ''}
+                            </div>
+                            <span class="score-display">${awayScore}</span>
+                        </div>
+                    </div>
+                    <div class="vs-section">@</div>
+                    <div class="team-section home">
+                        <div class="team-name">
+                            <span class="score-display">${homeScore}</span>
+                            <img class="team-img" src="${getHomeTeamIconURL(game)}" alt="${game.home}" onerror="this.style.display='none'"/>
+                            <div class="team-info">
+                                <div class="team-abbr">${game.home}</div>
+                                ${game.odds ? `<div class="team-spread">${formatHomeSpread(game)}</div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ou-section">
+                        ${game.odds ? `O/U ${game.odds.ou || '-'}` : '-'}
+                    </div>
+                    <div class="game-status-section">
+                        <span class="live-indicator">LIVE</span><span class="game-time">Q${game.quarter || '1'}</span>
+                    </div>
+                </div>
+                <div class="live-game-expansion">
+                    ${expansionHTML}
+                </div>
+            `;
+        }
+        
+        // Generate regular game HTML for scheduled/completed games
+        function generateRegularGameHTML(game) {
+            return `
+                <div class="game-row inline-game ${game.state}" id="game-${game.id}">
+                    <div class="team-section away">
+                        <div class="team-name">
+                            <img class="team-img" src="${getAwayTeamIconURL(game)}" alt="${game.away}" onerror="this.style.display='none'"/>
+                            <div class="team-info">
+                                <div class="team-abbr">${game.away}</div>
+                                ${game.odds ? `<div class="team-spread">${formatAwaySpread(game)}</div>` : ''}
+                            </div>
+                            ${game.state !== 'scheduled' ? `<span class="score-display">${game.awayScore || game.away_score || 0}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="vs-section">@</div>
+                    <div class="team-section home">
+                        <div class="team-name">
+                            ${game.state !== 'scheduled' ? `<span class="score-display">${game.homeScore || game.home_score || 0}</span>` : ''}
+                            <img class="team-img" src="${getHomeTeamIconURL(game)}" alt="${game.home}" onerror="this.style.display='none'"/>
+                            <div class="team-info">
+                                <div class="team-abbr">${game.home}</div>
+                                ${game.odds ? `<div class="team-spread">${formatHomeSpread(game)}</div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ou-section">
+                        ${game.odds ? `O/U ${game.odds.ou || '-'}` : '-'}
+                    </div>
+                    <div class="game-status-section">
+                        ${generateGameStatusHTML(game)}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Generate game status HTML
+        function generateGameStatusHTML(game) {
+            if (game.state === 'scheduled') {
+                return `<div class="game-time">${formatGameTime(game)}</div>`;
+            } else if (game.state === 'in_play') {
+                return `<span class="live-indicator">LIVE</span><span class="game-time">Q${game.quarter || '1'}</span>`;
+            } else if (game.state === 'completed') {
+                let spreadResult = '';
+                if (game.odds && game.state === 'completed') {
+                    const spreadResultType = calculateSpreadResult(game);
+                    if (spreadResultType === 'push') {
+                        spreadResult = '<span class="spread-result">PUSH</span>';
+                    } else if (spreadResultType === 'home-covered') {
+                        spreadResult = `<span class="spread-result">${game.home} ✓</span>`;
+                    } else if (spreadResultType === 'away-covered') {
+                        spreadResult = `<span class="spread-result">${game.away} ✓</span>`;
+                    }
+                }
+                return `<span class="game-time">FINAL</span>${spreadResult}`;
+            }
+            return '';
+        }
+        
+        // Calculate spread result (matches Go SpreadResult() method)
+        function calculateSpreadResult(game) {
+            if (!game.odds || game.state !== 'completed') {
+                return '';
+            }
+            
+            // Calculate the spread-adjusted score difference (home - away)
+            const scoreDiff = (game.homeScore || game.home_score || 0) - (game.awayScore || game.away_score || 0);
+            const spreadDiff = scoreDiff + game.odds.spread; // Add spread to actual score difference
+            
+            if (spreadDiff > 0) {
+                return 'home-covered'; // Home team covered
+            } else if (spreadDiff < 0) {
+                return 'away-covered'; // Away team covered  
+            } else {
+                return 'push'; // Exact spread - push
+            }
+        }
+        
+        // Minimal update - only change text content, never modify DOM structure
+        function updateGameCardContentMinimal(gameCard, game) {
+            // Only update scores (text content only, no DOM manipulation)
+            const awayScoreEl = gameCard.querySelector('.team-section.away .score-display');
+            const homeScoreEl = gameCard.querySelector('.team-section.home .score-display');
+            
+            if (game.state !== 'scheduled') {
+                const awayScore = game.awayScore || game.away_score || 0;
+                const homeScore = game.homeScore || game.home_score || 0;
+                
+                if (awayScoreEl && awayScoreEl.textContent !== String(awayScore)) {
+                    awayScoreEl.textContent = awayScore;
+                }
+                if (homeScoreEl && homeScoreEl.textContent !== String(homeScore)) {
+                    homeScoreEl.textContent = homeScore;
+                }
+            }
+            
+            // Only update game status text if it has changed
+            const statusSection = gameCard.querySelector('.game-status-section');
+            if (statusSection) {
+                const newStatusHTML = generateGameStatusHTML(game);
+                if (statusSection.innerHTML.trim() !== newStatusHTML.trim()) {
+                    statusSection.innerHTML = newStatusHTML;
+                }
+            }
+            
+            // Only update game card class if state changed
+            const currentState = gameCard.className.match(/\b(scheduled|in_play|completed)\b/)?.[0];
+            if (currentState !== game.state) {
+                gameCard.className = gameCard.className.replace(/\b(scheduled|in_play|completed)\b/g, '').trim();
+                gameCard.classList.add(game.state);
+            }
+        }
+
+        // Update individual game card content (original version for rebuilds)
+        function updateGameCardContent(gameCard, game) {
+            // Update team scores
+            const awayScoreEl = gameCard.querySelector('.team-section.away .score-display');
+            const homeScoreEl = gameCard.querySelector('.team-section.home .score-display');
+            
+            if (game.state !== 'scheduled') {
+                if (awayScoreEl) awayScoreEl.textContent = game.away_score || '0';
+                if (homeScoreEl) homeScoreEl.textContent = game.home_score || '0';
+            }
+            
+            // Update game status section
+            const statusSection = gameCard.querySelector('.game-status-section');
+            if (statusSection) {
+                if (game.state === 'scheduled') {
+                    statusSection.innerHTML = `
+                        <div class="game-week">Week ${game.week}</div>
+                        <div class="game-time">${formatGameTime(game)}</div>
+                    `;
+                } else if (game.state === 'in_play') {
+                    statusSection.innerHTML = `
+                        <div class="live-indicator">LIVE</div>
+                        <div class="game-time">Q${game.quarter || '1'}</div>
+                    `;
+                } else if (game.state === 'completed') {
+                    let spreadResult = '';
+                    if (game.has_odds && game.is_completed) {
+                        if (game.spread_result === 'push') {
+                            spreadResult = '<div class="spread-result">PUSH</div>';
+                        } else if (game.spread_result === 'home-covered') {
+                            spreadResult = `<div class="spread-result">${game.home} ✓</div>`;
+                        } else if (game.spread_result === 'away-covered') {
+                            spreadResult = `<div class="spread-result">${game.away} ✓</div>`;
+                        }
+                    }
+                    statusSection.innerHTML = `
+                        <div class="game-time">FINAL</div>
+                        ${spreadResult}
+                    `;
+                }
+            }
+            
+            // Update game card class for state
+            gameCard.className = gameCard.className.replace(/\b(scheduled|in_play|completed)\b/g, '').trim();
+            gameCard.classList.add(game.state);
+        }
+        
+        // Create a new game card using recycled images (fallback for missing games)
+        function createGameCard(game) {
+            // Just use the same function as the main grid builder for consistency
+            const gameGrid = generateGameGridWithRecycledImages([game]);
+            return gameGrid.firstElementChild; // Return the game-row div
+        }
+        
+        // Helper functions for game display (matches Go template functions)
+        function formatGameTime(game) {
+            if (!game.date) return 'TBD';
+            
+            // Parse the game date and format it like the Go FormatGameTime method
+            // Go formats as "1/2/06 3:04 PM" in Pacific time
+            const gameDate = new Date(game.date);
+            const options = { 
+                month: 'numeric',
+                day: 'numeric', 
+                year: '2-digit',
+                hour: 'numeric', 
+                minute: '2-digit',
+                timeZone: 'America/Los_Angeles',
+                hour12: true 
+            };
+            return gameDate.toLocaleString('en-US', options);
+        }
+        
+        function getAwayTeamIconURL(game) {
+            if (!game.away) return '';
+            const teamLower = game.away.toLowerCase();
+            return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/${teamLower}.png`;
+        }
+        
+        function getHomeTeamIconURL(game) {
+            if (!game.home) return '';
+            const teamLower = game.home.toLowerCase();
+            return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/${teamLower}.png`;
+        }
+        
+        function formatAwaySpread(game) {
+            if (!game.odds) return '';
+            // Away team gets opposite of the spread
+            const awaySpread = -game.odds.spread;
+            if (awaySpread > 0) {
+                return `+${awaySpread}`;
+            } else if (awaySpread < 0) {
+                return `${awaySpread}`;
+            } else {
+                return 'PK'; // Pick 'em
+            }
+        }
+        
+        function formatHomeSpread(game) {
+            if (!game.odds) return '';
+            const homeSpread = game.odds.spread;
+            if (homeSpread > 0) {
+                return `+${homeSpread}`;
+            } else if (homeSpread < 0) {
+                return `${homeSpread}`;
+            } else {
+                return 'PK'; // Pick 'em
+            }
+        }
+
+        // Update games grid using existing games API (fallback for when no cached data)
         async function updateGamesGrid(week, season) {
             try {
                 const response = await fetch(`/api/games?week=${week}&season=${season}`);
                 if (response.ok) {
                     const html = await response.text();
-                    const gamesGrid = document.querySelector('.games-grid');
+                    const gamesGrid = document.querySelector('.games-list-container');
                     if (gamesGrid) {
                         gamesGrid.innerHTML = html;
                     }
@@ -722,28 +1237,20 @@
 
         // Update current user's picks display using unified rendering
         function updatePicksDisplay(userPicks, currentUser) {
-            console.log('Updating picks display:', { userPicks, currentUser });
-            
             // Check if userPicks is valid
             if (!userPicks || !Array.isArray(userPicks)) {
-                console.warn('Invalid userPicks data:', userPicks);
                 userPicks = []; // Default to empty array
             }
             
             // Find the current user's fieldset (first one)
             const currentUserFieldset = document.querySelector('.user-picks-section');
             if (!currentUserFieldset) {
-                console.warn('Current user fieldset not found');
                 return;
             }
             
             // Update current user's picks using unified rendering
             if (currentUser) {
-                console.log('Looking for current user ID:', currentUser.id);
-                console.log('Available user IDs in userPicks:');
-                userPicks.forEach(up => console.log(`  - user_id: ${up.user_id}, user_name: ${up.user_name}`));
                 const currentUserPicks = userPicks.find(up => up.user_id === currentUser.id);
-                console.log('Current user picks:', currentUserPicks);
                 
                 if (currentUserPicks) {
                     // Replace the entire current user section with unified rendering
@@ -757,7 +1264,6 @@
                     }
                 }
             } else {
-                console.log('No current user, showing generic message');
                 const content = currentUserFieldset.querySelector('.user-picks-content');
                 if (content) {
                     if (userPicks && userPicks.length > 0) {
@@ -842,25 +1348,85 @@
                 // Check cache first
                 if (!seasonCache[newSeason]) seasonCache[newSeason] = {};
                 
-                let data = seasonCache[newSeason][newWeek];
-                
-                if (!data) {
-                    // Load from server
-                    data = await loadDashboardData(newWeek, newSeason);
-                    if (data && typeof data === 'object' && data.userPicks) {
-                        console.log(`Caching data for ${newSeason} Week ${newWeek}, type:`, typeof data);
-                        seasonCache[newSeason][newWeek] = data;
-                    } else {
-                        console.warn(`Not caching invalid data for ${newSeason} Week ${newWeek}, type:`, typeof data);
-                    }
-                } else {
-                    console.log(`Using cached data for ${newSeason} Week ${newWeek}, type:`, typeof data);
+                // Use the unified loading system with deduplication
+                const data = await loadDashboardData(newWeek, newSeason);
+                if (data && typeof data === 'object' && data.userPicks) {
+                    updateDashboardDisplay(data);
+                    
+                    // Trigger additional preloading after navigation
+                    setTimeout(() => {
+                        preloadAfterNavigation(newWeek, newSeason);
+                    }, 100);
                 }
+            }
+        }
+
+        // Handle SSE database change events for cache updates and selective display refresh
+        function handleDatabaseChangeEvent(event) {
+            try {
+                const changeData = JSON.parse(event.data);
+                console.log('SSE: Database change event received:', changeData);
                 
-                if (data) {
-                    console.log(`About to call updateDashboardDisplay with data type:`, typeof data);
+                const { collection, operation, season, week, gameId, userId } = changeData;
+                
+                // Handle cache invalidation for affected weeks
+                if (season && week) {
+                    const cacheKey = `${season}-${week}`;
+                    
+                    // Remove from cache to force refresh on next load
+                    if (seasonCache[season] && seasonCache[season][week]) {
+                        delete seasonCache[season][week];
+                        console.log(`SSE: Invalidated cache for ${cacheKey}`);
+                    }
+                    
+                    // If this change affects the currently displayed week, refresh the display
+                    if (season === currentDisplayedSeason && week === currentDisplayedWeek) {
+                        console.log(`SSE: Refreshing display for current week ${currentDisplayedWeek}`);
+                        refreshCurrentWeekData();
+                    } else {
+                        // For non-current weeks, check if we need to update club scores
+                        // (pick changes might affect season totals)
+                        if (collection === 'picks' && season === currentDisplayedSeason) {
+                            console.log(`SSE: Refreshing club scores for pick change in S${season}W${week}`);
+                            refreshClubScores();
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('SSE: Error processing database change event:', error);
+            }
+        }
+        
+        // Refresh the current week's data after a database change
+        async function refreshCurrentWeekData() {
+            try {
+                const data = await loadDashboardData(currentDisplayedWeek, currentDisplayedSeason);
+                if (data && typeof data === 'object' && data.userPicks) {
                     updateDashboardDisplay(data);
                 }
+            } catch (error) {
+                console.error('SSE: Error refreshing current week data:', error);
+            }
+        }
+        
+        // Refresh just the club scores (for pick changes in other weeks)
+        async function refreshClubScores() {
+            try {
+                const data = await loadDashboardData(currentDisplayedWeek, currentDisplayedSeason);
+                if (data && data.userPicks) {
+                    // Update only the club scores section
+                    const clubScores = document.querySelector('.club-scores');
+                    if (clubScores) {
+                        clubScores.innerHTML = data.userPicks.map(up => 
+                            `<div class="score-item">
+                                <span class="user-name">${up.user_name || 'Unknown'}</span>
+                                <span class="user-score">${formatParlayScore(up.record)}</span>
+                            </div>`
+                        ).join('');
+                    }
+                }
+            } catch (error) {
+                console.error('SSE: Error refreshing club scores:', error);
             }
         }
 
@@ -874,12 +1440,6 @@
                 button.textContent = '🌙';
             }
 
-            // Update games remaining counter
-            const scheduledGames = document.querySelectorAll('.game-card.scheduled').length;
-            const gamesRemainingEl = document.getElementById('games-remaining');
-            if (gamesRemainingEl) {
-                gamesRemainingEl.textContent = scheduledGames;
-            }
 
             // Initialize the games header on page load
             const gamesHeader = document.getElementById('games-header');
@@ -894,49 +1454,129 @@
             // Add keyboard navigation listener
             document.addEventListener('keydown', handleKeyboardNavigation);
             
+            // Add SSE event listeners for database changes
+            const sseContainer = document.querySelector('[hx-ext="sse"]');
+            if (sseContainer) {
+                // Listen for database change events
+                sseContainer.addEventListener('databaseChange', handleDatabaseChangeEvent);
+            }
+            
+            // Preload all NFL team images immediately at startup
+            preloadAllTeamImages();
+            
             // Note: Caching is now handled by the JSON-based dashboard API system
             
-            // Preload adjacent weeks in background for faster navigation
+            // Aggressively preload surrounding weeks in background for faster navigation
             setTimeout(() => {
-                // Preload previous week
-                let prevWeek = currentDisplayedWeek - 1;
-                let prevSeason = currentDisplayedSeason;
-                if (prevWeek < 1 && currentDisplayedSeason > MIN_SEASON) {
-                    prevWeek = 18;
-                    prevSeason = currentDisplayedSeason - 1;
+                preloadSurroundingWeeks();
+            }, 500); // Reduced delay for faster preloading
+        });
+
+        // Preload surrounding weeks in order of proximity (closest first)
+        async function preloadSurroundingWeeks() {
+            // Preload in order of proximity: +1, -1, +2, -2, +3, -3
+            const proximityOrder = [1, -1, 2, -2, 3, -3];
+            
+            proximityOrder.forEach((offset, index) => {
+                setTimeout(() => {
+                    let targetWeek = currentDisplayedWeek + offset;
+                    let targetSeason = currentDisplayedSeason;
+                    
+                    // Handle season boundaries
+                    while (targetWeek < 1) {
+                        targetWeek += 18;
+                        targetSeason--;
+                    }
+                    while (targetWeek > 18) {
+                        targetWeek -= 18;
+                        targetSeason++;
+                    }
+                    
+                    // Only preload within reasonable season range
+                    if (targetSeason < MIN_SEASON || targetSeason > MAX_SEASON) return;
+                    
+                    // Check if already cached or being loaded
+                    const requestKey = `${targetSeason}-${targetWeek}`;
+                    if ((seasonCache[targetSeason] && seasonCache[targetSeason][targetWeek]) || 
+                        pendingRequests.has(requestKey)) {
+                        return;
+                    }
+                    
+                    // Preload this week
+                    preloadWeek(targetWeek, targetSeason);
+                }, index * 300); // 300ms delay between each preload
+            });
+        }
+        
+        // Preload a specific week using the unified loading system with deduplication
+        async function preloadWeek(week, season) {
+            try {
+                console.log(`Preloading ${season} Week ${week}`);
+                await loadDashboardData(week, season);
+            } catch (error) {
+                console.error(`Failed to preload ${season} Week ${week}:`, error);
+            }
+        }
+        
+        // Trigger additional preloading when user navigates (load more surrounding weeks)
+        async function preloadAfterNavigation(currentWeek, currentSeason) {
+            // After user navigates, preload additional weeks around the new position
+            const additionalPreloads = [];
+            
+            for (let offset = -2; offset <= 2; offset++) {
+                if (offset === 0) continue;
+                
+                let targetWeek = currentWeek + offset;
+                let targetSeason = currentSeason;
+                
+                while (targetWeek < 1) {
+                    targetWeek += 18;
+                    targetSeason--;
                 }
-                if (prevWeek >= 1 && prevSeason >= MIN_SEASON) {
-                    loadDashboardData(prevWeek, prevSeason).then(data => {
-                        if (data && typeof data === 'object' && data.userPicks) {
-                            if (!seasonCache[prevSeason]) seasonCache[prevSeason] = {};
-                            seasonCache[prevSeason][prevWeek] = data;
-                            console.log(`Preloaded ${prevSeason} Week ${prevWeek}`);
-                        } else {
-                            console.warn(`Not preloading invalid data for ${prevSeason} Week ${prevWeek}, type:`, typeof data);
-                        }
-                    });
+                while (targetWeek > 18) {
+                    targetWeek -= 18;
+                    targetSeason++;
                 }
                 
-                // Preload next week
-                let nextWeek = currentDisplayedWeek + 1;
-                let nextSeason = currentDisplayedSeason;
-                if (nextWeek > 18 && currentDisplayedSeason < MAX_SEASON) {
-                    nextWeek = 1;
-                    nextSeason = currentDisplayedSeason + 1;
+                if (targetSeason < MIN_SEASON || targetSeason > MAX_SEASON) continue;
+                
+                // Check if already cached or being loaded
+                const requestKey = `${targetSeason}-${targetWeek}`;
+                if (!((seasonCache[targetSeason] && seasonCache[targetSeason][targetWeek]) || 
+                      pendingRequests.has(requestKey))) {
+                    additionalPreloads.push(preloadWeek(targetWeek, targetSeason));
                 }
-                if (nextWeek <= 18 && nextSeason <= MAX_SEASON) {
-                    loadDashboardData(nextWeek, nextSeason).then(data => {
-                        if (data && typeof data === 'object' && data.userPicks) {
-                            if (!seasonCache[nextSeason]) seasonCache[nextSeason] = {};
-                            seasonCache[nextSeason][nextWeek] = data;
-                            console.log(`Preloaded ${nextSeason} Week ${nextWeek}`);
-                        } else {
-                            console.warn(`Not preloading invalid data for ${nextSeason} Week ${nextWeek}, type:`, typeof data);
-                        }
-                    });
-                }
-            }, 1000); // Wait 1s before preloading to let page fully load
-        });
+            }
+            
+            // Execute additional preloads
+            additionalPreloads.forEach((promise, index) => {
+                setTimeout(() => promise, index * 100);
+            });
+        }
+        
+        // Toggle game expansion for in-progress games
+        function toggleGameExpansion(gameId) {
+            const expansionContainer = document.getElementById(`game-${gameId}-expansion`);
+            const gameRow = document.getElementById(`game-${gameId}`);
+            const expandIndicator = gameRow?.querySelector('.expand-indicator');
+            
+            if (!expansionContainer) {
+                console.warn(`No expansion container found for game ${gameId}`);
+                return;
+            }
+            
+            if (expansionContainer.style.display === 'none' || !expansionContainer.style.display) {
+                // Show the expansion
+                expansionContainer.style.display = 'block';
+                if (expandIndicator) expandIndicator.textContent = '▲';
+                gameRow?.classList.add('expanded');
+            } else {
+                // Hide the expansion
+                expansionContainer.style.display = 'none';
+                if (expandIndicator) expandIndicator.textContent = '▼';
+                gameRow?.classList.remove('expanded');
+            }
+        }
     </script>
 </body>
 </html>

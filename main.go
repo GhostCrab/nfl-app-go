@@ -47,8 +47,26 @@ func main() {
 		log.Printf("Database connection failed: %v", err)
 		log.Println("Continuing without database connection...")
 		
-		// Parse templates
-		templates, err := template.ParseGlob("templates/*.html")
+		// Parse templates with custom functions
+		templateFuncs := template.FuncMap{
+			"add": func(a, b int) int {
+				return a + b
+			},
+			"sub": func(a, b int) int {
+				return a - b
+			},
+			"minus": func(a, b int) int {
+				return a - b
+			},
+			"plus": func(a, b int) int {
+				return a + b
+			},
+			"float64": func(i int) float64 {
+				return float64(i)
+			},
+		}
+		
+		templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
 		if err != nil {
 			log.Fatal("Error parsing templates:", err)
 		}
@@ -105,8 +123,26 @@ func main() {
 		log.Printf("Failed to seed users: %v", err)
 	}
 
-	// Parse templates
-	templates, err := template.ParseGlob("templates/*.html")
+	// Parse templates with custom functions
+	templateFuncs := template.FuncMap{
+		"add": func(a, b int) int {
+			return a + b
+		},
+		"sub": func(a, b int) int {
+			return a - b
+		},
+		"minus": func(a, b int) int {
+			return a - b
+		},
+		"plus": func(a, b int) int {
+			return a + b
+		},
+		"float64": func(i int) float64 {
+			return float64(i)
+		},
+	}
+	
+	templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
 	if err != nil {
 		log.Fatal("Error parsing templates:", err)
 	}
@@ -152,8 +188,13 @@ func main() {
 	// Wire up pick service to game handler
 	gameHandler.SetPickService(pickService)
 	
+	// Start background ESPN API updater
+	backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, currentSeason)
+	backgroundUpdater.Start()
+	defer backgroundUpdater.Stop()
+	
 	// Start change stream watcher for real-time updates
-	changeWatcher := services.NewChangeStreamWatcher(db, gameHandler.BroadcastUpdate)
+	changeWatcher := services.NewChangeStreamWatcher(db, gameHandler.HandleDatabaseChange)
 	changeWatcher.StartWatching()
 
 	// Setup routes
@@ -162,17 +203,22 @@ func main() {
 	// Add security middleware
 	r.Use(middleware.SecurityMiddleware)
 	
-	// Add no-cache middleware for development
-	r.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			w.Header().Set("Pragma", "no-cache")
-			w.Header().Set("Expires", "0")
-			next.ServeHTTP(w, r)
+	// Add no-cache middleware for development only
+	isDevelopment := getEnv("ENVIRONMENT", "development") == "development"
+	log.Printf("Server starting in %s mode (isDevelopment: %t)", getEnv("ENVIRONMENT", "development"), isDevelopment)
+	if isDevelopment {
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				w.Header().Set("Pragma", "no-cache")
+				w.Header().Set("Expires", "0")
+				next.ServeHTTP(w, r)
+			})
 		})
-	})
+	}
 	
 	// Static files
+	log.Printf("Setting up static file server for /static/ directory")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
 	
 	// Auth routes (public)
@@ -217,7 +263,7 @@ func main() {
 	}
 	
 	// Start server
-	serverAddr := "127.0.0.1:" + serverPort
+	serverAddr := "localhost:" + serverPort
 	
 	if behindProxy {
 		log.Printf("Server starting on %s (HTTP - behind proxy/tunnel)", serverAddr)

@@ -188,5 +188,5 @@ func (g *Game) PacificTime() time.Time {
 // FormatGameTime returns the game time formatted for Pacific timezone display
 func (g *Game) FormatGameTime() string {
 	pacificTime := g.PacificTime()
-	return pacificTime.Format("Mon 3:04 PM")
+	return pacificTime.Format("1/2/06 3:04 PM")
 }

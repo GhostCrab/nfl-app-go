@@ -10,70 +10,147 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// ChangeEvent represents a database change event with context
+type ChangeEvent struct {
+	Collection string
+	Operation  string
+	Season     int
+	Week       int
+	GameID     string
+	UserID     int
+}
+
 // ChangeStreamWatcher watches MongoDB changes and triggers callbacks
 type ChangeStreamWatcher struct {
 	db       *database.MongoDB
-	onUpdate func()
+	onUpdate func(event ChangeEvent)
 }
 
 // NewChangeStreamWatcher creates a new change stream watcher
-func NewChangeStreamWatcher(db *database.MongoDB, onUpdate func()) *ChangeStreamWatcher {
+func NewChangeStreamWatcher(db *database.MongoDB, onUpdate func(event ChangeEvent)) *ChangeStreamWatcher {
 	return &ChangeStreamWatcher{
 		db:       db,
 		onUpdate: onUpdate,
 	}
 }
 
-// StartWatching begins watching for changes in the games collection
+// StartWatching begins watching for changes in games and picks collections
 func (w *ChangeStreamWatcher) StartWatching() {
-	go func() {
-		log.Println("ChangeStream: Starting to watch games collection for changes")
-		
-		collection := w.db.GetCollection("games")
-		
-		// Create pipeline to watch for all operations on games collection
-		pipeline := mongo.Pipeline{}
-		
-		// Watch for changes with error handling and auto-reconnect
-		for {
-			ctx := context.Background()
-			changeStream, err := collection.Watch(ctx, pipeline)
-			if err != nil {
-				log.Printf("ChangeStream: Error creating change stream: %v", err)
-				time.Sleep(5 * time.Second) // Wait before retrying
+	// Start watching games collection
+	go w.watchCollection("games")
+	// Start watching picks collection  
+	go w.watchCollection("picks")
+}
+
+// watchCollection watches a specific collection for changes
+func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
+	log.Printf("ChangeStream: Starting to watch %s collection for changes", collectionName)
+	
+	collection := w.db.GetCollection(collectionName)
+	
+	// Create pipeline to watch for all operations
+	pipeline := mongo.Pipeline{}
+	
+	// Watch for changes with error handling and auto-reconnect
+	for {
+		ctx := context.Background()
+		changeStream, err := collection.Watch(ctx, pipeline)
+		if err != nil {
+			log.Printf("ChangeStream: Error creating change stream for %s: %v", collectionName, err)
+			time.Sleep(5 * time.Second) // Wait before retrying
+			continue
+		}
+
+		log.Printf("ChangeStream: Successfully connected to %s collection", collectionName)
+
+		// Process change events
+		for changeStream.Next(ctx) {
+			var event bson.M
+			if err := changeStream.Decode(&event); err != nil {
+				log.Printf("ChangeStream: Error decoding change event from %s: %v", collectionName, err)
 				continue
 			}
 
-			log.Println("ChangeStream: Successfully connected to games collection")
-
-			// Process change events
-			for changeStream.Next(ctx) {
-				var event bson.M
-				if err := changeStream.Decode(&event); err != nil {
-					log.Printf("ChangeStream: Error decoding change event: %v", err)
-					continue
-				}
-
-				// Log the type of operation
-				operationType, ok := event["operationType"].(string)
-				if ok {
-					log.Printf("ChangeStream: Detected %s operation on games collection", operationType)
-				}
-
-				// Trigger update callback for any operation (insert, update, delete, replace)
-				if w.onUpdate != nil {
-					w.onUpdate()
-				}
+			// Extract operation type
+			operationType, ok := event["operationType"].(string)
+			if !ok {
+				continue
 			}
 
-			// Handle stream errors
-			if err := changeStream.Err(); err != nil {
-				log.Printf("ChangeStream: Change stream error: %v", err)
-			}
+			log.Printf("ChangeStream: Detected %s operation on %s collection", operationType, collectionName)
 
-			changeStream.Close(ctx)
-			log.Println("ChangeStream: Connection closed, attempting to reconnect in 5 seconds...")
-			time.Sleep(5 * time.Second)
+			// Create change event with extracted information
+			changeEvent := w.extractChangeInfo(event, collectionName, operationType)
+
+			// Trigger update callback
+			if w.onUpdate != nil {
+				w.onUpdate(changeEvent)
+			}
 		}
-	}()
+
+		// Handle stream errors
+		if err := changeStream.Err(); err != nil {
+			log.Printf("ChangeStream: Change stream error for %s: %v", collectionName, err)
+		}
+
+		changeStream.Close(ctx)
+		log.Printf("ChangeStream: Connection to %s closed, attempting to reconnect in 5 seconds...", collectionName)
+		time.Sleep(5 * time.Second)
+	}
+}
+
+// extractChangeInfo extracts relevant information from a change stream event
+func (w *ChangeStreamWatcher) extractChangeInfo(event bson.M, collection, operation string) ChangeEvent {
+	changeEvent := ChangeEvent{
+		Collection: collection,
+		Operation:  operation,
+	}
+
+	// Extract document information based on operation type
+	var doc bson.M
+	if operation == "insert" || operation == "replace" {
+		if fullDoc, ok := event["fullDocument"].(bson.M); ok {
+			doc = fullDoc
+		}
+	} else if operation == "update" {
+		if fullDoc, ok := event["fullDocument"].(bson.M); ok {
+			doc = fullDoc
+		}
+	} else if operation == "delete" {
+		if docKey, ok := event["documentKey"].(bson.M); ok {
+			doc = docKey
+		}
+	}
+
+	if doc != nil {
+		// Extract common fields based on collection
+		if collection == "games" {
+			if season, ok := doc["season"].(int32); ok {
+				changeEvent.Season = int(season)
+			}
+			if week, ok := doc["week"].(int32); ok {
+				changeEvent.Week = int(week)
+			}
+			if gameID, ok := doc["_id"].(string); ok {
+				changeEvent.GameID = gameID
+			} else if gameID, ok := doc["id"].(string); ok {
+				changeEvent.GameID = gameID
+			}
+		} else if collection == "picks" {
+			if season, ok := doc["season"].(int32); ok {
+				changeEvent.Season = int(season)
+			}
+			if week, ok := doc["week"].(int32); ok {
+				changeEvent.Week = int(week)
+			}
+			if userID, ok := doc["user_id"].(int32); ok {
+				changeEvent.UserID = int(userID)
+			}
+			if gameID, ok := doc["game_id"].(string); ok {
+				changeEvent.GameID = gameID
+			}
+		}
+	}
+
+	return changeEvent
 }

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -87,8 +86,6 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	if currentWeek == 0 {
 		currentWeek = h.getCurrentWeek(games)
 		log.Printf("GameHandler: Auto-detected current week: %d", currentWeek)
-	} else {
-		log.Printf("GameHandler: Using selected week: %d", currentWeek)
 	}
 	
 	// Always filter games by the determined current week
@@ -136,22 +133,12 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("GameHandler: Warning - failed to load picks for week %d, season %d: %v", currentWeek, season, err)
 			userPicks = []*models.UserPicks{} // Empty picks on error
-		} else {
-			log.Printf("GameHandler: SUCCESS - Loaded picks for %d users in week %d, season %d", len(userPicks), currentWeek, season)
-			
-			// Check if we should calculate parlay scores for this week
-			go h.maybeCalculateParlayScores(season, currentWeek)
 		}
 	} else {
 		log.Printf("GameHandler: WARNING - No pick service available")
 	}
 	
-	log.Printf("GameHandler: Current user from context: %v", user)
-	if user != nil {
-		log.Printf("GameHandler: User name: %s, ID: %d", user.Name, user.ID)
-	}
 	
-	log.Printf("GameHandler: Rendering %d games for week %d, season %d", len(games), currentWeek, season)
 	
 	data := struct {
 		Games       []models.Game
@@ -214,9 +201,19 @@ func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case message := <-clientChan:
-			fmt.Fprintf(w, "event: gameUpdate\n")
-			// Split message into lines and prefix each with "data: "
-			lines := strings.Split(message, "\n")
+			// Parse message format: "eventType:data"
+			parts := strings.SplitN(message, ":", 2)
+			eventType := "gameUpdate" // default
+			data := message
+			
+			if len(parts) == 2 {
+				eventType = parts[0]
+				data = parts[1]
+			}
+			
+			fmt.Fprintf(w, "event: %s\n", eventType)
+			// Split data into lines and prefix each with "data: "
+			lines := strings.Split(data, "\n")
 			for _, line := range lines {
 				fmt.Fprintf(w, "data: %s\n", line)
 			}
@@ -233,7 +230,44 @@ func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// BroadcastUpdate sends game updates to all connected SSE clients
+// HandleDatabaseChange processes database changes and sends appropriate updates to SSE clients
+func (h *GameHandler) HandleDatabaseChange(event services.ChangeEvent) {
+	log.Printf("SSE: Processing change event: Collection=%s, Operation=%s, Season=%d, Week=%d", 
+		event.Collection, event.Operation, event.Season, event.Week)
+
+	// Create a structured update event
+	updateEvent := struct {
+		Type       string `json:"type"`
+		Collection string `json:"collection"`
+		Operation  string `json:"operation"`
+		Season     int    `json:"season"`
+		Week       int    `json:"week"`
+		GameID     string `json:"gameId,omitempty"`
+		UserID     int    `json:"userId,omitempty"`
+		Timestamp  int64  `json:"timestamp"`
+	}{
+		Type:       "databaseChange",
+		Collection: event.Collection,
+		Operation:  event.Operation,
+		Season:     event.Season,
+		Week:       event.Week,
+		GameID:     event.GameID,
+		UserID:     event.UserID,
+		Timestamp:  time.Now().UnixMilli(),
+	}
+
+	// Convert to JSON
+	updateJSON, err := json.Marshal(updateEvent)
+	if err != nil {
+		log.Printf("SSE: Error marshaling update event: %v", err)
+		return
+	}
+
+	// Send structured update to all connected clients
+	h.broadcastStructuredUpdate("databaseChange", string(updateJSON))
+}
+
+// BroadcastUpdate sends game updates to all connected SSE clients (legacy method)
 func (h *GameHandler) BroadcastUpdate() {
 	games, err := h.gameService.GetGames()
 	if err != nil {
@@ -264,16 +298,21 @@ func (h *GameHandler) BroadcastUpdate() {
 		return
 	}
 	
-	// Send to all connected clients
+	// Send HTML update to all connected clients
+	h.broadcastStructuredUpdate("gameUpdate", htmlContent)
+}
+
+// broadcastStructuredUpdate sends a structured update to all SSE clients
+func (h *GameHandler) broadcastStructuredUpdate(eventType, data string) {
 	for clientChan := range h.sseClients {
 		select {
-		case clientChan <- htmlContent:
+		case clientChan <- fmt.Sprintf("%s:%s", eventType, data):
 		default:
 			// Client channel is full, skip
 		}
 	}
 	
-	log.Printf("SSE: Broadcasted update to %d clients", len(h.sseClients))
+	log.Printf("SSE: Broadcasted %s update to %d clients", eventType, len(h.sseClients))
 }
 
 // getCurrentWeek determines the current NFL week based on game dates and season state
@@ -363,7 +402,6 @@ func (h *GameHandler) getCurrentWeek(games []models.Game) int {
 
 // GetGamesAPI handles GET /api/games - returns just the games grid HTML for AJAX requests
 func (h *GameHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
-	log.Printf("API: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 	
 	// Get week filter from query params
 	weekStr := r.URL.Query().Get("week")
@@ -430,7 +468,6 @@ func (h *GameHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
 
 // GetDashboardDataAPI handles GET /api/dashboard - returns complete dashboard data including games and picks
 func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request) {
-	log.Printf("API: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 	
 	// Get week filter from query params
 	weekStr := r.URL.Query().Get("week")
@@ -471,8 +508,6 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 	if currentWeek == 0 {
 		currentWeek = h.getCurrentWeek(games)
 		log.Printf("API: Auto-detected current week: %d", currentWeek)
-	} else {
-		log.Printf("API: Using selected week: %d", currentWeek)
 	}
 	
 	// Always filter games by the determined current week
@@ -512,11 +547,6 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			log.Printf("API: Warning - failed to load picks for week %d, season %d: %v", currentWeek, season, err)
 			userPicks = []*models.UserPicks{} // Empty picks on error
-		} else {
-			log.Printf("API: SUCCESS - Loaded picks for %d users in week %d, season %d", len(userPicks), currentWeek, season)
-			
-			// Check if we should calculate parlay scores for this week
-			go h.maybeCalculateParlayScores(season, currentWeek)
 		}
 	} else {
 		log.Printf("API: WARNING - No pick service available")
@@ -550,45 +580,6 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	
-	log.Printf("API: Successfully returned dashboard data for week %d, season %d", currentWeek, season)
 }
 
-// maybeCalculateParlayScores checks if parlay scores should be calculated for a week
-// and triggers the calculation if games are complete
-func (h *GameHandler) maybeCalculateParlayScores(season, week int) {
-	if h.pickService == nil {
-		return
-	}
-	
-	ctx := context.Background()
-	
-	// Check if all games for the week are complete
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
-		games, err := gameServiceWithSeason.GetGamesBySeason(season)
-		if err != nil {
-			log.Printf("Failed to get games for parlay scoring check: %v", err)
-			return
-		}
-		
-		// Filter to current week and check if all are complete
-		weekGames := make([]models.Game, 0)
-		allComplete := true
-		for _, game := range games {
-			if game.Week == week {
-				weekGames = append(weekGames, game)
-				if !game.IsCompleted() {
-					allComplete = false
-				}
-			}
-		}
-		
-		// Only calculate if we have games and they're all complete
-		if len(weekGames) > 0 && allComplete {
-			log.Printf("All games complete for Season %d Week %d, calculating parlay scores", season, week)
-			if err := h.pickService.ProcessWeekParlayScoring(ctx, season, week); err != nil {
-				log.Printf("Failed to process parlay scoring for Season %d Week %d: %v", season, week, err)
-			}
-		}
-	}
-}
 

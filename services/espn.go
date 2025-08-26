@@ -296,6 +296,27 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 	log.Printf("ESPN Odds: Attempting to fetch odds for up to %d games", maxGames)
 	
 	count := 0
+	// First pass: prioritize scheduled games without odds
+	for i := range enrichedGames {
+		if count >= maxGames {
+			break
+		}
+		
+		if !enrichedGames[i].HasOdds() && enrichedGames[i].State == models.GameStateScheduled {
+			// log.Printf("ESPN Odds: Trying to fetch odds for game %d", enrichedGames[i].ID)
+			
+			if odds, err := e.GetOdds(enrichedGames[i].ID); err == nil {
+				enrichedGames[i].Odds = odds
+				// log.Printf("ESPN Odds: Successfully got odds for game %d (spread: %.1f, o/u: %.1f)", 
+				// 	enrichedGames[i].ID, odds.Spread, odds.OU)
+			} else {
+				log.Printf("ESPN Odds: Failed to get odds for game %d: %v", enrichedGames[i].ID, err)
+			}
+			count++
+		}
+	}
+	
+	// Second pass: any remaining games without odds (if we haven't hit the limit)
 	for i := range enrichedGames {
 		if count >= maxGames {
 			break

@@ -24,7 +24,6 @@ func (s *DatabaseGameService) GetGames() ([]models.Game, error) {
 }
 
 func (s *DatabaseGameService) GetGamesBySeason(season int) ([]models.Game, error) {
-	log.Printf("DatabaseGameService: Fetching games from database for season %d", season)
 	
 	gamePointers, err := s.gameRepo.GetGamesBySeason(season)
 	if err != nil {
@@ -59,7 +58,6 @@ func (s *DatabaseGameService) GetGamesBySeason(season int) ([]models.Game, error
 		return gameI.Date.Before(gameJ.Date)
 	})
 
-	log.Printf("DatabaseGameService: Retrieved %d games from database for season %d", len(games), season)
 	
 	// Apply demo modifications to first 3 games for live simulation
 	demoGames := s.applyDemoEffects(games)
