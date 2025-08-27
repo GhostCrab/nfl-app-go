@@ -44,7 +44,8 @@ func main() {
 	pickRepo := database.NewMongoPickRepository(db)
 	gameRepo := database.NewMongoGameRepository(db)
 	userRepo := database.NewMongoUserRepository(db)
-	pickService := services.NewPickService(pickRepo, gameRepo, userRepo)
+	parlayRepo := database.NewMongoParlayRepository(db)
+	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
 
 	ctx := context.Background()
 	

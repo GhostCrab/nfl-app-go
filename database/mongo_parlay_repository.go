@@ -184,3 +184,70 @@ func (r *MongoParlayRepository) GetWeekScores(ctx context.Context, season, week 
 	
 	return scores, nil
 }
+
+// GetUserCumulativeScoreUpToWeek calculates a user's cumulative parlay points up to and including a specific week
+func (r *MongoParlayRepository) GetUserCumulativeScoreUpToWeek(ctx context.Context, userID, season, week int) (int, error) {
+	pipeline := mongo.Pipeline{
+		{{"$match", bson.D{
+			{Key: "user_id", Value: userID},
+			{Key: "season", Value: season},
+			{Key: "week", Value: bson.D{{"$lte", week}}}, // Less than or equal to the target week
+		}}},
+		{{"$group", bson.D{
+			{Key: "_id", Value: nil},
+			{Key: "total", Value: bson.D{{"$sum", "$total_points"}}},
+		}}},
+	}
+	
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return 0, fmt.Errorf("failed to aggregate cumulative score: %w", err)
+	}
+	defer cursor.Close(ctx)
+	
+	if cursor.Next(ctx) {
+		var result struct {
+			Total int `bson:"total"`
+		}
+		if err := cursor.Decode(&result); err != nil {
+			return 0, fmt.Errorf("failed to decode cumulative score: %w", err)
+		}
+		return result.Total, nil
+	}
+	
+	return 0, nil // No scores found
+}
+
+// GetAllUsersCumulativeScoresUpToWeek gets cumulative parlay totals for all users up to a specific week
+func (r *MongoParlayRepository) GetAllUsersCumulativeScoresUpToWeek(ctx context.Context, season, week int) (map[int]int, error) {
+	pipeline := mongo.Pipeline{
+		{{"$match", bson.D{
+			{Key: "season", Value: season},
+			{Key: "week", Value: bson.D{{"$lte", week}}}, // Less than or equal to the target week
+		}}},
+		{{"$group", bson.D{
+			{Key: "_id", Value: "$user_id"},
+			{Key: "total", Value: bson.D{{"$sum", "$total_points"}}},
+		}}},
+	}
+	
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate all users cumulative scores: %w", err)
+	}
+	defer cursor.Close(ctx)
+	
+	totals := make(map[int]int)
+	for cursor.Next(ctx) {
+		var result struct {
+			UserID int `bson:"_id"`
+			Total  int `bson:"total"`
+		}
+		if err := cursor.Decode(&result); err != nil {
+			return nil, fmt.Errorf("failed to decode user cumulative score: %w", err)
+		}
+		totals[result.UserID] = result.Total
+	}
+	
+	return totals, nil
+}

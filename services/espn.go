@@ -49,8 +49,10 @@ type ESPNWeek struct {
 }
 
 type ESPNStatus struct {
-	Type ESPNStatusType `json:"type"`
-	Period int `json:"period"`
+	Type         ESPNStatusType `json:"type"`
+	Period       int            `json:"period"`
+	DisplayClock string         `json:"displayClock,omitempty"`
+	Clock        int            `json:"clock,omitempty"`
 }
 
 type ESPNStatusType struct {
@@ -62,6 +64,7 @@ type ESPNStatusType struct {
 
 type ESPNCompetition struct {
 	Competitors []ESPNCompetitor `json:"competitors"`
+	Situation   *ESPNSituation   `json:"situation,omitempty"`
 }
 
 type ESPNCompetitor struct {
@@ -77,6 +80,29 @@ type ESPNTeam struct {
 	DisplayName  string `json:"displayName"`
 	Location     string `json:"location"`
 	Name         string `json:"name"`
+}
+
+// ESPNSituation represents live game situation data
+type ESPNSituation struct {
+	LastPlay               ESPNLastPlay `json:"lastPlay,omitempty"`
+	Down                   int          `json:"down,omitempty"`
+	YardLine               int          `json:"yardLine,omitempty"`
+	Distance               int          `json:"distance,omitempty"`
+	IsRedZone              bool         `json:"isRedZone"`
+	HomeTimeouts           int          `json:"homeTimeouts"`
+	AwayTimeouts           int          `json:"awayTimeouts"`
+	DownDistanceText       string       `json:"downDistanceText,omitempty"`
+	ShortDownDistanceText  string       `json:"shortDownDistanceText,omitempty"`
+	PossessionText         string       `json:"possessionText,omitempty"`
+	Possession             string       `json:"possession,omitempty"`
+}
+
+// ESPNLastPlay represents the last play in a game
+type ESPNLastPlay struct {
+	ID          string `json:"id,omitempty"`
+	Text        string `json:"text,omitempty"`
+	ScoreValue  int    `json:"scoreValue,omitempty"`
+	StatYardage int    `json:"statYardage,omitempty"`
 }
 
 // ESPN Odds API response structures
@@ -208,7 +234,7 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 	// log.Printf("ESPN API: Game %s (%s vs %s) parsed date from '%s' to '%s'", 
 	// 	event.ID, awayTeam, homeTeam, event.Date, gameDate.Format("2006-01-02 15:04:05"))
 	
-	return models.Game{
+	game := models.Game{
 		ID:        gameID,
 		Season:    event.Season.Year,
 		Date:      gameDate,
@@ -220,6 +246,32 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 		HomeScore: homeScore,
 		Quarter:   event.Status.Period,
 	}
+	
+	// Add live status data if game is in progress and situation data is available
+	if state == models.GameStateInPlay && competition.Situation != nil {
+		situation := competition.Situation
+		game.SetStatus(
+			event.Status.DisplayClock,        // displayClock
+			situation.Possession,             // possession
+			situation.PossessionText,         // possessionText  
+			situation.DownDistanceText,       // downDistanceText
+			situation.ShortDownDistanceText,  // shortDownDistanceText
+			situation.Down,                   // down
+			situation.YardLine,               // yardLine
+			situation.Distance,               // distance
+			situation.HomeTimeouts,           // homeTimeouts
+			situation.AwayTimeouts,           // awayTimeouts
+			situation.IsRedZone,              // isRedZone
+		)
+		
+		// Log possession data for debugging
+		if situation.Possession != "" {
+			log.Printf("ESPN API: Game %s live status - %s %s at %s", 
+				event.ID, situation.Possession, situation.ShortDownDistanceText, situation.PossessionText)
+		}
+	}
+	
+	return game
 }
 
 // convertGameState converts ESPN status to our GameState

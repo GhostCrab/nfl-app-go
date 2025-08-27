@@ -1,14 +1,19 @@
 package main
 
 import (
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"nfl-app-go/database"
 	"nfl-app-go/handlers"
 	"nfl-app-go/middleware"
+	"nfl-app-go/models"
 	"nfl-app-go/services"
 	"os"
+	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -52,7 +57,7 @@ func main() {
 			"add": func(a, b int) int {
 				return a + b
 			},
-			"sub": func(a, b int) int {
+			"sub": func(a, b float64) float64 {
 				return a - b
 			},
 			"minus": func(a, b int) int {
@@ -63,6 +68,227 @@ func main() {
 			},
 			"float64": func(i int) float64 {
 				return float64(i)
+			},
+			"sequence": func(start, end int) []int {
+				result := make([]int, end-start+1)
+				for i := range result {
+					result[i] = start + i
+				}
+				return result
+			},
+			"sortUsersByScore": func(userPicks []*models.UserPicks) []*models.UserPicks {
+				if len(userPicks) == 0 {
+					return userPicks
+				}
+				// Create a copy to avoid modifying original slice
+				sorted := make([]*models.UserPicks, len(userPicks))
+				copy(sorted, userPicks)
+				
+				// Sort by parlay points (descending - highest first)
+				sort.Slice(sorted, func(i, j int) bool {
+					scoreI := sorted[i].Record.ParlayPoints
+					scoreJ := sorted[j].Record.ParlayPoints
+					return scoreI > scoreJ
+				})
+				
+				return sorted
+			},
+			"projectFinalScore": func(homeScore, awayScore, quarter int, timeLeft string) float64 {
+				// Parse time left (e.g., "12:34")
+				var minutes, seconds int
+				if timeLeft == "Halftime" || timeLeft == "" {
+					minutes = 0
+					seconds = 0
+				} else {
+					fmt.Sscanf(timeLeft, "%d:%d", &minutes, &seconds)
+				}
+				
+				// Calculate elapsed time in minutes
+				var elapsedMinutes float64
+				switch quarter {
+				case 1:
+					elapsedMinutes = 15 - float64(minutes) - float64(seconds)/60
+				case 2:
+					elapsedMinutes = 30 - float64(minutes) - float64(seconds)/60
+				case 3:
+					elapsedMinutes = 45 - float64(minutes) - float64(seconds)/60
+				case 4:
+					elapsedMinutes = 60 - float64(minutes) - float64(seconds)/60
+				case 6: // Halftime
+					elapsedMinutes = 30
+				default:
+					elapsedMinutes = 60 // Overtime or unknown, assume full game
+				}
+				
+				// Avoid division by zero
+				if elapsedMinutes <= 0 {
+					elapsedMinutes = 1
+				}
+				
+				// Calculate current total and project to 60 minutes
+				currentTotal := float64(homeScore + awayScore)
+				projectedTotal := (currentTotal / elapsedMinutes) * 60
+				
+				return projectedTotal
+			},
+			"findGameByID": func(games []models.Game, gameID int) *models.Game {
+				for _, game := range games {
+					if game.ID == gameID {
+						return &game
+					}
+				}
+				return nil
+			},
+			"isSpreadPickWinning": func(pick models.Pick, game models.Game) bool {
+				if pick.TeamID == 98 || pick.TeamID == 99 {
+					return false // This is an O/U pick, not spread
+				}
+				// Simplified spread check
+				return game.HomeScore > game.AwayScore
+			},
+			"isPickedTeamCovering": func(pick models.Pick, game models.Game) string {
+				if !pick.IsSpreadPick() || !game.HasOdds() {
+					return "neutral"
+				}
+				
+				teamName := pick.TeamName
+				
+				// Check if picked team name contains home or away team abbreviation
+				isHomeTeamPick := false
+				isAwayTeamPick := false
+				
+				// Simple matching - check if team abbreviation is in the name
+				if len(teamName) > 0 && len(game.Home) > 0 && len(game.Away) > 0 {
+					// Try to match by checking if abbreviation is in the name
+					homeTeamLower := strings.ToLower(game.Home)
+					awayTeamLower := strings.ToLower(game.Away) 
+					teamNameLower := strings.ToLower(teamName)
+					
+					// Check various ways the team might be referenced
+					if strings.Contains(teamNameLower, homeTeamLower) {
+						isHomeTeamPick = true
+					} else if strings.Contains(teamNameLower, awayTeamLower) {
+						isAwayTeamPick = true
+					} else {
+						// Fallback: if we can't determine, assume it's away team (common pattern)
+						isAwayTeamPick = true
+					}
+				}
+				
+				// Calculate spread coverage
+				scoreDiff := game.HomeScore - game.AwayScore
+				spread := game.Odds.Spread
+				adjustedDiff := float64(scoreDiff) + spread
+				
+				if isHomeTeamPick {
+					if adjustedDiff > 0 {
+						return "covering" 
+					} else if adjustedDiff < 0 {
+						return "not-covering"
+					} else {
+						return "push"
+					}
+				} else if isAwayTeamPick {
+					if adjustedDiff < 0 {
+						return "covering"
+					} else if adjustedDiff > 0 {
+						return "not-covering" 
+					} else {
+						return "push"
+					}
+				}
+				
+				return "neutral"
+			},
+			"dict": func(values ...interface{}) (map[string]interface{}, error) {
+				if len(values)%2 != 0 {
+					return nil, fmt.Errorf("dict: number of arguments must be even")
+				}
+				result := make(map[string]interface{})
+				for i := 0; i < len(values); i += 2 {
+					key, ok := values[i].(string)
+					if !ok {
+						return nil, fmt.Errorf("dict: key must be string, got %T", values[i])
+					}
+					result[key] = values[i+1]
+				}
+				return result, nil
+			},
+			"getResultClass": func(pick models.Pick, game *models.Game) string {
+				baseClass := pick.GetResultClass()
+				
+				// Add state-specific classes for pending picks
+				if baseClass == "pick-class" && game != nil {
+					if game.State == models.GameStateInPlay {
+						return baseClass + " in-progress"
+					} else if game.State == models.GameStateScheduled {
+						return baseClass + " pending"
+					}
+				}
+				
+				return baseClass
+			},
+			"isOverUnder": func(pick models.Pick) bool {
+				return pick.IsOverUnder()
+			},
+			"isSpreadPick": func(pick models.Pick) bool {
+				return pick.IsSpreadPick()
+			},
+			"lower": func(s string) string {
+				return strings.ToLower(s)
+			},
+			"contains": func(s, substr string) bool {
+				return strings.Contains(s, substr)
+			},
+			"regexReplace": func(input, pattern, replacement string) string {
+				re := regexp.MustCompile(pattern)
+				return re.ReplaceAllString(input, replacement)
+			},
+			"split": func(s, sep string) []string {
+				return strings.Split(s, sep)
+			},
+			"getPickTeamAbbr": func(pick models.Pick, game *models.Game, pickDesc string) string {
+				if pick.IsOverUnder() {
+					if strings.Contains(pickDesc, "Over") {
+						return "OVR"
+					} else {
+						return "UND"
+					}
+				}
+				// For spread picks, return the team abbreviation
+				if game != nil && strings.Contains(pick.TeamName, game.Home) {
+					return game.Home
+				} else if game != nil && strings.Contains(pick.TeamName, game.Away) {
+					return game.Away
+				}
+				return pick.TeamName
+			},
+			"getPickTeamIcon": func(teamAbbr string) string {
+				if teamAbbr == "OVR" {
+					return "https://api.iconify.design/mdi/chevron-double-up.svg"
+				}
+				if teamAbbr == "UND" {
+					return "https://api.iconify.design/mdi/chevron-double-down.svg"
+				}
+				if teamAbbr == "" {
+					return ""
+				}
+				teamLower := strings.ToLower(teamAbbr)
+				return fmt.Sprintf("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/%s.png", teamLower)
+			},
+			"getPickValue": func(pick models.Pick, game *models.Game, pickDesc string) string {
+				if pick.IsOverUnder() && game != nil && game.HasOdds() {
+					return fmt.Sprintf("%.1f", game.Odds.OU)
+				}
+				// For spread picks
+				if game != nil && game.HasOdds() {
+					if strings.Contains(pick.TeamName, game.Home) {
+						return game.FormatHomeSpread()
+					} else if strings.Contains(pick.TeamName, game.Away) {
+						return game.FormatAwaySpread()
+					}
+				}
+				return string(pick.PickType)
 			},
 		}
 		
@@ -83,9 +309,9 @@ func main() {
 		r.HandleFunc("/games", gameHandler.GetGames).Methods("GET")
 
 		// Start server
-		log.Println("Server starting on 127.0.0.1:8080")
-		log.Println("Visit: http://localhost:8080")
-		log.Fatal(http.ListenAndServe("127.0.0.1:8080", r))
+		log.Println("Server starting on 0.0.0.0:8080 (available on LAN)")
+		log.Println("Visit: http://localhost:8080 or http://[your-pi-ip]:8080")
+		log.Fatal(http.ListenAndServe("0.0.0.0:8080", r))
 		return
 	}
 	
@@ -128,7 +354,7 @@ func main() {
 		"add": func(a, b int) int {
 			return a + b
 		},
-		"sub": func(a, b int) int {
+		"sub": func(a, b float64) float64 {
 			return a - b
 		},
 		"minus": func(a, b int) int {
@@ -139,6 +365,240 @@ func main() {
 		},
 		"float64": func(i int) float64 {
 			return float64(i)
+		},
+		"sequence": func(start, end int) []int {
+			result := make([]int, end-start+1)
+			for i := range result {
+				result[i] = start + i
+			}
+			return result
+		},
+		"ceil": func(f float64) int {
+			return int(f + 0.999999) // Ceiling function
+		},
+		"projectFinalScore": func(homeScore, awayScore, quarter int, timeLeft string) float64 {
+			// Parse time left (e.g., "12:34")
+			var minutes, seconds int
+			if timeLeft == "Halftime" || timeLeft == "" {
+				minutes = 0
+				seconds = 0
+			} else {
+				fmt.Sscanf(timeLeft, "%d:%d", &minutes, &seconds)
+			}
+			
+			// Calculate elapsed time in minutes
+			var elapsedMinutes float64
+			switch quarter {
+			case 1:
+				elapsedMinutes = 15 - float64(minutes) - float64(seconds)/60
+			case 2:
+				elapsedMinutes = 30 - float64(minutes) - float64(seconds)/60
+			case 3:
+				elapsedMinutes = 45 - float64(minutes) - float64(seconds)/60
+			case 4:
+				elapsedMinutes = 60 - float64(minutes) - float64(seconds)/60
+			case 6: // Halftime
+				elapsedMinutes = 30
+			default:
+				elapsedMinutes = 60 // Overtime or unknown, assume full game
+			}
+			
+			// Avoid division by zero
+			if elapsedMinutes <= 0 {
+				elapsedMinutes = 1
+			}
+			
+			// Calculate current total and project to 60 minutes
+			currentTotal := float64(homeScore + awayScore)
+			projectedTotal := (currentTotal / elapsedMinutes) * 60
+			
+			return projectedTotal
+		},
+		"findGameByID": func(games []models.Game, gameID int) *models.Game {
+			for _, game := range games {
+				if game.ID == gameID {
+					return &game
+				}
+			}
+			return nil
+		},
+		"isPickedTeamCovering": func(pick models.Pick, game models.Game) string {
+			if !pick.IsSpreadPick() || !game.HasOdds() {
+				return "neutral"
+			}
+			
+			teamName := pick.TeamName
+			
+			// Check if picked team name contains home or away team abbreviation
+			isHomeTeamPick := false
+			isAwayTeamPick := false
+			
+			// Simple matching - check if team abbreviation is in the name
+			if len(teamName) > 0 && len(game.Home) > 0 && len(game.Away) > 0 {
+				// Try to match by checking if abbreviation is in the name
+				homeTeamLower := strings.ToLower(game.Home)
+				awayTeamLower := strings.ToLower(game.Away) 
+				teamNameLower := strings.ToLower(teamName)
+				
+				// Check various ways the team might be referenced
+				if strings.Contains(teamNameLower, homeTeamLower) {
+					isHomeTeamPick = true
+				} else if strings.Contains(teamNameLower, awayTeamLower) {
+					isAwayTeamPick = true
+				} else {
+					// Fallback: if we can't determine, assume it's away team (common pattern)
+					isAwayTeamPick = true
+				}
+			}
+			
+			// Calculate spread coverage
+			scoreDiff := game.HomeScore - game.AwayScore
+			spread := game.Odds.Spread
+			adjustedDiff := float64(scoreDiff) + spread
+			
+			if isHomeTeamPick {
+				if adjustedDiff > 0 {
+					return "covering" 
+				} else if adjustedDiff < 0 {
+					return "not-covering"
+				} else {
+					return "push"
+				}
+			} else if isAwayTeamPick {
+				if adjustedDiff < 0 {
+					return "covering"
+				} else if adjustedDiff > 0 {
+					return "not-covering" 
+				} else {
+					return "push"
+				}
+			}
+			
+			return "neutral"
+		},
+		"isSpreadPickWinning": func(pick models.Pick, game models.Game) bool {
+			if pick.TeamID == 98 || pick.TeamID == 99 {
+				return false // This is an O/U pick, not spread
+			}
+			// For spread picks, we need to determine which team and check if they're covering
+			// This is a simplified version - you'd need actual team mapping
+			homeScore := game.HomeScore
+			awayScore := game.AwayScore
+			if game.HasOdds() {
+				// Simple logic: if away team picked and away team leading by more than spread
+				// Or if home team picked and home team leading by more than spread
+				// This is simplified - real implementation needs team ID mapping
+				scoreDiff := homeScore - awayScore
+				return scoreDiff > 0 // Simplified for now
+			}
+			return homeScore > awayScore
+		},
+		"dict": func(values ...interface{}) (map[string]interface{}, error) {
+			if len(values)%2 != 0 {
+				return nil, fmt.Errorf("dict: number of arguments must be even")
+			}
+			result := make(map[string]interface{})
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict: key must be string, got %T", values[i])
+				}
+				result[key] = values[i+1]
+			}
+			return result, nil
+		},
+		"getResultClass": func(pick models.Pick, game *models.Game) string {
+			baseClass := pick.GetResultClass()
+			
+			// Add state-specific classes for pending picks
+			if baseClass == "pick-class" && game != nil {
+				if game.State == models.GameStateInPlay {
+					return baseClass + " in-progress"
+				} else if game.State == models.GameStateScheduled {
+					return baseClass + " pending"
+				}
+			}
+			
+			return baseClass
+		},
+		"isOverUnder": func(pick models.Pick) bool {
+			return pick.IsOverUnder()
+		},
+		"isSpreadPick": func(pick models.Pick) bool {
+			return pick.IsSpreadPick()
+		},
+		"lower": func(s string) string {
+			return strings.ToLower(s)
+		},
+		"contains": func(s, substr string) bool {
+			return strings.Contains(s, substr)
+		},
+		"regexReplace": func(input, pattern, replacement string) string {
+			re := regexp.MustCompile(pattern)
+			return re.ReplaceAllString(input, replacement)
+		},
+		"split": func(s, sep string) []string {
+			return strings.Split(s, sep)
+		},
+		"getPickTeamAbbr": func(pick models.Pick, game *models.Game, pickDesc string) string {
+			if pick.IsOverUnder() {
+				if strings.Contains(pickDesc, "Over") {
+					return "OVR"
+				} else {
+					return "UND"
+				}
+			}
+			// For spread picks, return the team abbreviation
+			if game != nil && strings.Contains(pick.TeamName, game.Home) {
+				return game.Home
+			} else if game != nil && strings.Contains(pick.TeamName, game.Away) {
+				return game.Away
+			}
+			return pick.TeamName
+		},
+		"getPickTeamIcon": func(teamAbbr string) string {
+			if teamAbbr == "OVR" {
+				return "https://api.iconify.design/mdi/chevron-double-up.svg"
+			}
+			if teamAbbr == "UND" {
+				return "https://api.iconify.design/mdi/chevron-double-down.svg"
+			}
+			if teamAbbr == "" {
+				return ""
+			}
+			teamLower := strings.ToLower(teamAbbr)
+			return fmt.Sprintf("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/%s.png", teamLower)
+		},
+		"getPickValue": func(pick models.Pick, game *models.Game, pickDesc string) string {
+			if pick.IsOverUnder() && game != nil && game.HasOdds() {
+				return fmt.Sprintf("%.1f", game.Odds.OU)
+			}
+			// For spread picks
+			if game != nil && game.HasOdds() {
+				if strings.Contains(pick.TeamName, game.Home) {
+					return game.FormatHomeSpread()
+				} else if strings.Contains(pick.TeamName, game.Away) {
+					return game.FormatAwaySpread()
+				}
+			}
+			return string(pick.PickType)
+		},
+		"sortUsersByScore": func(userPicks []*models.UserPicks) []*models.UserPicks {
+			if len(userPicks) == 0 {
+				return userPicks
+			}
+			// Create a copy to avoid modifying original slice
+			sorted := make([]*models.UserPicks, len(userPicks))
+			copy(sorted, userPicks)
+			
+			// Sort by parlay points (descending - highest first)
+			sort.Slice(sorted, func(i, j int) bool {
+				scoreI := sorted[i].Record.ParlayPoints
+				scoreJ := sorted[j].Record.ParlayPoints
+				return scoreI > scoreJ
+			})
+			
+			return sorted
 		},
 	}
 	
@@ -263,7 +723,7 @@ func main() {
 	}
 	
 	// Start server
-	serverAddr := "localhost:" + serverPort
+	serverAddr := "0.0.0.0:" + serverPort
 	
 	if behindProxy {
 		log.Printf("Server starting on %s (HTTP - behind proxy/tunnel)", serverAddr)
@@ -271,9 +731,9 @@ func main() {
 		log.Println("Default password for all users: password123")
 		log.Fatal(http.ListenAndServe(serverAddr, r))
 	} else if useTLS {
-		log.Printf("Server starting on %s (HTTPS)", serverAddr)
-		log.Printf("Visit: https://localhost:%s", serverPort)
-		log.Printf("Login page: https://localhost:%s/login", serverPort)
+		log.Printf("Server starting on %s (HTTPS - available on LAN)", serverAddr)
+		log.Printf("Visit: https://localhost:%s or https://[your-pi-ip]:%s", serverPort, serverPort)
+		log.Printf("Login page: https://localhost:%s/login or https://[your-pi-ip]:%s/login", serverPort, serverPort)
 		log.Println("Default password for all users: password123")
 		log.Println("⚠️  Using self-signed certificate - browser will show security warning")
 		
@@ -287,9 +747,9 @@ func main() {
 		
 		log.Fatal(http.ListenAndServeTLS(serverAddr, "server.crt", "server.key", r))
 	} else {
-		log.Printf("Server starting on %s (HTTP)", serverAddr)
-		log.Printf("Visit: http://localhost:%s", serverPort)
-		log.Printf("Login page: http://localhost:%s/login", serverPort)
+		log.Printf("Server starting on %s (HTTP - available on LAN)", serverAddr)
+		log.Printf("Visit: http://localhost:%s or http://[your-pi-ip]:%s", serverPort, serverPort)
+		log.Printf("Login page: http://localhost:%s/login or http://[your-pi-ip]:%s/login", serverPort, serverPort)
 		log.Println("Default password for all users: password123")
 		log.Println("⚠️  HTTP mode - use only behind HTTPS proxy/tunnel")
 		log.Fatal(http.ListenAndServe(serverAddr, r))

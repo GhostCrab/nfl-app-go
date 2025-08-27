@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"nfl-app-go/database"
@@ -93,17 +94,11 @@ func (s *DatabaseGameService) applyDemoEffects(games []models.Game) []models.Gam
 	demoGames := make([]models.Game, len(games))
 	copy(demoGames, games)
 
-	// Make first 3 games appear live for demo
-	count := 0
+	// Make all Week 1 games appear live for demo
 	for i := range demoGames {
-		if count >= 3 {
-			break
-		}
-		
-		// Only modify completed or scheduled games to avoid overwriting real live games
-		if demoGames[i].State == models.GameStateCompleted || demoGames[i].State == models.GameStateScheduled {
+		// Only modify Week 1 games that are completed or scheduled
+		if demoGames[i].Week == 1 && (demoGames[i].State == models.GameStateCompleted || demoGames[i].State == models.GameStateScheduled) {
 			demoGames[i] = s.makeGameLive(demoGames[i])
-			count++
 		}
 	}
 
@@ -133,5 +128,131 @@ func (s *DatabaseGameService) makeGameLive(game models.Game) models.Game {
 		}
 	}
 
+	// Add realistic live game status data
+	s.addLiveStatusData(&game)
+
 	return game
+}
+
+// addLiveStatusData adds realistic possession and field position data to a live game
+func (s *DatabaseGameService) addLiveStatusData(game *models.Game) {
+	// Use the same seed as makeGameLive for consistency
+	rand.Seed(int64(game.ID) + time.Now().Unix()/30)
+
+	// Generate realistic game clock
+	var displayClock string
+	if game.Quarter == 6 {
+		displayClock = "Halftime"
+	} else {
+		minutes := rand.Intn(15) // 0-14 minutes
+		seconds := rand.Intn(60) // 0-59 seconds
+		displayClock = fmt.Sprintf("%d:%02d", minutes, seconds)
+	}
+
+	// Pick which team has possession (favor the team that's behind slightly)
+	var possessionTeam string
+	if game.HomeScore < game.AwayScore && rand.Float32() < 0.6 {
+		possessionTeam = game.Home
+	} else if game.AwayScore < game.HomeScore && rand.Float32() < 0.6 {
+		possessionTeam = game.Away
+	} else {
+		// Random possession
+		if rand.Float32() < 0.5 {
+			possessionTeam = game.Home
+		} else {
+			possessionTeam = game.Away
+		}
+	}
+
+	// Generate field position (1-99 yard line)
+	yardLine := rand.Intn(99) + 1
+	
+	// Generate down and distance
+	down := rand.Intn(4) + 1 // 1st, 2nd, 3rd, or 4th down
+	distance := rand.Intn(20) + 1 // 1-20 yards to go
+	
+	// Make realistic adjustments
+	if down == 1 {
+		distance = 10 // 1st and 10 is most common
+	} else if down == 4 {
+		// 4th down usually has shorter distance
+		if distance > 10 {
+			distance = rand.Intn(5) + 1 // 1-5 yards on 4th down
+		}
+	}
+
+	// Generate possession text (field position)
+	var possessionText string
+	var oppTeam string
+	if possessionTeam == game.Home {
+		oppTeam = game.Away
+	} else {
+		oppTeam = game.Home
+	}
+
+	if yardLine <= 50 {
+		// Own territory
+		possessionText = fmt.Sprintf("%s %d", possessionTeam, yardLine)
+	} else {
+		// Opponent's territory
+		oppYardLine := 100 - yardLine
+		possessionText = fmt.Sprintf("%s %d", oppTeam, oppYardLine)
+	}
+
+	// Generate down/distance text
+	downDistanceText := fmt.Sprintf("%s down and %d", s.getOrdinalNumber(down), distance)
+	shortDownDistanceText := fmt.Sprintf("%s & %d", s.getShortOrdinal(down), distance)
+
+	// Determine if in red zone (opponent's 20 yard line or closer)
+	isRedZone := yardLine > 80
+
+	// Generate timeouts (start with 3, sometimes use them)
+	homeTimeouts := 3 - rand.Intn(2) // 2-3 timeouts
+	awayTimeouts := 3 - rand.Intn(2) // 2-3 timeouts
+
+	// Set the status data
+	game.SetStatus(
+		displayClock,
+		possessionTeam,
+		possessionText,
+		downDistanceText,
+		shortDownDistanceText,
+		down,
+		yardLine,
+		distance,
+		homeTimeouts,
+		awayTimeouts,
+		isRedZone,
+	)
+}
+
+// Helper functions for formatting
+func (s *DatabaseGameService) getOrdinalNumber(n int) string {
+	switch n {
+	case 1:
+		return "1st"
+	case 2:
+		return "2nd"
+	case 3:
+		return "3rd"
+	case 4:
+		return "4th"
+	default:
+		return fmt.Sprintf("%dth", n)
+	}
+}
+
+func (s *DatabaseGameService) getShortOrdinal(n int) string {
+	switch n {
+	case 1:
+		return "1st"
+	case 2:
+		return "2nd" 
+	case 3:
+		return "3rd"
+	case 4:
+		return "4th"
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }

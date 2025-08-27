@@ -429,6 +429,28 @@ mat-grid-tile.game-card {
     color: var(--card-text);
 }
 
+/* Pending/scheduled games - lighter gray background */
+.pick-class.pending { 
+    background-color: rgba(255, 255, 255, 0.08); 
+    color: var(--card-text);
+}
+
+/* In-progress games - animated diagonal lines - CONSOLIDATED RULE */
+
+@keyframes moveStripes {
+    0% { background-position: 0 0; }
+    100% { background-position: 20px 0; }
+}
+
+@keyframes pulseGlow {
+    0% { 
+        box-shadow: inset 0 0 10px rgba(120, 140, 190, 0.12), 0 0 5px rgba(120, 140, 190, 0.18);
+    }
+    100% { 
+        box-shadow: inset 0 0 15px rgba(120, 140, 190, 0.18), 0 0 10px rgba(120, 140, 190, 0.30);
+    }
+}
+
 .red-pick-class { 
     background-color: var(--card-bg); 
     color: var(--error-color); 
@@ -480,15 +502,43 @@ mat-grid-tile.game-card {
 }
 
 .game-row.in_play {
-    background: #332321;
-    border-left: 4px solid #e74c3c;
+    background: 
+        linear-gradient(
+            135deg,
+            rgba(180, 200, 240, 0.06) 25%,
+            rgba(120, 140, 190, 0.20) 25%,
+            rgba(120, 140, 190, 0.20) 50%,
+            rgba(180, 200, 240, 0.06) 50%,
+            rgba(180, 200, 240, 0.06) 75%,
+            rgba(120, 140, 190, 0.20) 75%
+        ),
+        var(--card-bg);
+    background-size: 24px 24px, auto;
+    animation: moveStripes 2.4s linear infinite, pulseGlow 2s ease-in-out infinite alternate;
+    border-left: 4px solid rgba(120, 140, 190, 0.8);
     border-bottom: none;
     position: relative;
     z-index: 2;
+    box-shadow: inset 0 0 10px rgba(120, 140, 190, 0.12);
+    /* Performance optimizations for smooth animation */
+    will-change: background-position;
+    transform: translateZ(0); /* Force hardware acceleration */
 }
 
 [data-theme="light"] .game-row.in_play {
-    background: #fdf2f2;
+    background: 
+        linear-gradient(
+            135deg,
+            rgba(180, 200, 240, 0.08) 25%,
+            rgba(120, 140, 190, 0.25) 25%,
+            rgba(120, 140, 190, 0.25) 50%,
+            rgba(180, 200, 240, 0.08) 50%,
+            rgba(180, 200, 240, 0.08) 75%,
+            rgba(120, 140, 190, 0.25) 75%
+        ),
+        var(--card-bg);
+    background-size: 24px 24px, auto;
+    animation: moveStripes 2.4s linear infinite, pulseGlow 2s ease-in-out infinite alternate;
 }
 
 .game-row.completed {
@@ -576,8 +626,8 @@ mat-grid-tile.game-card {
 
 /* Live game expansion row */
 .live-game-expansion {
-    background: rgba(231, 76, 60, 0.05);
-    border: 1px solid rgba(231, 76, 60, 0.2);
+    background: rgba(120, 140, 190, 0.12);
+    border: 1px solid rgba(120, 140, 190, 0.35);
     border-top: none;
     border-right: none;
     padding: 8px 12px 6px 12px;
@@ -588,6 +638,98 @@ mat-grid-tile.game-card {
     color: var(--card-text);
     z-index: 1;
     position: relative;
+    text-align: center;
+    box-shadow: inset 0 0 8px rgba(120, 140, 190, 0.08);
+}
+
+/* Live pick expansion for individual pick items */
+.live-pick-expansion {
+    background: rgba(120, 140, 190, 0.12);
+    border: 1px solid rgba(120, 140, 190, 0.35);
+    border-top: none;
+    padding: 6px 12px 4px 12px;
+    margin-top: -4px;
+    margin-bottom: 1px;
+    border-radius: 0 0 4px 4px;
+    font-size: 0.8em;
+    color: var(--card-text);
+    text-align: center;
+    box-shadow: inset 0 0 8px rgba(120, 140, 190, 0.08);
+}
+
+.live-pick-expansion .game-score,
+.live-pick-expansion .game-clock,
+.live-pick-expansion .game-possession,
+.live-game-expansion .game-score,
+.live-game-expansion .game-clock,
+.live-game-expansion .game-possession {
+    white-space: nowrap;
+}
+
+/* Pick status highlighting */
+.pick-winning {
+    color: #4caf50 !important;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.pick-losing {
+    color: #f44336 !important;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.pick-neutral {
+    color: var(--card-text);
+    white-space: nowrap;
+}
+
+/* New pick item layout */
+.pick-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+}
+
+.pick-matchup {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+
+.matchup-text {
+    margin: 0 6px;
+    font-size: 0.9em;
+    color: var(--card-text);
+    display: flex;
+    align-items: center;
+}
+
+.pick-details {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pick-type {
+    font-weight: 500;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.picked-team {
+    font-weight: bold;
+    font-size: 0.85em;
+    color: var(--card-text);
+}
+
+.pick-spread {
+    font-weight: 500;
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 
@@ -757,6 +899,35 @@ fieldset legend {
 .pick-item.yellow-pick-class {
     border-left-color: var(--warning-color);
     background: rgba(255, 152, 0, 0.1);
+}
+
+/* Enhanced styling for pending and in-progress states */
+.pick-item.pick-class.pending {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-left-color: rgba(255, 255, 255, 0.3);
+}
+
+.pick-item.pick-class.in-progress {
+    background: 
+        linear-gradient(
+            135deg,
+            rgba(180, 200, 240, 0.06) 25%,
+            rgba(120, 140, 190, 0.20) 25%,
+            rgba(120, 140, 190, 0.20) 50%,
+            rgba(180, 200, 240, 0.06) 50%,
+            rgba(180, 200, 240, 0.06) 75%,
+            rgba(120, 140, 190, 0.20) 75%
+        ),
+        var(--card-bg);
+    background-size: 24px 24px, auto;
+    animation: moveStripes 2.4s linear infinite, pulseGlow 2s ease-in-out infinite alternate;
+    border-left-color: rgba(120, 140, 190, 0.8);
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 10px rgba(120, 140, 190, 0.12);
+    /* Performance optimizations for smooth animation */
+    will-change: background-position;
+    transform: translateZ(0); /* Force hardware acceleration */
 }
 
 .pick-info {
@@ -1012,8 +1183,9 @@ fieldset legend {
 }
 
 .game-row.in_play:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    transition: background-color 0.2s ease;
+    /* Maintain the animated background on hover */
+    opacity: 0.9;
+    transition: opacity 0.2s ease;
 }
 
 .game-expansion-container {
@@ -1101,9 +1273,13 @@ fieldset legend {
 }
 
 .team-img-small {
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    object-fit: contain;
+    margin: 0 2px;
+    -webkit-filter: drop-shadow(1px 0 0 white) drop-shadow(-1px 0 0 white) drop-shadow(0 1px 0 white) drop-shadow(0 -1px 0 white) drop-shadow(2px 2px 1px rgba(0, 0, 0, 0.8)) !important;
+    filter: drop-shadow(1px 0 0 white) drop-shadow(-1px 0 0 white) drop-shadow(0 1px 0 white) drop-shadow(0 -1px 0 white) drop-shadow(2px 2px 1px rgba(0, 0, 0, 0.8)) !important;
 }
 
 .team-score {

@@ -87,12 +87,12 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 		return nil, fmt.Errorf("failed to get user record: %w", err)
 	}
 	
-	// Get parlay points for the season
-	seasonParlayTotal, err := s.parlayRepo.GetUserSeasonTotal(ctx, userID, season)
+	// Get cumulative parlay points up to the current week (not entire season)
+	cumulativeParlayTotal, err := s.parlayRepo.GetUserCumulativeScoreUpToWeek(ctx, userID, season, week)
 	if err != nil {
-		log.Printf("Warning: failed to get parlay total for user %d season %d: %v", userID, season, err)
+		log.Printf("Warning: failed to get cumulative parlay total for user %d season %d week %d: %v", userID, season, week, err)
 	} else {
-		record.ParlayPoints = seasonParlayTotal
+		record.ParlayPoints = cumulativeParlayTotal
 	}
 	
 	// Get parlay points for this specific week
@@ -196,12 +196,12 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 			record = &models.UserRecord{} // Empty record on error
 		}
 		
-		// Get parlay points for the season
-		seasonParlayTotal, err := s.parlayRepo.GetUserSeasonTotal(ctx, user.ID, season)
+		// Get cumulative parlay points up to the current week (not entire season)
+		cumulativeParlayTotal, err := s.parlayRepo.GetUserCumulativeScoreUpToWeek(ctx, user.ID, season, week)
 		if err != nil {
-			log.Printf("Warning: failed to get parlay total for user %d season %d: %v", user.ID, season, err)
+			log.Printf("Warning: failed to get cumulative parlay total for user %d season %d week %d: %v", user.ID, season, week, err)
 		} else {
-			record.ParlayPoints = seasonParlayTotal
+			record.ParlayPoints = cumulativeParlayTotal
 		}
 		
 		// Get parlay points for this specific week

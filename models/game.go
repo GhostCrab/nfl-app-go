@@ -22,19 +22,35 @@ type Odds struct {
 	OU     float64 `json:"ou" bson:"ou"`         // Over/Under total points
 }
 
+// GameStatus represents live game status information
+type GameStatus struct {
+	DisplayClock            string `json:"displayClock" bson:"displayClock"`                       // Game clock (e.g., "12:34", "0:00")
+	Possession              string `json:"possession,omitempty" bson:"possession,omitempty"`               // Team abbreviation with ball
+	PossessionText          string `json:"possessionText,omitempty" bson:"possessionText,omitempty"`       // Field position (e.g., "NYG 25")
+	DownDistanceText        string `json:"downDistanceText,omitempty" bson:"downDistanceText,omitempty"`   // Full down/distance text
+	ShortDownDistanceText   string `json:"shortDownDistanceText,omitempty" bson:"shortDownDistanceText,omitempty"` // Short down/distance (e.g., "1st & 10")
+	Down                    int    `json:"down,omitempty" bson:"down,omitempty"`                           // Current down (1-4)
+	YardLine                int    `json:"yardLine,omitempty" bson:"yardLine,omitempty"`                   // Yard line position
+	Distance                int    `json:"distance,omitempty" bson:"distance,omitempty"`                   // Yards to go for first down
+	IsRedZone               bool   `json:"isRedZone" bson:"isRedZone"`                             // Whether team is in red zone
+	HomeTimeouts            int    `json:"homeTimeouts" bson:"homeTimeouts"`                       // Home team timeouts remaining
+	AwayTimeouts            int    `json:"awayTimeouts" bson:"awayTimeouts"`                       // Away team timeouts remaining
+}
+
 // Game represents an NFL game with scores and metadata
 type Game struct {
-	ID        int       `json:"id" bson:"id"`
-	Season    int       `json:"season" bson:"season"`
-	Date      time.Time `json:"date" bson:"date"`
-	Week      int       `json:"week" bson:"week"`
-	Away      string    `json:"away" bson:"away"`
-	Home      string    `json:"home" bson:"home"`
-	State     GameState `json:"state" bson:"state"`
-	AwayScore int       `json:"awayScore" bson:"awayScore"`
-	HomeScore int       `json:"homeScore" bson:"homeScore"`
-	Quarter   int       `json:"quarter" bson:"quarter"`
-	Odds      *Odds     `json:"odds,omitempty" bson:"odds,omitempty"` // Betting odds (nil if not available)
+	ID        int          `json:"id" bson:"id"`
+	Season    int          `json:"season" bson:"season"`
+	Date      time.Time    `json:"date" bson:"date"`
+	Week      int          `json:"week" bson:"week"`
+	Away      string       `json:"away" bson:"away"`
+	Home      string       `json:"home" bson:"home"`
+	State     GameState    `json:"state" bson:"state"`
+	AwayScore int          `json:"awayScore" bson:"awayScore"`
+	HomeScore int          `json:"homeScore" bson:"homeScore"`
+	Quarter   int          `json:"quarter" bson:"quarter"`
+	Odds      *Odds        `json:"odds,omitempty" bson:"odds,omitempty"`     // Betting odds (nil if not available)
+	Status    *GameStatus  `json:"status,omitempty" bson:"status,omitempty"` // Live game status (nil if not available)
 }
 
 // IsCompleted returns true if the game is finished
@@ -152,10 +168,17 @@ func (g *Game) FormatHomeSpread() string {
 	}
 }
 
-// getTeamIconURL returns the ESPN logo URL for a given team abbreviation
+// getTeamIconURL returns the ESPN logo URL for a given team abbreviation or special icon for Over/Under
 func getTeamIconURL(teamAbbr string) string {
 	if teamAbbr == "" {
 		return ""
+	}
+	// Special cases for Over/Under picks
+	if teamAbbr == "OVR" {
+		return "https://api.iconify.design/mdi/chevron-double-up.svg"
+	}
+	if teamAbbr == "UND" {
+		return "https://api.iconify.design/mdi/chevron-double-down.svg"
 	}
 	// Convert to lowercase for ESPN API
 	teamLower := strings.ToLower(teamAbbr)
@@ -189,4 +212,96 @@ func (g *Game) PacificTime() time.Time {
 func (g *Game) FormatGameTime() string {
 	pacificTime := g.PacificTime()
 	return pacificTime.Format("1/2/06 3:04 PM")
+}
+
+// HasStatus returns true if live game status is available
+func (g *Game) HasStatus() bool {
+	return g.Status != nil
+}
+
+// SetStatus sets the live game status
+func (g *Game) SetStatus(displayClock, possession, possessionText, downDistanceText, shortDownDistanceText string,
+	down, yardLine, distance, homeTimeouts, awayTimeouts int, isRedZone bool) {
+	g.Status = &GameStatus{
+		DisplayClock:          displayClock,
+		Possession:            possession,
+		PossessionText:        possessionText,
+		DownDistanceText:      downDistanceText,
+		ShortDownDistanceText: shortDownDistanceText,
+		Down:                  down,
+		YardLine:              yardLine,
+		Distance:              distance,
+		IsRedZone:             isRedZone,
+		HomeTimeouts:          homeTimeouts,
+		AwayTimeouts:          awayTimeouts,
+	}
+}
+
+// GetGameClock returns the display clock or empty string if not available
+func (g *Game) GetGameClock() string {
+	if g.HasStatus() {
+		return g.Status.DisplayClock
+	}
+	return ""
+}
+
+// GetPossessionString returns formatted possession information like "NYG 1st & 10 at NYG 25"
+func (g *Game) GetPossessionString() string {
+	if !g.HasStatus() || g.Status.Possession == "" {
+		return ""
+	}
+	
+	parts := []string{}
+	if g.Status.Possession != "" {
+		parts = append(parts, g.Status.Possession)
+	}
+	if g.Status.ShortDownDistanceText != "" {
+		parts = append(parts, g.Status.ShortDownDistanceText)
+	}
+	if g.Status.PossessionText != "" {
+		parts = append(parts, fmt.Sprintf("at %s", g.Status.PossessionText))
+	}
+	
+	if len(parts) > 0 {
+		return strings.Join(parts, " ")
+	}
+	return ""
+}
+
+// GetLiveStatusString returns formatted live status like "Q1 12:34: NYG 1st & 10 at NYG 25"
+func (g *Game) GetLiveStatusString() string {
+	if !g.IsInProgress() {
+		return ""
+	}
+	
+	parts := []string{}
+	
+	// Quarter and clock
+	quarterStr := fmt.Sprintf("Q%d", g.Quarter)
+	if g.Quarter == 5 {
+		quarterStr = "OT"
+	} else if g.Quarter == 6 {
+		quarterStr = "Halftime"
+	}
+	
+	if g.HasStatus() && g.Status.DisplayClock != "" {
+		if g.Status.DisplayClock == "0:00" {
+			if g.Quarter == 2 {
+				quarterStr = "Halftime"
+			} else {
+				quarterStr = fmt.Sprintf("End %s", quarterStr)
+			}
+		} else {
+			quarterStr = fmt.Sprintf("%s %s", quarterStr, g.Status.DisplayClock)
+		}
+	}
+	parts = append(parts, quarterStr)
+	
+	// Possession info
+	possessionStr := g.GetPossessionString()
+	if possessionStr != "" {
+		parts = append(parts, possessionStr)
+	}
+	
+	return strings.Join(parts, ": ")
 }

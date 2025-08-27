@@ -134,6 +134,8 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			log.Printf("GameHandler: Warning - failed to load picks for week %d, season %d: %v", currentWeek, season, err)
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		}
+		// Apply demo effects to picks for Week 1 games (but avoid "pending" string)
+		userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks)
 	} else {
 		log.Printf("GameHandler: WARNING - No pick service available")
 	}
@@ -160,10 +162,31 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		CurrentSeason: season,
 	}
 
-	// Use dashboard template instead of games template
-	err = h.templates.ExecuteTemplate(w, "dashboard.html", data)
+	// Check if this is an HTMX request
+	isHTMXRequest := r.Header.Get("HX-Request") == "true"
+	
+	var templateName string
+	var contentType string
+	
+	if isHTMXRequest {
+		// HTMX request - return only the dashboard content
+		templateName = "dashboard-content"
+		contentType = "text/html; charset=utf-8"
+		log.Printf("HTTP: Serving HTMX partial content for week %d, season %d", currentWeek, season)
+	} else {
+		// Regular request - return full page
+		templateName = "dashboard.html"
+		contentType = "text/html; charset=utf-8"
+		log.Printf("HTTP: Serving full page for week %d, season %d", currentWeek, season)
+	}
+	
+	// Set content type
+	w.Header().Set("Content-Type", contentType)
+	
+	// Execute the appropriate template
+	err = h.templates.ExecuteTemplate(w, templateName, data)
 	if err != nil {
-		log.Printf("GameHandler: Template error: %v", err)
+		log.Printf("GameHandler: Template error (%s): %v", templateName, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -400,6 +423,55 @@ func (h *GameHandler) getCurrentWeek(games []models.Game) int {
 	return currentWeek
 }
 
+// applyDemoEffectsToPicksForWeek1 modifies picks for Week 1 games to appear as pending/in-progress
+func (h *GameHandler) applyDemoEffectsToPicksForWeek1(userPicks []*models.UserPicks) []*models.UserPicks {
+	if len(userPicks) == 0 {
+		return userPicks
+	}
+
+	// Create a copy to avoid modifying original data
+	demoUserPicks := make([]*models.UserPicks, len(userPicks))
+	for i, userPicksPtr := range userPicks {
+		if userPicksPtr == nil {
+			continue
+		}
+		
+		// Create a copy of the UserPicks struct
+		userPicksCopy := *userPicksPtr
+		
+		// Apply demo effects to all pick categories
+		userPicksCopy.Picks = h.applyDemoEffectsToPicks(userPicksCopy.Picks)
+		userPicksCopy.SpreadPicks = h.applyDemoEffectsToPicks(userPicksCopy.SpreadPicks)
+		userPicksCopy.OverUnderPicks = h.applyDemoEffectsToPicks(userPicksCopy.OverUnderPicks)
+		userPicksCopy.BonusThursdayPicks = h.applyDemoEffectsToPicks(userPicksCopy.BonusThursdayPicks)
+		userPicksCopy.BonusFridayPicks = h.applyDemoEffectsToPicks(userPicksCopy.BonusFridayPicks)
+		
+		demoUserPicks[i] = &userPicksCopy
+	}
+	
+	return demoUserPicks
+}
+
+// applyDemoEffectsToPicks modifies individual picks for Week 1 games to appear pending
+func (h *GameHandler) applyDemoEffectsToPicks(picks []models.Pick) []models.Pick {
+	if len(picks) == 0 {
+		return picks
+	}
+	
+	demoPicks := make([]models.Pick, len(picks))
+	for i, pick := range picks {
+		// Copy the pick
+		demoPicks[i] = pick
+		
+		// For Week 1 picks, make them appear as in-progress (use empty string to avoid "pending")
+		if pick.Week == 1 && (pick.Result == models.PickResultWin || pick.Result == models.PickResultLoss || pick.Result == models.PickResultPush) {
+			demoPicks[i].Result = models.PickResult("") // Empty string instead of "pending"
+		}
+	}
+	
+	return demoPicks
+}
+
 // GetGamesAPI handles GET /api/games - returns just the games grid HTML for AJAX requests
 func (h *GameHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
 	
@@ -548,6 +620,8 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 			log.Printf("API: Warning - failed to load picks for week %d, season %d: %v", currentWeek, season, err)
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		}
+		// Apply demo effects to picks for Week 1 games (but avoid "pending" string)
+		userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks)
 	} else {
 		log.Printf("API: WARNING - No pick service available")
 	}
@@ -581,5 +655,6 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 	}
 	
 }
+
 
 

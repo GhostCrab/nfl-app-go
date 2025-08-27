@@ -37,255 +37,15 @@
             {{else}}
                 <a href="/login" class="login-button">Login</a>
             {{end}}
-            <button class="theme-toggle" onclick="toggleTheme()">☀️</button>
+            <button class="theme-toggle" id="theme-toggle">☀️</button>
         </div>
     </mat-toolbar>
 
     <!-- Dashboard Container - Exact legacy three-column layout -->
-    <div class="dashboard-container">
-        <div class="dashboard-content">
-            <!-- Left Column: Pick Lists - Material Design Structure -->
-            <div class="pick-flex-item">
-                <!-- Unified rendering for all users (current user first, then others) -->
-                {{if .UserPicks}}
-                    {{$currentUserName := ""}}
-                    {{if .User}}{{$currentUserName = .User.Name}}{{end}}
-                    
-                    <!-- Render current user first if logged in -->
-                    {{if .User}}
-                        {{range .UserPicks}}
-                            {{if eq .UserName $currentUserName}}
-                                <fieldset class="user-picks-section">
-                                    <legend>MY PICKS</legend>
-                                    <div class="user-picks-content">
-
-                                    <!-- Bonus Thursday picks -->
-                                    {{if .BonusThursdayPicks}}
-                                        <div class="regular-picks-section">
-                                            <div class="picks-category-header">BONUS THURSDAY</div>
-                                            <div class="picks-list">
-                                                {{range .BonusThursdayPicks}}
-                                                    <div class="pick-item {{.GetResultClass}}">
-                                                        <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                        <span class="pick-result">{{.Result}}</span>
-                                                    </div>
-                                                {{end}}
-                                            </div>
-                                        </div>
-                                    {{end}}
-
-                                    <!-- Bonus Friday picks -->
-                                    {{if .BonusFridayPicks}}
-                                        <div class="regular-picks-section">
-                                            <div class="picks-category-header">BONUS FRIDAY</div>
-                                            <div class="picks-list">
-                                                {{range .BonusFridayPicks}}
-                                                    <div class="pick-item {{.GetResultClass}}">
-                                                        <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                        <span class="pick-result">{{.Result}}</span>
-                                                    </div>
-                                                {{end}}
-                                            </div>
-                                        </div>
-                                    {{end}}
-
-                                    <!-- Remaining picks (filtered to exclude bonus picks) -->
-                                    {{if .Picks}}
-                                        {{$hasAnyBonusPicks := or .BonusThursdayPicks .BonusFridayPicks}}
-                                        {{if $hasAnyBonusPicks}}
-                                            <div class="regular-picks-section">
-                                                <div class="picks-category-header">REMAINING PICKS</div>
-                                                <div class="picks-list">
-                                                    {{$userPicks := .}}
-                                                    {{range .Picks}}
-                                                        {{$currentPick := .}}
-                                                        {{$isBonus := false}}
-                                                        {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                                        {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                                        {{if not $isBonus}}
-                                                        <div class="pick-item {{.GetResultClass}}">
-                                                            <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                            <span class="pick-result">{{.Result}}</span>
-                                                        </div>
-                                                        {{end}}
-                                                    {{end}}
-                                                </div>
-                                            </div>
-                                        {{else}}
-                                            <!-- No bonus picks - use same container structure but no header -->
-                                            <div class="picks-list">
-                                                {{range .Picks}}
-                                                    <div class="pick-item {{.GetResultClass}}">
-                                                        <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                        <span class="pick-result">{{.Result}}</span>
-                                                    </div>
-                                                {{end}}
-                                            </div>
-                                        {{end}}
-                                    {{else}}
-                                        <div class="no-picks">No picks yet for this week</div>
-                                    {{end}}
-                                    </div>
-                                </fieldset>
-                            {{end}}
-                        {{end}}
-                    {{else}}
-                        <!-- Not logged in - show historical picks overview -->
-                        <fieldset class="user-picks-section mt-4">
-                            <legend>Historical Picks Available</legend>
-                            <div class="user-picks-content">
-                                <div class="historical-picks-info">
-                                    <p>Historical picks are available for this week.</p>
-                                    <p>Log in to see detailed pick information.</p>
-                                    <p>{{len .UserPicks}} users made picks this week.</p>
-                                </div>
-                            </div>
-                        </fieldset>
-                    {{end}}
-
-                    <!-- Render all other users -->
-                    {{range .UserPicks}}
-                        {{if ne .UserName $currentUserName}}
-                            <fieldset class="user-picks-section mt-4">
-                                <legend>{{.UserName}}'S PICKS</legend>
-                                <div class="user-picks-content">
-
-                                <!-- Bonus Thursday picks -->
-                                {{if .BonusThursdayPicks}}
-                                    <div class="regular-picks-section">
-                                        <div class="picks-category-header">BONUS THURSDAY</div>
-                                        <div class="picks-list">
-                                            {{range .BonusThursdayPicks}}
-                                                <div class="pick-item {{.GetResultClass}}">
-                                                    <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                    <span class="pick-result">{{.Result}}</span>
-                                                </div>
-                                            {{end}}
-                                        </div>
-                                    </div>
-                                {{end}}
-
-                                <!-- Bonus Friday picks -->
-                                {{if .BonusFridayPicks}}
-                                    <div class="regular-picks-section">
-                                        <div class="picks-category-header">BONUS FRIDAY</div>
-                                        <div class="picks-list">
-                                            {{range .BonusFridayPicks}}
-                                                <div class="pick-item {{.GetResultClass}}">
-                                                    <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                    <span class="pick-result">{{.Result}}</span>
-                                                </div>
-                                            {{end}}
-                                        </div>
-                                    </div>
-                                {{end}}
-
-                                <!-- Remaining picks (filtered to exclude bonus picks) -->
-                                {{if .Picks}}
-                                    {{$hasAnyBonusPicks := or .BonusThursdayPicks .BonusFridayPicks}}
-                                    {{if $hasAnyBonusPicks}}
-                                        <div class="regular-picks-section">
-                                            <div class="picks-category-header">REMAINING PICKS</div>
-                                            <div class="picks-list">
-                                                {{$userPicks := .}}
-                                                {{range .Picks}}
-                                                    {{$currentPick := .}}
-                                                    {{$isBonus := false}}
-                                                    {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                                    {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                                    {{if not $isBonus}}
-                                                    <div class="pick-item {{.GetResultClass}}">
-                                                        <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                        <span class="pick-result">{{.Result}}</span>
-                                                    </div>
-                                                    {{end}}
-                                                {{end}}
-                                            </div>
-                                        </div>
-                                    {{else}}
-                                        <!-- No bonus picks - use same container structure but no header -->
-                                        <div class="picks-list">
-                                            {{range .Picks}}
-                                                <div class="pick-item {{.GetResultClass}}">
-                                                    <span class="pick-info">{{if .PickDescription}}{{.PickDescription}}{{else}}Game {{.GameID}} - Team {{.TeamID}} ({{.PickType}}){{end}}</span>
-                                                    <span class="pick-result">{{.Result}}</span>
-                                                </div>
-                                            {{end}}
-                                        </div>
-                                    {{end}}
-                                {{else}}
-                                    <div class="no-picks">No picks for this week</div>
-                                {{end}}
-                                </div>
-                            </fieldset>
-                        {{end}}
-                    {{end}}
-                {{else}}
-                    <!-- No picks data available -->
-                    <fieldset class="user-picks-section mt-4">
-                        <legend>My Picks</legend>
-                        <div class="user-picks-content">
-                            <div class="no-picks">Please log in to see picks</div>
-                        </div>
-                    </fieldset>
-                {{end}}
-            </div>
-
-            <!-- Center Column: Current Games - Material Design Structure -->
-            <div class="game-flex-item">
-                <!-- Week Selector with mat-form-field structure -->
-                <div class="week-selector-container">
-                    <div class="form-field">
-                        <label for="week-select" class="form-label">View Week</label>
-                        <select id="week-select" class="week-select" onchange="selectWeek(this.value)">
-                            {{range .Weeks}}
-                                <option value="{{.}}" {{if eq . $.CurrentWeek}}selected{{end}}>
-                                    Week {{.}}
-                                </option>
-                            {{end}}
-                        </select>
-                    </div>
-                    <span class="keyboard-hint">
-                        Use ← → arrow keys to navigate
-                    </span>
-                    {{if .User}}
-                        <button class="update-picks-btn" onclick="window.location.href='/picker'">
-                            Update Picks
-                        </button>
-                    {{end}}
-                </div>
-
-                <!-- Games Grid with inline structure -->
-                <div class="games-container" hx-ext="sse" sse-connect="/events">
-                    <div class="section-header" id="games-header">CURRENT GAMES</div>
-                    {{template "game-grid" .}}
-                </div>
-            </div>
-
-            <!-- Right Column: Club Scores - Material Design Structure -->
-            <div class="score-flex-item">
-                <div class="section-header">CLUB SCORE</div>
-                <div class="club-scores">
-                    {{if .UserPicks}}
-                        {{range .UserPicks}}
-                            <div class="score-item">
-                                <span class="user-name">{{.UserName}}</span>
-                                <span class="user-score">{{.Record.String}}</span>
-                            </div>
-                        {{end}}
-                    {{else}}
-                        {{range .Users}}
-                            <div class="score-item">
-                                <span class="user-name">{{.Name}}</span>
-                                <span class="user-score">0-0-0</span>
-                            </div>
-                        {{end}}
-                    {{end}}
-                </div>
-
-            </div>
+    <div class="dashboard-container" hx-ext="sse" sse-connect="/events">
+        <div class="dashboard-content" id="dashboard-content">
+            {{template "dashboard-content" .}}
         </div>
-    </div>
 
     <!-- Template for game grid that will be updated via SSE - Inline Grid Structure -->
     {{define "game-grid"}}
@@ -344,7 +104,14 @@
                         {{if eq .State "scheduled"}}
                             <div class="game-time">{{.FormatGameTime}}</div>
                         {{else if eq .State "in_play"}}
-                            <span class="live-indicator">LIVE</span><span class="game-time">Q{{.Quarter}}</span>
+                            <span class="live-indicator">LIVE</span>
+                            <span class="game-time">
+                                {{if .HasStatus}}
+                                    Q{{.Quarter}} {{.GetGameClock}}
+                                {{else}}
+                                    Q{{.Quarter}}
+                                {{end}}
+                            </span>
                         {{else if eq .State "completed"}}
                             <span class="game-time">FINAL</span>
                             {{if and .HasOdds .IsCompleted}}
@@ -364,17 +131,50 @@
                 {{if eq .State "in_play"}}
                     <!-- Always visible game expansion -->
                     <div class="live-game-expansion">
-                        {{if .HasOdds}}
-                            {{if gt .HomeScore .AwayScore}}
-                                <span class="status-item covering-team">{{.Home}} leading {{.HomeScore}}-{{.AwayScore}}</span>
-                            {{else if lt .HomeScore .AwayScore}}
-                                <span class="status-item covering-team">{{.Away}} leading {{.AwayScore}}-{{.HomeScore}}</span>
-                            {{else}}
-                                <span class="status-item push-status">Tied {{.HomeScore}}-{{.AwayScore}}</span>
+                        <!-- Game Status and Possession -->
+                        {{if .HasStatus}}
+                            {{$possessionStr := .GetPossessionString}}
+                            {{if ne $possessionStr ""}}
+                                <span class="status-item">{{$possessionStr}}</span>
+                                <span class="status-divider"> || </span>
                             {{end}}
-                            <span class="status-divider"> || </span><span class="status-item ou-current">Total: {{add .HomeScore .AwayScore}} (O/U {{.Odds.OU}})</span>
+                        {{end}}
+                        
+                        <!-- O/U Status with tracking -->
+                        {{if .HasOdds}}
+                            {{$currentTotal := add .HomeScore .AwayScore}}
+                            {{$currentTotalFloat := float64 $currentTotal}}
+                            {{$overUnder := .Odds.OU}}
+                            {{if ge $currentTotalFloat $overUnder}}
+                                <span class="status-item ou-current" style="color: #e74c3c; font-weight: bold;">OVER HIT ({{$currentTotal}}/{{$overUnder}})</span>
+                            {{else}}
+                                {{$needed := sub $overUnder $currentTotalFloat}}
+                                {{if le $needed 7.0}}
+                                    <span class="status-item ou-current" style="color: #ff9800; font-weight: bold;">{{ceil $needed}} needed for OVER ({{$currentTotal}}/{{$overUnder}})</span>
+                                {{else}}
+                                    {{/* Check if game is on track for over based on time progression */}}
+                                    {{if .HasStatus}}
+                                        {{$projectedTotal := projectFinalScore .HomeScore .AwayScore .Quarter .GetGameClock}}
+                                        {{if ge $projectedTotal $overUnder}}
+                                            <span class="status-item ou-current" style="color: #ff9800; font-weight: bold;">On track for OVER ({{$currentTotal}}/{{$overUnder}}, proj: {{printf "%.0f" $projectedTotal}})</span>
+                                        {{else}}
+                                            <span class="status-item ou-current">Total: {{$currentTotal}} (O/U {{$overUnder}})</span>
+                                        {{end}}
+                                    {{else}}
+                                        <span class="status-item ou-current">Total: {{$currentTotal}} (O/U {{$overUnder}})</span>
+                                    {{end}}
+                                {{end}}
+                            {{end}}
                         {{else}}
                             <span class="status-item no-odds">{{.AwayScore}} - {{.HomeScore}}</span>
+                        {{end}}
+                        
+                        <!-- Red Zone Indicator -->
+                        {{if .HasStatus}}
+                            {{if .Status.IsRedZone}}
+                                <span class="status-divider"> || </span>
+                                <span class="status-item" style="color: #e74c3c; font-weight: bold;">RED ZONE</span>
+                            {{end}}
                         {{end}}
                     </div>
                 {{end}}
@@ -382,1201 +182,378 @@
         </div>
     {{end}}
 
+    <!-- Dashboard Content Template (for HTMX partial updates) -->
+    {{define "dashboard-content"}}
+        <!-- Left Column: Pick Lists - Material Design Structure -->
+        <div class="pick-flex-item">
+            <!-- Unified rendering for all users (current user first, then others) -->
+            {{if .UserPicks}}
+                {{$currentUserName := ""}}
+                {{if .User}}{{$currentUserName = .User.Name}}{{end}}
+                
+                <!-- Render current user first if logged in -->
+                {{range .UserPicks}}
+                    {{if eq .UserName $currentUserName}}
+                        <fieldset class="user-picks-section">
+                            <legend>MY PICKS</legend>
+                            <div class="user-picks-content">
+
+                            <!-- Bonus Thursday picks -->
+                            {{if .BonusThursdayPicks}}
+                                <div class="regular-picks-section">
+                                    <div class="picks-category-header">BONUS THURSDAY</div>
+                                    <div class="picks-list">
+                                        {{range .BonusThursdayPicks}}
+                                            {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" true}}
+                                        {{end}}
+                                    </div>
+                                </div>
+                            {{end}}
+
+                            <!-- Bonus Friday picks -->
+                            {{if .BonusFridayPicks}}
+                                <div class="regular-picks-section">
+                                    <div class="picks-category-header">BONUS FRIDAY</div>
+                                    <div class="picks-list">
+                                        {{range .BonusFridayPicks}}
+                                            {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" true}}
+                                        {{end}}
+                                    </div>
+                                </div>
+                            {{end}}
+
+                            <!-- Regular picks (filtered to exclude bonus picks) -->
+                            {{if .Picks}}
+                                {{$hasAnyBonusPicks := or .BonusThursdayPicks .BonusFridayPicks}}
+                                {{if $hasAnyBonusPicks}}
+                                    <div class="regular-picks-section">
+                                        <div class="picks-category-header">REMAINING PICKS</div>
+                                        <div class="picks-list">
+                                            {{$userPicks := .}}
+                                            {{range .Picks}}
+                                                {{$currentPick := .}}
+                                                {{$isBonus := false}}
+                                                {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                                {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                                {{if not $isBonus}}
+                                                    {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" true}}
+                                                {{end}}
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                {{else}}
+                                    <div class="regular-picks-section">
+                                        <div class="picks-category-header">REMAINING PICKS</div>
+                                        <div class="picks-list">
+                                            {{range .Picks}}
+                                                {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" true}}
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                {{end}}
+                            {{end}}
+                            </div>
+                        </fieldset>
+                    {{end}}
+                {{end}}
+
+                <!-- Render other users -->
+                {{range .UserPicks}}
+                    {{if ne .UserName $currentUserName}}
+                        <fieldset class="user-picks-section">
+                            <legend>{{.UserName}}'S PICKS</legend>
+                            <div class="user-picks-content">
+
+                            <!-- Bonus Thursday picks -->
+                            {{if .BonusThursdayPicks}}
+                                <div class="regular-picks-section">
+                                    <div class="picks-category-header">BONUS THURSDAY</div>
+                                    <div class="picks-list">
+                                        {{range .BonusThursdayPicks}}
+                                            {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" false}}
+                                        {{end}}
+                                    </div>
+                                </div>
+                            {{end}}
+
+                            <!-- Bonus Friday picks -->
+                            {{if .BonusFridayPicks}}
+                                <div class="regular-picks-section">
+                                    <div class="picks-category-header">BONUS FRIDAY</div>
+                                    <div class="picks-list">
+                                        {{range .BonusFridayPicks}}
+                                            {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" false}}
+                                        {{end}}
+                                    </div>
+                                </div>
+                            {{end}}
+
+                            <!-- Regular picks (filtered to exclude bonus picks) -->
+                            {{if .Picks}}
+                                {{$hasAnyBonusPicks := or .BonusThursdayPicks .BonusFridayPicks}}
+                                {{if $hasAnyBonusPicks}}
+                                    <div class="regular-picks-section">
+                                        <div class="picks-category-header">REMAINING PICKS</div>
+                                        <div class="picks-list">
+                                            {{$userPicks := .}}
+                                            {{range .Picks}}
+                                                {{$currentPick := .}}
+                                                {{$isBonus := false}}
+                                                {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                                {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                                {{if not $isBonus}}
+                                                    {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" false}}
+                                                {{end}}
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                {{else}}
+                                    <div class="regular-picks-section">
+                                        <div class="picks-category-header">REMAINING PICKS</div>
+                                        <div class="picks-list">
+                                            {{range .Picks}}
+                                                {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" false}}
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                {{end}}
+                            {{end}}
+                            </div>
+                        </fieldset>
+                    {{end}}
+                {{end}}
+            {{else}}
+                <!-- No picks data available -->
+                <fieldset class="user-picks-section mt-4">
+                    <legend>My Picks</legend>
+                    <div class="user-picks-content">
+                        <div class="no-picks">Please log in to see picks</div>
+                    </div>
+                </fieldset>
+            {{end}}
+        </div>
+
+        <!-- Center Column: Current Games - Material Design Structure -->
+        <div class="game-flex-item">
+            <!-- Week Selector with mat-form-field structure -->
+            <div class="week-selector-container">
+                <div class="form-field">
+                    <label for="week-select" class="form-label">View Week</label>
+                    <select id="week-select" name="week" class="week-select" 
+                            hx-get="/" 
+                            hx-target="#dashboard-content"
+                            hx-include="[name='season']"
+                            hx-trigger="change">
+                        {{range .Weeks}}
+                            <option value="{{.}}" {{if eq . $.CurrentWeek}}selected{{end}}>
+                                Week {{.}}
+                            </option>
+                        {{end}}
+                    </select>
+                    <input type="hidden" name="season" value="{{.CurrentSeason}}">
+                </div>
+                <span class="keyboard-hint">
+                    Use ← → arrow keys to navigate
+                </span>
+                {{if .User}}
+                    <a href="/picker" class="update-picks-btn">
+                        Update Picks
+                    </a>
+                {{end}}
+            </div>
+
+            <!-- Games Grid with inline structure -->
+            <div class="games-container">
+                <div class="section-header" id="games-header">CURRENT GAMES</div>
+                {{template "game-grid" .}}
+            </div>
+        </div>
+
+        <!-- Right Column: Club Scores - Material Design Structure -->
+        <div class="score-flex-item">
+            <div class="section-header">CLUB SCORE</div>
+            <div class="club-scores">
+                {{if .UserPicks}}
+                    {{$sortedUsers := sortUsersByScore .UserPicks}}
+                    {{range $sortedUsers}}
+                        <div class="score-item">
+                            <span class="user-name">{{.UserName}}</span>
+                            <span class="user-score">
+                                {{.Record.ParlayPoints}}
+                                {{if .Record.WeeklyPoints}}
+                                    <span class="weekly-gain">(+{{.Record.WeeklyPoints}})</span>
+                                {{end}}
+                            </span>
+                        </div>
+                    {{end}}
+                {{else}}
+                    {{range .Users}}
+                        <div class="score-item">
+                            <span class="user-name">{{.Name}}</span>
+                            <span class="user-score">0</span>
+                        </div>
+                    {{end}}
+                {{end}}
+            </div>
+        </div>
+    {{end}}
+
+    <!-- Unified Pick Item Template -->
+    {{define "unified-pick-item"}}
+        {{$pick := .Pick}}
+        {{$games := .Games}}
+        {{$isCurrentUser := .IsCurrentUser}}
+        {{$game := findGameByID $games $pick.GameID}}
+        <div class="pick-item {{getResultClass $pick $game}}">
+            <div class="pick-matchup">
+                {{if $game}}
+                    <span class="matchup-text">
+                        <img class="team-img-small" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>{{$game.Away}} @ <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>{{$game.Home}}
+                    </span>
+                {{end}}
+            </div>
+            <div class="pick-details">
+                {{if $pick.PickDescription}}
+                    {{$cleanDesc := regexReplace $pick.PickDescription "\\s*\\([^)]*\\)\\s*" ""}}
+                    {{$teamAbbr := getPickTeamAbbr $pick $game $cleanDesc}}
+                    {{$teamIcon := getPickTeamIcon $teamAbbr}}
+                    {{$pickValue := getPickValue $pick $game $cleanDesc}}
+                    <img class="team-img-small" src="{{$teamIcon}}" alt="{{$teamAbbr}}" onerror="this.style.display='none'"/>
+                    <span class="picked-team">{{$teamAbbr}}</span>
+                    <span class="pick-spread">{{$pickValue}}</span>
+                {{else}}
+                    <span class="pick-type">{{$pick.PickType}}</span>
+                {{end}}
+            </div>
+        </div>
+        {{if and $game (eq $game.State "in_play")}}
+            <div class="live-pick-expansion">
+                <span class="game-score">{{$game.Away}} {{$game.AwayScore}} - {{$game.HomeScore}} {{$game.Home}}</span>
+                <span class="game-clock">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
+                {{if $game.HasStatus}}
+                    {{$possessionStr := $game.GetPossessionString}}
+                    {{if ne $possessionStr ""}}<span class="game-possession">{{$possessionStr}}</span>{{end}}
+                {{end}}
+                {{if isOverUnder $pick}}
+                    {{if $game.HasOdds}}
+                        {{$currentTotal := add $game.HomeScore $game.AwayScore}}
+                        {{$currentTotalFloat := float64 $currentTotal}}
+                        {{$overUnder := $game.Odds.OU}}
+                        {{if $game.HasStatus}}
+                            {{$projectedTotal := projectFinalScore $game.HomeScore $game.AwayScore $game.Quarter $game.GetGameClock}}
+                            {{if ge $projectedTotal $overUnder}}
+                                {{if contains $pick.PickDescription "Over"}}
+                                    <span class="pick-winning">{{$currentTotal}}/{{$overUnder}} OVER PACE</span>
+                                {{else}}
+                                    <span class="pick-losing">{{$currentTotal}}/{{$overUnder}} OVER PACE</span>
+                                {{end}}
+                            {{else}}
+                                {{if contains $pick.PickDescription "Over"}}
+                                    <span class="pick-losing">{{$currentTotal}}/{{$overUnder}} UNDER PACE</span>
+                                {{else}}
+                                    <span class="pick-winning">{{$currentTotal}}/{{$overUnder}} UNDER PACE</span>
+                                {{end}}
+                            {{end}}
+                        {{else}}
+                            <span class="pick-neutral">{{$currentTotal}}/{{$overUnder}}</span>
+                        {{end}}
+                    {{end}}
+                {{else if isSpreadPick $pick}}
+                    {{$coverStatus := isPickedTeamCovering $pick $game}}
+                    {{$teamAbbr := ""}}
+                    {{$differential := 0}}
+                    {{if and (contains $pick.TeamName $game.Home) (ne $game.Home "")}}
+                        {{$teamAbbr = $game.Home}}
+                        {{$differential = minus $game.AwayScore $game.HomeScore}}
+                    {{else if and (contains $pick.TeamName $game.Away) (ne $game.Away "")}}
+                        {{$teamAbbr = $game.Away}}
+                        {{$differential = minus $game.HomeScore $game.AwayScore}}
+                    {{else}}
+                        {{$teamAbbr = $pick.TeamName}}
+                        {{$differential = minus $game.HomeScore $game.AwayScore}}
+                    {{end}}
+                    {{if eq $coverStatus "covering"}}
+                        <span class="pick-winning">{{$teamAbbr}} {{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                    {{else if eq $coverStatus "push"}}
+                        <span class="pick-neutral">{{$teamAbbr}} PUSH</span>
+                    {{else if eq $coverStatus "not-covering"}}
+                        <span class="pick-losing">{{$teamAbbr}} {{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                    {{else}}
+                        <span class="pick-losing">{{$teamAbbr}} {{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                    {{end}}
+                {{else}}
+                    <span class="pick-neutral">{{$game.AwayScore}} - {{$game.HomeScore}}</span>
+                {{end}}
+            </div>
+        {{end}}
+    {{end}}
+
     <script>
-        function toggleTheme() {
+        // Initialize global navigation state
+        window.currentWeek = {{.CurrentWeek}};
+        window.currentSeason = {{.CurrentSeason}};
+        
+        // Minimal JavaScript for theme toggle
+        document.getElementById('theme-toggle').addEventListener('click', function() {
             const html = document.documentElement;
-            const button = document.querySelector('.theme-toggle');
-            
-            if (html.getAttribute('data-theme') === 'light') {
-                html.removeAttribute('data-theme');
-                button.textContent = '☀️';
-                localStorage.setItem('theme', 'dark');
-            } else {
-                html.setAttribute('data-theme', 'light');
-                button.textContent = '🌙';
-                localStorage.setItem('theme', 'light');
-            }
-        }
-
-
-        async function selectWeek(week) {
-            // Use the same fast AJAX navigation logic as keyboard navigation
-            const newWeek = parseInt(week);
-            const newSeason = currentDisplayedSeason; // Keep current season
-            
-            if (newWeek !== currentDisplayedWeek) {
-                // Use the unified loading system with deduplication
-                const data = await loadDashboardData(newWeek, newSeason);
-                if (data && typeof data === 'object' && data.userPicks) {
-                    updateDashboardDisplay(data);
-                }
-            }
-        }
-
-        // Navigation variables with caching
-        let currentDisplayedWeek = {{.CurrentWeek}};
-        let currentDisplayedSeason = {{.CurrentSeason}}; // Use server-provided season
-        const MIN_SEASON = 2023;
-        const MAX_SEASON = 2025;
-        
-        // Cache for storing game data by season and week
-        let seasonCache = {};
-        let isLoading = false;
-        
-        // Track pending requests to prevent duplicate loads of the same week
-        let pendingRequests = new Map(); // Map<string, Promise>
-        
-        // Preload all NFL team logos at startup
-        const NFL_TEAMS = ['ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE', 'DAL', 'DEN', 'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC', 'LAC', 'LAR', 'LV', 'MIA', 'MIN', 'NE', 'NO', 'NYG', 'NYJ', 'PHI', 'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WSH'];
-        let preloadedImages = new Set();
-        
-        // Map team abbreviations to their correct ESPN logo names
-        const TEAM_LOGO_MAP = {
-            'WAS': 'wsh', // Washington uses 'wsh' for ESPN logos, not 'was'
-            'WSH': 'wsh'
-        };
-        
-        // Preload all team images at startup
-        function preloadAllTeamImages() {
-            NFL_TEAMS.forEach(team => {
-                const img = new Image();
-                img.onload = () => {
-                    preloadedImages.add(team);
-                };
-                const logoName = TEAM_LOGO_MAP[team] || team.toLowerCase();
-                img.src = `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/${logoName}.png`;
-            });
-        }
-        
-        // Get team image element - will be served from browser cache if preloaded
-        function getTeamImageElement(teamAbbr) {
-            const img = document.createElement('img');
-            img.className = 'team-img';
-            img.alt = teamAbbr;
-            img.onerror = function() { this.style.display = 'none'; };
-            
-            // Use the correct logo name for ESPN
-            const logoName = TEAM_LOGO_MAP[teamAbbr] || teamAbbr.toLowerCase();
-            img.src = `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/${logoName}.png`;
-            return img;
-        }
-        
-
-        // Fast AJAX navigation for arrow keys - loads complete dashboard data with deduplication
-        async function loadDashboardData(week, season) {
-            const requestKey = `${season}-${week}`;
-            
-            // Check if this exact request is already in progress
-            if (pendingRequests.has(requestKey)) {
-                console.log(`Reusing pending request for ${requestKey}`);
-                return await pendingRequests.get(requestKey);
-            }
-            
-            // Check cache first
-            if (seasonCache[season] && seasonCache[season][week]) {
-                console.log(`Using cached data for ${requestKey}`);
-                return seasonCache[season][week];
-            }
-            
-            const url = `/api/dashboard?week=${week}&season=${season}`;
-            console.log(`Starting new request for ${requestKey}`);
-            
-            // Create the request promise
-            const requestPromise = (async () => {
-                try {
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
-                    
-                    // Cache the result
-                    if (data && typeof data === 'object' && data.userPicks) {
-                        if (!seasonCache[season]) seasonCache[season] = {};
-                        seasonCache[season][week] = data;
-                    }
-                    
-                    return data;
-                } catch (error) {
-                    console.error(`Failed to load dashboard data for ${requestKey}:`, error);
-                    return null;
-                } finally {
-                    // Remove from pending requests when done
-                    pendingRequests.delete(requestKey);
-                }
-            })();
-            
-            // Store the promise to prevent duplicate requests
-            pendingRequests.set(requestKey, requestPromise);
-            
-            return await requestPromise;
-        }
-
-        // Update the dashboard display with new data
-        async function updateDashboardDisplay(data) {
-            if (!data) return;
-            
-            // Check if data is HTML string instead of JSON object
-            if (typeof data === 'string') {
-                console.error('ERROR: updateDashboardDisplay received HTML string instead of JSON object');
-                return;
-            }
-            
-            const { games, userPicks, user, currentWeek: week, season } = data;
-            
-            // Update games grid - use cached games data if available, otherwise fetch from API
-            if (games && Array.isArray(games) && games.length > 0) {
-                updateGamesGridFromData(games);
-            } else {
-                await updateGamesGrid(week, season);
-            }
-            
-            // Update picks display with client-side rendering
-            updatePicksDisplay(userPicks, user);
-            
-            // Update other players' picks display
-            updateOtherPlayersDisplay(userPicks, user);
-            
-            // Update header
-            const gamesHeader = document.getElementById('games-header');
-            if (gamesHeader) {
-                if (season === 2025) {
-                    gamesHeader.textContent = `Week ${week} Games`;
-                } else {
-                    gamesHeader.textContent = `Week ${week} Games (${season})`;
-                }
-            }
-            
-            // Update URL without reload
-            const url = new URL(window.location);
-            url.searchParams.set('week', week);
-            if (season !== 2025) {
-                url.searchParams.set('season', season);
-            } else {
-                url.searchParams.delete('season');
-            }
-            history.pushState({week, season}, '', url.toString());
-            
-            // Update current displayed values
-            currentDisplayedWeek = week;
-            currentDisplayedSeason = season;
-            
-            // Update dropdown selection
-            const weekSelect = document.getElementById('week-select');
-            if (weekSelect) {
-                weekSelect.value = week;
-            }
-        }
-
-        // Update games grid from cached data (avoids API call and image reloading)
-        function updateGamesGridFromData(games) {
-            const gamesContainer = document.querySelector('.games-container');
-            if (!gamesContainer || !games || !Array.isArray(games)) {
-                console.warn('Cannot update games grid: missing container or games data');
-                return;
-            }
-            
-            const gamesGrid = gamesContainer.querySelector('.games-list-container');
-            if (!gamesGrid) {
-                console.warn('Cannot find games-list-container within games-container');
-                return;
-            }
-            
-            
-            // No need to harvest - all teams are preloaded at startup
-            
-            // Try to update existing cards in place first to preserve images
-            const existingCards = gamesGrid.querySelectorAll('[id^="game-"]');
-            const gameIds = new Set(games.map(g => `game-${g.id}`));
-            const existingGameIds = new Set([...existingCards].map(card => card.id));
-            
-            // Calculate which games can be updated in place vs need to be added/removed
-            const toUpdate = games.filter(g => existingGameIds.has(`game-${g.id}`));
-            const toAdd = games.filter(g => !existingGameIds.has(`game-${g.id}`));
-            const toRemove = [...existingCards].filter(card => !gameIds.has(card.id));
-            
-            // Always try surgical updates first unless it's a completely different week
-            const canPreserveGrid = toUpdate.length > 0;
-            
-            if (canPreserveGrid) {
-                // Update existing cards in place (preserves images)
-                toUpdate.forEach(game => {
-                    const gameCard = document.getElementById(`game-${game.id}`);
-                    if (gameCard) {
-                        updateGameCardContentMinimal(gameCard, game);
-                    }
-                });
-                
-                // Remove cards that are no longer needed
-                toRemove.forEach(card => {
-                    card.remove();
-                });
-                
-                // Add new cards at the end
-                toAdd.forEach(game => {
-                    const newCard = createGameCard(game);
-                    gamesGrid.appendChild(newCard);
-                });
-                
-            } else {
-                // Too many changes - rebuild the entire grid
-                const newGameGrid = generateGameGridWithRecycledImages(games);
-                gamesGrid.replaceWith(newGameGrid);
-            }
-        }
-        
-        // Generate game grid with recycled DOM elements to prevent reloads
-        function generateGameGridWithRecycledImages(games) {
-            const gridContainer = document.createElement('div');
-            gridContainer.className = 'games-list-container';
-            gridContainer.setAttribute('sse-swap', 'gameUpdate');
-            
-            games.forEach(game => {
-                const gameRow = document.createElement('div');
-                gameRow.className = `game-row inline-game ${game.state}`;
-                gameRow.id = `game-${game.id}`;
-                
-                
-                // Away team section
-                const awaySection = document.createElement('div');
-                awaySection.className = 'team-section away';
-                
-                const awayTeamName = document.createElement('div');
-                awayTeamName.className = 'team-name';
-                
-                // Use cached image element
-                const awayImg = getTeamImageElement(game.away);
-                awayTeamName.appendChild(awayImg);
-                
-                const awayInfo = document.createElement('div');
-                awayInfo.className = 'team-info';
-                awayInfo.innerHTML = `
-                    <div class="team-abbr">${game.away}</div>
-                    ${game.odds ? `<div class="team-spread">${formatAwaySpread(game)}</div>` : ''}
-                `;
-                awayTeamName.appendChild(awayInfo);
-                
-                if (game.state !== 'scheduled') {
-                    const awayScore = document.createElement('span');
-                    awayScore.className = 'score-display';
-                    awayScore.textContent = game.awayScore || game.away_score || 0;
-                    awayTeamName.appendChild(awayScore);
-                }
-                
-                awaySection.appendChild(awayTeamName);
-                gameRow.appendChild(awaySection);
-                
-                // VS separator
-                const vsSeparator = document.createElement('div');
-                vsSeparator.className = 'vs-section';
-                vsSeparator.textContent = '@';
-                gameRow.appendChild(vsSeparator);
-                
-                // Home team section
-                const homeSection = document.createElement('div');
-                homeSection.className = 'team-section home';
-                
-                const homeTeamName = document.createElement('div');
-                homeTeamName.className = 'team-name';
-                
-                if (game.state !== 'scheduled') {
-                    const homeScore = document.createElement('span');
-                    homeScore.className = 'score-display';
-                    homeScore.textContent = game.homeScore || game.home_score || 0;
-                    homeTeamName.appendChild(homeScore);
-                }
-                
-                // Use cached image element
-                const homeImg = getTeamImageElement(game.home);
-                homeTeamName.appendChild(homeImg);
-                
-                const homeInfo = document.createElement('div');
-                homeInfo.className = 'team-info';
-                homeInfo.innerHTML = `
-                    <div class="team-abbr">${game.home}</div>
-                    ${game.odds ? `<div class="team-spread">${formatHomeSpread(game)}</div>` : ''}
-                `;
-                homeTeamName.appendChild(homeInfo);
-                
-                homeSection.appendChild(homeTeamName);
-                gameRow.appendChild(homeSection);
-                
-                // O/U section
-                const ouSection = document.createElement('div');
-                ouSection.className = 'ou-section';
-                ouSection.textContent = game.odds ? `O/U ${game.odds.ou || '-'}` : '-';
-                gameRow.appendChild(ouSection);
-                
-                // Game status section
-                const statusSection = document.createElement('div');
-                statusSection.className = 'game-status-section';
-                statusSection.innerHTML = generateGameStatusHTML(game);
-                
-                
-                gameRow.appendChild(statusSection);
-                
-                gridContainer.appendChild(gameRow);
-                
-                // Add expansion row for in-progress games
-                if (game.state === 'in_play') {
-                    const expansionRow = document.createElement('div');
-                    expansionRow.className = 'live-game-expansion';
-                    
-                    const homeScore = game.homeScore || game.home_score || 0;
-                    const awayScore = game.awayScore || game.away_score || 0;
-                    
-                    let expansionHTML = '';
-                    if (game.odds) {
-                        if (homeScore > awayScore) {
-                            expansionHTML = `<span class="status-item covering-team">${game.home} leading ${homeScore}-${awayScore}</span>`;
-                        } else if (awayScore > homeScore) {
-                            expansionHTML = `<span class="status-item covering-team">${game.away} leading ${awayScore}-${homeScore}</span>`;
-                        } else {
-                            expansionHTML = `<span class="status-item push-status">Tied ${homeScore}-${awayScore}</span>`;
-                        }
-                        expansionHTML += `<span class="status-divider"> || </span><span class="status-item ou-current">Total: ${homeScore + awayScore} (O/U ${game.odds.ou})</span>`;
-                    } else {
-                        expansionHTML = `<span class="status-item no-odds">${awayScore} - ${homeScore}</span>`;
-                    }
-                    
-                    expansionRow.innerHTML = expansionHTML;
-                    gridContainer.appendChild(expansionRow);
-                }
-            });
-            
-            return gridContainer;
-        }
-        
-        // Generate game grid HTML (matches the Go template structure)
-        function generateGameGridHTML(games) {
-            return `<div class="games-list-container" sse-swap="gameUpdate">
-                ${games.map(game => {
-                    if (game.state === 'in_play') {
-                        return generateExpandedGameHTML(game);
-                    } else {
-                        return generateRegularGameHTML(game);
-                    }
-                }).join('')}
-            </div>`;
-        }
-        
-        // Generate expanded game HTML for in-progress games (with always-visible expansion)
-        function generateExpandedGameHTML(game) {
-            const homeScore = game.homeScore || game.home_score || 0;
-            const awayScore = game.awayScore || game.away_score || 0;
-            
-            let expansionHTML = '';
-            if (game.odds) {
-                if (homeScore > awayScore) {
-                    expansionHTML = `<span class="status-item covering-team">${game.home} leading ${homeScore}-${awayScore}</span>`;
-                } else if (awayScore > homeScore) {
-                    expansionHTML = `<span class="status-item covering-team">${game.away} leading ${awayScore}-${homeScore}</span>`;
-                } else {
-                    expansionHTML = `<span class="status-item push-status">Tied ${homeScore}-${awayScore}</span>`;
-                }
-                expansionHTML += `<span class="status-divider"> || </span><span class="status-item ou-current">Total: ${homeScore + awayScore} (O/U ${game.odds.ou})</span>`;
-            } else {
-                expansionHTML = `<span class="status-item no-odds">${awayScore} - ${homeScore}</span>`;
-            }
-            
-            return `
-                <div class="game-row inline-game ${game.state}" id="game-${game.id}">
-                    <div class="team-section away">
-                        <div class="team-name">
-                            <img class="team-img" src="${getAwayTeamIconURL(game)}" alt="${game.away}" onerror="this.style.display='none'"/>
-                            <div class="team-info">
-                                <div class="team-abbr">${game.away}</div>
-                                ${game.odds ? `<div class="team-spread">${formatAwaySpread(game)}</div>` : ''}
-                            </div>
-                            <span class="score-display">${awayScore}</span>
-                        </div>
-                    </div>
-                    <div class="vs-section">@</div>
-                    <div class="team-section home">
-                        <div class="team-name">
-                            <span class="score-display">${homeScore}</span>
-                            <img class="team-img" src="${getHomeTeamIconURL(game)}" alt="${game.home}" onerror="this.style.display='none'"/>
-                            <div class="team-info">
-                                <div class="team-abbr">${game.home}</div>
-                                ${game.odds ? `<div class="team-spread">${formatHomeSpread(game)}</div>` : ''}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ou-section">
-                        ${game.odds ? `O/U ${game.odds.ou || '-'}` : '-'}
-                    </div>
-                    <div class="game-status-section">
-                        <span class="live-indicator">LIVE</span><span class="game-time">Q${game.quarter || '1'}</span>
-                    </div>
-                </div>
-                <div class="live-game-expansion">
-                    ${expansionHTML}
-                </div>
-            `;
-        }
-        
-        // Generate regular game HTML for scheduled/completed games
-        function generateRegularGameHTML(game) {
-            return `
-                <div class="game-row inline-game ${game.state}" id="game-${game.id}">
-                    <div class="team-section away">
-                        <div class="team-name">
-                            <img class="team-img" src="${getAwayTeamIconURL(game)}" alt="${game.away}" onerror="this.style.display='none'"/>
-                            <div class="team-info">
-                                <div class="team-abbr">${game.away}</div>
-                                ${game.odds ? `<div class="team-spread">${formatAwaySpread(game)}</div>` : ''}
-                            </div>
-                            ${game.state !== 'scheduled' ? `<span class="score-display">${game.awayScore || game.away_score || 0}</span>` : ''}
-                        </div>
-                    </div>
-                    <div class="vs-section">@</div>
-                    <div class="team-section home">
-                        <div class="team-name">
-                            ${game.state !== 'scheduled' ? `<span class="score-display">${game.homeScore || game.home_score || 0}</span>` : ''}
-                            <img class="team-img" src="${getHomeTeamIconURL(game)}" alt="${game.home}" onerror="this.style.display='none'"/>
-                            <div class="team-info">
-                                <div class="team-abbr">${game.home}</div>
-                                ${game.odds ? `<div class="team-spread">${formatHomeSpread(game)}</div>` : ''}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ou-section">
-                        ${game.odds ? `O/U ${game.odds.ou || '-'}` : '-'}
-                    </div>
-                    <div class="game-status-section">
-                        ${generateGameStatusHTML(game)}
-                    </div>
-                </div>
-            `;
-        }
-        
-        // Generate game status HTML
-        function generateGameStatusHTML(game) {
-            if (game.state === 'scheduled') {
-                return `<div class="game-time">${formatGameTime(game)}</div>`;
-            } else if (game.state === 'in_play') {
-                return `<span class="live-indicator">LIVE</span><span class="game-time">Q${game.quarter || '1'}</span>`;
-            } else if (game.state === 'completed') {
-                let spreadResult = '';
-                if (game.odds && game.state === 'completed') {
-                    const spreadResultType = calculateSpreadResult(game);
-                    if (spreadResultType === 'push') {
-                        spreadResult = '<span class="spread-result">PUSH</span>';
-                    } else if (spreadResultType === 'home-covered') {
-                        spreadResult = `<span class="spread-result">${game.home} ✓</span>`;
-                    } else if (spreadResultType === 'away-covered') {
-                        spreadResult = `<span class="spread-result">${game.away} ✓</span>`;
-                    }
-                }
-                return `<span class="game-time">FINAL</span>${spreadResult}`;
-            }
-            return '';
-        }
-        
-        // Calculate spread result (matches Go SpreadResult() method)
-        function calculateSpreadResult(game) {
-            if (!game.odds || game.state !== 'completed') {
-                return '';
-            }
-            
-            // Calculate the spread-adjusted score difference (home - away)
-            const scoreDiff = (game.homeScore || game.home_score || 0) - (game.awayScore || game.away_score || 0);
-            const spreadDiff = scoreDiff + game.odds.spread; // Add spread to actual score difference
-            
-            if (spreadDiff > 0) {
-                return 'home-covered'; // Home team covered
-            } else if (spreadDiff < 0) {
-                return 'away-covered'; // Away team covered  
-            } else {
-                return 'push'; // Exact spread - push
-            }
-        }
-        
-        // Minimal update - only change text content, never modify DOM structure
-        function updateGameCardContentMinimal(gameCard, game) {
-            // Only update scores (text content only, no DOM manipulation)
-            const awayScoreEl = gameCard.querySelector('.team-section.away .score-display');
-            const homeScoreEl = gameCard.querySelector('.team-section.home .score-display');
-            
-            if (game.state !== 'scheduled') {
-                const awayScore = game.awayScore || game.away_score || 0;
-                const homeScore = game.homeScore || game.home_score || 0;
-                
-                if (awayScoreEl && awayScoreEl.textContent !== String(awayScore)) {
-                    awayScoreEl.textContent = awayScore;
-                }
-                if (homeScoreEl && homeScoreEl.textContent !== String(homeScore)) {
-                    homeScoreEl.textContent = homeScore;
-                }
-            }
-            
-            // Only update game status text if it has changed
-            const statusSection = gameCard.querySelector('.game-status-section');
-            if (statusSection) {
-                const newStatusHTML = generateGameStatusHTML(game);
-                if (statusSection.innerHTML.trim() !== newStatusHTML.trim()) {
-                    statusSection.innerHTML = newStatusHTML;
-                }
-            }
-            
-            // Only update game card class if state changed
-            const currentState = gameCard.className.match(/\b(scheduled|in_play|completed)\b/)?.[0];
-            if (currentState !== game.state) {
-                gameCard.className = gameCard.className.replace(/\b(scheduled|in_play|completed)\b/g, '').trim();
-                gameCard.classList.add(game.state);
-            }
-        }
-
-        // Update individual game card content (original version for rebuilds)
-        function updateGameCardContent(gameCard, game) {
-            // Update team scores
-            const awayScoreEl = gameCard.querySelector('.team-section.away .score-display');
-            const homeScoreEl = gameCard.querySelector('.team-section.home .score-display');
-            
-            if (game.state !== 'scheduled') {
-                if (awayScoreEl) awayScoreEl.textContent = game.away_score || '0';
-                if (homeScoreEl) homeScoreEl.textContent = game.home_score || '0';
-            }
-            
-            // Update game status section
-            const statusSection = gameCard.querySelector('.game-status-section');
-            if (statusSection) {
-                if (game.state === 'scheduled') {
-                    statusSection.innerHTML = `
-                        <div class="game-week">Week ${game.week}</div>
-                        <div class="game-time">${formatGameTime(game)}</div>
-                    `;
-                } else if (game.state === 'in_play') {
-                    statusSection.innerHTML = `
-                        <div class="live-indicator">LIVE</div>
-                        <div class="game-time">Q${game.quarter || '1'}</div>
-                    `;
-                } else if (game.state === 'completed') {
-                    let spreadResult = '';
-                    if (game.has_odds && game.is_completed) {
-                        if (game.spread_result === 'push') {
-                            spreadResult = '<div class="spread-result">PUSH</div>';
-                        } else if (game.spread_result === 'home-covered') {
-                            spreadResult = `<div class="spread-result">${game.home} ✓</div>`;
-                        } else if (game.spread_result === 'away-covered') {
-                            spreadResult = `<div class="spread-result">${game.away} ✓</div>`;
-                        }
-                    }
-                    statusSection.innerHTML = `
-                        <div class="game-time">FINAL</div>
-                        ${spreadResult}
-                    `;
-                }
-            }
-            
-            // Update game card class for state
-            gameCard.className = gameCard.className.replace(/\b(scheduled|in_play|completed)\b/g, '').trim();
-            gameCard.classList.add(game.state);
-        }
-        
-        // Create a new game card using recycled images (fallback for missing games)
-        function createGameCard(game) {
-            // Just use the same function as the main grid builder for consistency
-            const gameGrid = generateGameGridWithRecycledImages([game]);
-            return gameGrid.firstElementChild; // Return the game-row div
-        }
-        
-        // Helper functions for game display (matches Go template functions)
-        function formatGameTime(game) {
-            if (!game.date) return 'TBD';
-            
-            // Parse the game date and format it like the Go FormatGameTime method
-            // Go formats as "1/2/06 3:04 PM" in Pacific time
-            const gameDate = new Date(game.date);
-            const options = { 
-                month: 'numeric',
-                day: 'numeric', 
-                year: '2-digit',
-                hour: 'numeric', 
-                minute: '2-digit',
-                timeZone: 'America/Los_Angeles',
-                hour12: true 
-            };
-            return gameDate.toLocaleString('en-US', options);
-        }
-        
-        function getAwayTeamIconURL(game) {
-            if (!game.away) return '';
-            const teamLower = game.away.toLowerCase();
-            return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/${teamLower}.png`;
-        }
-        
-        function getHomeTeamIconURL(game) {
-            if (!game.home) return '';
-            const teamLower = game.home.toLowerCase();
-            return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/${teamLower}.png`;
-        }
-        
-        function formatAwaySpread(game) {
-            if (!game.odds) return '';
-            // Away team gets opposite of the spread
-            const awaySpread = -game.odds.spread;
-            if (awaySpread > 0) {
-                return `+${awaySpread}`;
-            } else if (awaySpread < 0) {
-                return `${awaySpread}`;
-            } else {
-                return 'PK'; // Pick 'em
-            }
-        }
-        
-        function formatHomeSpread(game) {
-            if (!game.odds) return '';
-            const homeSpread = game.odds.spread;
-            if (homeSpread > 0) {
-                return `+${homeSpread}`;
-            } else if (homeSpread < 0) {
-                return `${homeSpread}`;
-            } else {
-                return 'PK'; // Pick 'em
-            }
-        }
-
-        // Update games grid using existing games API (fallback for when no cached data)
-        async function updateGamesGrid(week, season) {
-            try {
-                const response = await fetch(`/api/games?week=${week}&season=${season}`);
-                if (response.ok) {
-                    const html = await response.text();
-                    const gamesGrid = document.querySelector('.games-list-container');
-                    if (gamesGrid) {
-                        gamesGrid.innerHTML = html;
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to update games grid:', error);
-            }
-        }
-
-        // Helper function to map pick results to CSS classes (matches Go GetResultClass method)
-        function getPickResultClass(result) {
-            switch (result) {
-                case 'win':
-                    return 'green-pick-class';
-                case 'loss':
-                    return 'red-pick-class';
-                case 'push':
-                    return 'yellow-pick-class';
-                default: // pending or any other state
-                    return 'pick-class';
-            }
-        }
-
-        // Helper function to format parlay score (matches Go UserRecord.String() method)
-        function formatParlayScore(record) {
-            if (!record) return '0';
-            
-            // Use parlay points if available, otherwise fallback to W-L format
-            if (record.parlay_points !== undefined) {
-                if (record.weekly_points && record.weekly_points > 0) {
-                    return `${record.parlay_points} (+${record.weekly_points})`;
-                }
-                return `${record.parlay_points}`;
-            }
-            
-            // Fallback to legacy W-L-P format
-            return `${record.wins || 0}-${record.losses || 0}-${record.pushes || 0}`;
-        }
-
-
-        // Filter out bonus picks from regular picks
-        function filterRegularPicks(allPicks, bonusThursdayPicks, bonusFridayPicks) {
-            if (!allPicks || !Array.isArray(allPicks)) return [];
-            
-            const bonusGameIds = new Set();
-            
-            // Add bonus Thursday game IDs
-            if (bonusThursdayPicks && Array.isArray(bonusThursdayPicks)) {
-                bonusThursdayPicks.forEach(pick => bonusGameIds.add(pick.game_id));
-            }
-            
-            // Add bonus Friday game IDs
-            if (bonusFridayPicks && Array.isArray(bonusFridayPicks)) {
-                bonusFridayPicks.forEach(pick => bonusGameIds.add(pick.game_id));
-            }
-            
-            // Return picks that are not in bonus games
-            return allPicks.filter(pick => !bonusGameIds.has(pick.game_id));
-        }
-
-        // Unified function to create any user's picks section (current user or others)
-        function createUnifiedUserPicksSection(userPicksData, isCurrentUser = false) {
-            const section = document.createElement('fieldset');
-            section.className = isCurrentUser ? 'user-picks-section' : 'user-picks-section mt-4';
-            
-            const legend = document.createElement('legend');
-            legend.textContent = isCurrentUser ? 'MY PICKS' : `${userPicksData.user_name || 'Unknown'}'S PICKS`;
-            section.appendChild(legend);
-            
-            const content = document.createElement('div');
-            content.className = 'user-picks-content';
-            
-            // Add bonus Thursday picks if they exist
-            if (userPicksData.bonus_thursday_picks && userPicksData.bonus_thursday_picks.length > 0) {
-                const bonusSection = createRegularPicksSection('BONUS THURSDAY', userPicksData.bonus_thursday_picks);
-                content.appendChild(bonusSection);
-            }
-            
-            // Add bonus Friday picks if they exist  
-            if (userPicksData.bonus_friday_picks && userPicksData.bonus_friday_picks.length > 0) {
-                const bonusSection = createRegularPicksSection('BONUS FRIDAY', userPicksData.bonus_friday_picks);
-                content.appendChild(bonusSection);
-            }
-            
-            // Add regular picks if they exist
-            if (userPicksData.picks && userPicksData.picks.length > 0) {
-                const hasAnyBonusPicks = (userPicksData.bonus_thursday_picks && userPicksData.bonus_thursday_picks.length > 0) ||
-                                       (userPicksData.bonus_friday_picks && userPicksData.bonus_friday_picks.length > 0);
-                
-                if (hasAnyBonusPicks) {
-                    // Has bonus picks - show "REMAINING PICKS" header with filtered picks
-                    const regularPicks = filterRegularPicks(
-                        userPicksData.picks, 
-                        userPicksData.bonus_thursday_picks, 
-                        userPicksData.bonus_friday_picks
-                    );
-                    const regularSection = createRegularPicksSection('REMAINING PICKS', regularPicks);
-                    content.appendChild(regularSection);
-                } else {
-                    // No bonus picks - use same container structure but no header
-                    const picksList = document.createElement('div');
-                    picksList.className = 'picks-list';
-                    
-                    userPicksData.picks.forEach(pick => {
-                        const pickItem = createPickItem(pick);
-                        picksList.appendChild(pickItem);
-                    });
-                    
-                    content.appendChild(picksList);
-                }
-            } else {
-                const noPicks = document.createElement('div');
-                noPicks.className = 'no-picks';
-                noPicks.textContent = isCurrentUser ? 'No picks yet for this week' : 'No picks for this week';
-                content.appendChild(noPicks);
-            }
-            
-            section.appendChild(content);
-            return section;
-        }
-        
-        // Update other players' detailed picks display using unified rendering
-        function updateOtherPlayersDisplay(userPicks, currentUser) {
-            if (!userPicks || !Array.isArray(userPicks)) {
-                console.warn('No valid userPicks data for other players');
-                return;
-            }
-            
-            // Find the container for other players (everything after current user's picks)
-            const pickFlexItem = document.querySelector('.pick-flex-item');
-            if (!pickFlexItem) {
-                console.warn('Pick flex item not found');
-                return;
-            }
-            
-            // Remove existing other player sections (but keep current user section which is first)
-            const allSections = pickFlexItem.querySelectorAll('.user-picks-section');
-            // Remove all sections except the first one (current user)
-            for (let i = 1; i < allSections.length; i++) {
-                allSections[i].remove();
-            }
-            
-            // Add other players' sections using unified rendering
-            userPicks.forEach(up => {
-                if (!currentUser || up.user_id !== currentUser.id) {
-                    const userSection = createUnifiedUserPicksSection(up, false);
-                    pickFlexItem.appendChild(userSection);
-                }
-            });
-        }
-        
-        // Create regular picks section
-        function createRegularPicksSection(title, picks) {
-            const section = document.createElement('div');
-            section.className = 'regular-picks-section';
-            
-            const categoryHeader = document.createElement('div');
-            categoryHeader.className = 'picks-category-header';
-            categoryHeader.textContent = title;
-            section.appendChild(categoryHeader);
-            
-            const picksList = document.createElement('div');
-            picksList.className = 'picks-list';
-            
-            picks.forEach(pick => {
-                const pickItem = createPickItem(pick);
-                picksList.appendChild(pickItem);
-            });
-            
-            section.appendChild(picksList);
-            return section;
-        }
-
-        
-        // Create individual pick item
-        function createPickItem(pick) {
-            const pickItem = document.createElement('div');
-            pickItem.className = `pick-item ${getPickResultClass(pick.result)}`;
-            
-            const pickInfo = document.createElement('span');
-            pickInfo.className = 'pick-info';
-            pickInfo.textContent = pick.pick_description || `Game ${pick.game_id} - Team ${pick.team_id} (${pick.pick_type})`;
-            
-            const pickResult = document.createElement('span');
-            pickResult.className = 'pick-result';
-            pickResult.textContent = pick.result || 'pending';
-            
-            pickItem.appendChild(pickInfo);
-            pickItem.appendChild(pickResult);
-            
-            return pickItem;
-        }
-
-        // Update current user's picks display using unified rendering
-        function updatePicksDisplay(userPicks, currentUser) {
-            // Check if userPicks is valid
-            if (!userPicks || !Array.isArray(userPicks)) {
-                userPicks = []; // Default to empty array
-            }
-            
-            // Find the current user's fieldset (first one)
-            const currentUserFieldset = document.querySelector('.user-picks-section');
-            if (!currentUserFieldset) {
-                return;
-            }
-            
-            // Update current user's picks using unified rendering
-            if (currentUser) {
-                const currentUserPicks = userPicks.find(up => up.user_id === currentUser.id);
-                
-                if (currentUserPicks) {
-                    // Replace the entire current user section with unified rendering
-                    const newCurrentUserSection = createUnifiedUserPicksSection(currentUserPicks, true);
-                    currentUserFieldset.parentNode.replaceChild(newCurrentUserSection, currentUserFieldset);
-                } else {
-                    // No picks found for current user
-                    const content = currentUserFieldset.querySelector('.user-picks-content');
-                    if (content) {
-                        content.innerHTML = '<div class="no-picks">No picks yet for this week</div>';
-                    }
-                }
-            } else {
-                const content = currentUserFieldset.querySelector('.user-picks-content');
-                if (content) {
-                    if (userPicks && userPicks.length > 0) {
-                        content.innerHTML = `
-                            <div class="historical-picks-info">
-                                <p>Historical picks are available for this week.</p>
-                                <p>Log in to see detailed pick information.</p>
-                                <p>${userPicks.length} users made picks this week.</p>
-                            </div>
-                        `;
-                    } else {
-                        content.innerHTML = '<div class="no-picks">Please log in to see picks</div>';
-                    }
-                }
-            }
-
-            // Update other users list
-            const otherPicksSection = document.querySelector('.other-picks-section .user-picks-item');
-            if (otherPicksSection && otherPicksSection.parentElement) {
-                const container = otherPicksSection.parentElement;
-                // Clear existing users except header
-                const existingItems = container.querySelectorAll('.user-picks-item');
-                existingItems.forEach(item => item.remove());
-                
-                // Add updated user list
-                userPicks.forEach(up => {
-                    if (!currentUser || up.user_id !== currentUser.id) {
-                        const userItem = document.createElement('div');
-                        userItem.className = 'user-picks-item';
-                        userItem.innerHTML = `
-                            <div class="user-name">${up.user_name}</div>
-                            <div class="user-record">${formatParlayScore(up.record)}</div>
-                        `;
-                        container.appendChild(userItem);
-                    }
-                });
-            }
-
-            // Update club scores
-            const clubScores = document.querySelector('.club-scores');
-            if (clubScores && userPicks && Array.isArray(userPicks)) {
-                clubScores.innerHTML = userPicks.map(up => 
-                    `<div class="score-item">
-                        <span class="user-name">${up.user_name || 'Unknown'}</span>
-                        <span class="user-score">${formatParlayScore(up.record)}</span>
-                    </div>`
-                ).join('');
-            }
-        }
-
-        // Fast keyboard navigation with AJAX caching
-        async function handleKeyboardNavigation(event) {
-            // Only handle arrow keys when not typing in an input field
-            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || isLoading) {
-                return;
-            }
-            
-            let newWeek = currentDisplayedWeek;
-            let newSeason = currentDisplayedSeason;
-            
-            if (event.key === 'ArrowLeft') {
-                if (currentDisplayedWeek > 1) {
-                    newWeek = currentDisplayedWeek - 1;
-                } else if (currentDisplayedSeason > MIN_SEASON) {
-                    newWeek = 18;
-                    newSeason = currentDisplayedSeason - 1;
-                }
-            } else if (event.key === 'ArrowRight') {
-                if (currentDisplayedWeek < 18) {
-                    newWeek = currentDisplayedWeek + 1;
-                } else if (currentDisplayedSeason < MAX_SEASON) {
-                    newWeek = 1;
-                    newSeason = currentDisplayedSeason + 1;
-                }
-            } else {
-                return; // Not an arrow key
-            }
-            
-            if (newWeek !== currentDisplayedWeek || newSeason !== currentDisplayedSeason) {
-                event.preventDefault();
-                
-                // Check cache first
-                if (!seasonCache[newSeason]) seasonCache[newSeason] = {};
-                
-                // Use the unified loading system with deduplication
-                const data = await loadDashboardData(newWeek, newSeason);
-                if (data && typeof data === 'object' && data.userPicks) {
-                    updateDashboardDisplay(data);
-                    
-                    // Trigger additional preloading after navigation
-                    setTimeout(() => {
-                        preloadAfterNavigation(newWeek, newSeason);
-                    }, 100);
-                }
-            }
-        }
-
-        // Handle SSE database change events for cache updates and selective display refresh
-        function handleDatabaseChangeEvent(event) {
-            try {
-                const changeData = JSON.parse(event.data);
-                console.log('SSE: Database change event received:', changeData);
-                
-                const { collection, operation, season, week, gameId, userId } = changeData;
-                
-                // Handle cache invalidation for affected weeks
-                if (season && week) {
-                    const cacheKey = `${season}-${week}`;
-                    
-                    // Remove from cache to force refresh on next load
-                    if (seasonCache[season] && seasonCache[season][week]) {
-                        delete seasonCache[season][week];
-                        console.log(`SSE: Invalidated cache for ${cacheKey}`);
-                    }
-                    
-                    // If this change affects the currently displayed week, refresh the display
-                    if (season === currentDisplayedSeason && week === currentDisplayedWeek) {
-                        console.log(`SSE: Refreshing display for current week ${currentDisplayedWeek}`);
-                        refreshCurrentWeekData();
-                    } else {
-                        // For non-current weeks, check if we need to update club scores
-                        // (pick changes might affect season totals)
-                        if (collection === 'picks' && season === currentDisplayedSeason) {
-                            console.log(`SSE: Refreshing club scores for pick change in S${season}W${week}`);
-                            refreshClubScores();
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('SSE: Error processing database change event:', error);
-            }
-        }
-        
-        // Refresh the current week's data after a database change
-        async function refreshCurrentWeekData() {
-            try {
-                const data = await loadDashboardData(currentDisplayedWeek, currentDisplayedSeason);
-                if (data && typeof data === 'object' && data.userPicks) {
-                    updateDashboardDisplay(data);
-                }
-            } catch (error) {
-                console.error('SSE: Error refreshing current week data:', error);
-            }
-        }
-        
-        // Refresh just the club scores (for pick changes in other weeks)
-        async function refreshClubScores() {
-            try {
-                const data = await loadDashboardData(currentDisplayedWeek, currentDisplayedSeason);
-                if (data && data.userPicks) {
-                    // Update only the club scores section
-                    const clubScores = document.querySelector('.club-scores');
-                    if (clubScores) {
-                        clubScores.innerHTML = data.userPicks.map(up => 
-                            `<div class="score-item">
-                                <span class="user-name">${up.user_name || 'Unknown'}</span>
-                                <span class="user-score">${formatParlayScore(up.record)}</span>
-                            </div>`
-                        ).join('');
-                    }
-                }
-            } catch (error) {
-                console.error('SSE: Error refreshing club scores:', error);
-            }
-        }
-
-        // Initialize theme button and keyboard navigation
-        document.addEventListener('DOMContentLoaded', function() {
-            
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            const button = document.querySelector('.theme-toggle');
-            
-            if (savedTheme === 'light') {
-                button.textContent = '🌙';
-            }
-
-
-            // Initialize the games header on page load
-            const gamesHeader = document.getElementById('games-header');
-            if (gamesHeader) {
-                if (currentDisplayedSeason === 2025) {
-                    gamesHeader.textContent = `Week ${currentDisplayedWeek} Games`;
-                } else {
-                    gamesHeader.textContent = `Week ${currentDisplayedWeek} Games (${currentDisplayedSeason})`;
-                }
-            }
-
-            // Add keyboard navigation listener
-            document.addEventListener('keydown', handleKeyboardNavigation);
-            
-            // Add SSE event listeners for database changes
-            const sseContainer = document.querySelector('[hx-ext="sse"]');
-            if (sseContainer) {
-                // Listen for database change events
-                sseContainer.addEventListener('databaseChange', handleDatabaseChangeEvent);
-            }
-            
-            // Preload all NFL team images immediately at startup
-            preloadAllTeamImages();
-            
-            // Note: Caching is now handled by the JSON-based dashboard API system
-            
-            // Aggressively preload surrounding weeks in background for faster navigation
-            setTimeout(() => {
-                preloadSurroundingWeeks();
-            }, 500); // Reduced delay for faster preloading
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
         });
-
-        // Preload surrounding weeks in order of proximity (closest first)
-        async function preloadSurroundingWeeks() {
-            // Preload in order of proximity: +1, -1, +2, -2, +3, -3
-            const proximityOrder = [1, -1, 2, -2, 3, -3];
-            
-            proximityOrder.forEach((offset, index) => {
-                setTimeout(() => {
-                    let targetWeek = currentDisplayedWeek + offset;
-                    let targetSeason = currentDisplayedSeason;
-                    
-                    // Handle season boundaries
-                    while (targetWeek < 1) {
-                        targetWeek += 18;
-                        targetSeason--;
-                    }
-                    while (targetWeek > 18) {
-                        targetWeek -= 18;
-                        targetSeason++;
-                    }
-                    
-                    // Only preload within reasonable season range
-                    if (targetSeason < MIN_SEASON || targetSeason > MAX_SEASON) return;
-                    
-                    // Check if already cached or being loaded
-                    const requestKey = `${targetSeason}-${targetWeek}`;
-                    if ((seasonCache[targetSeason] && seasonCache[targetSeason][targetWeek]) || 
-                        pendingRequests.has(requestKey)) {
-                        return;
-                    }
-                    
-                    // Preload this week
-                    preloadWeek(targetWeek, targetSeason);
-                }, index * 300); // 300ms delay between each preload
-            });
-        }
         
-        // Preload a specific week using the unified loading system with deduplication
-        async function preloadWeek(week, season) {
-            try {
-                console.log(`Preloading ${season} Week ${week}`);
-                await loadDashboardData(week, season);
-            } catch (error) {
-                console.error(`Failed to preload ${season} Week ${week}:`, error);
-            }
-        }
-        
-        // Trigger additional preloading when user navigates (load more surrounding weeks)
-        async function preloadAfterNavigation(currentWeek, currentSeason) {
-            // After user navigates, preload additional weeks around the new position
-            const additionalPreloads = [];
-            
-            for (let offset = -2; offset <= 2; offset++) {
-                if (offset === 0) continue;
-                
-                let targetWeek = currentWeek + offset;
-                let targetSeason = currentSeason;
-                
-                while (targetWeek < 1) {
-                    targetWeek += 18;
-                    targetSeason--;
-                }
-                while (targetWeek > 18) {
-                    targetWeek -= 18;
-                    targetSeason++;
-                }
-                
-                if (targetSeason < MIN_SEASON || targetSeason > MAX_SEASON) continue;
-                
-                // Check if already cached or being loaded
-                const requestKey = `${targetSeason}-${targetWeek}`;
-                if (!((seasonCache[targetSeason] && seasonCache[targetSeason][targetWeek]) || 
-                      pendingRequests.has(requestKey))) {
-                    additionalPreloads.push(preloadWeek(targetWeek, targetSeason));
-                }
-            }
-            
-            // Execute additional preloads
-            additionalPreloads.forEach((promise, index) => {
-                setTimeout(() => promise, index * 100);
-            });
-        }
-        
-        // Toggle game expansion for in-progress games
-        function toggleGameExpansion(gameId) {
-            const expansionContainer = document.getElementById(`game-${gameId}-expansion`);
-            const gameRow = document.getElementById(`game-${gameId}`);
-            const expandIndicator = gameRow?.querySelector('.expand-indicator');
-            
-            if (!expansionContainer) {
-                console.warn(`No expansion container found for game ${gameId}`);
+        // Keyboard navigation for weeks using HTMX
+        document.addEventListener('keydown', function(e) {
+            // Don't interfere with form inputs
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
                 return;
             }
             
-            if (expansionContainer.style.display === 'none' || !expansionContainer.style.display) {
-                // Show the expansion
-                expansionContainer.style.display = 'block';
-                if (expandIndicator) expandIndicator.textContent = '▲';
-                gameRow?.classList.add('expanded');
-            } else {
-                // Hide the expansion
-                expansionContainer.style.display = 'none';
-                if (expandIndicator) expandIndicator.textContent = '▼';
-                gameRow?.classList.remove('expanded');
+            // Read current values from JavaScript variables that get updated via HTMX
+            const currentWeek = window.currentWeek || {{.CurrentWeek}};
+            const currentSeason = window.currentSeason || {{.CurrentSeason}};
+            let newWeek = currentWeek;
+            let newSeason = currentSeason;
+            
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                if (currentWeek > 1) {
+                    newWeek = currentWeek - 1;
+                } else if (currentSeason > 2023) { // Don't go back past 2023
+                    newWeek = 18;
+                    newSeason = currentSeason - 1;
+                }
+                // If we're at 2023 Week 1, don't allow going further back
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                if (currentWeek < 18) {
+                    newWeek = currentWeek + 1;
+                } else if (currentSeason < {{.CurrentSeason}}) { // Don't go past current season
+                    newWeek = 1;
+                    newSeason = currentSeason + 1;
+                }
+                // If we're at current season Week 18, don't allow going further forward
             }
-        }
+            
+            // Navigate if week or season changed using HTMX
+            if (newWeek !== currentWeek || newSeason !== currentSeason) {
+                // Update global variables
+                window.currentWeek = newWeek;
+                window.currentSeason = newSeason;
+                // Use HTMX to fetch new content
+                htmx.ajax('GET', '/?week=' + newWeek + '&season=' + newSeason, {
+                    target: '#dashboard-content',
+                    swap: 'innerHTML'
+                });
+                
+                // Update URL without reload
+                const url = new URL(window.location);
+                url.searchParams.set('week', newWeek);
+                url.searchParams.set('season', newSeason);
+                history.pushState({week: newWeek, season: newSeason}, '', url.toString());
+            }
+        });
     </script>
 </body>
 </html>
