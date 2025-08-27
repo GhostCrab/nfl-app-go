@@ -290,6 +290,23 @@ func main() {
 				}
 				return string(pick.PickType)
 			},
+			"getTeamMascotName": func(abbr string) string {
+				mascotMap := map[string]string{
+					"ARI": "CARDINALS", "ATL": "FALCONS", "BAL": "RAVENS", "BUF": "BILLS",
+					"CAR": "PANTHERS", "CHI": "BEARS", "CIN": "BENGALS", "CLE": "BROWNS",
+					"DAL": "COWBOYS", "DEN": "BRONCOS", "DET": "LIONS", "GB": "PACKERS",
+					"HOU": "TEXANS", "IND": "COLTS", "JAX": "JAGUARS", "KC": "CHIEFS",
+					"LV": "RAIDERS", "LAC": "CHARGERS", "LAR": "RAMS", "MIA": "DOLPHINS",
+					"MIN": "VIKINGS", "NE": "PATRIOTS", "NO": "SAINTS", "NYG": "GIANTS",
+					"NYJ": "JETS", "PHI": "EAGLES", "PIT": "STEELERS", "SF": "49ERS",
+					"SEA": "SEAHAWKS", "TB": "BUCCANEERS", "TEN": "TITANS", "WSH": "COMMANDERS",
+					"OVR": "OVR", "UND": "UND", // Keep O/U abbreviations as-is
+				}
+				if mascot, exists := mascotMap[abbr]; exists {
+					return mascot
+				}
+				return abbr // Fallback to abbreviation if not found
+			},
 		}
 		
 		templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
@@ -582,6 +599,23 @@ func main() {
 				}
 			}
 			return string(pick.PickType)
+		},
+		"getTeamMascotName": func(abbr string) string {
+			mascotMap := map[string]string{
+				"ARI": "CARDINALS", "ATL": "FALCONS", "BAL": "RAVENS", "BUF": "BILLS",
+				"CAR": "PANTHERS", "CHI": "BEARS", "CIN": "BENGALS", "CLE": "BROWNS",
+				"DAL": "COWBOYS", "DEN": "BRONCOS", "DET": "LIONS", "GB": "PACKERS",
+				"HOU": "TEXANS", "IND": "COLTS", "JAX": "JAGUARS", "KC": "CHIEFS",
+				"LV": "RAIDERS", "LAC": "CHARGERS", "LAR": "RAMS", "MIA": "DOLPHINS",
+				"MIN": "VIKINGS", "NE": "PATRIOTS", "NO": "SAINTS", "NYG": "GIANTS",
+				"NYJ": "JETS", "PHI": "EAGLES", "PIT": "STEELERS", "SF": "49ERS",
+				"SEA": "SEAHAWKS", "TB": "BUCCANEERS", "TEN": "TITANS", "WSH": "COMMANDERS",
+				"OVR": "OVR", "UND": "UND", // Keep O/U abbreviations as-is
+			}
+			if mascot, exists := mascotMap[abbr]; exists {
+				return mascot
+			}
+			return abbr // Fallback to abbreviation if not found
 		},
 		"sortUsersByScore": func(userPicks []*models.UserPicks) []*models.UserPicks {
 			if len(userPicks) == 0 {

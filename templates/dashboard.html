@@ -52,92 +52,59 @@
         <div class="games-list-container" sse-swap="gameUpdate">
             {{range .Games}}
                 <div class="game-row inline-game {{.State}}" id="game-{{.ID}}">
-                     
-                    <!-- Away Team Section -->
-                    <div class="team-section away">
-                        <div class="team-name">
-                            <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" 
-                                 onerror="this.style.display='none'"/>
-                            <div class="team-info">
-                                <div class="team-abbr">{{.Away}}</div>
-                                {{if .HasOdds}}
-                                    <div class="team-spread">{{.FormatAwaySpread}}</div>
-                                {{end}}
-                            </div>
-                            {{if ne .State "scheduled"}}
-                                <span class="score-display">{{.AwayScore}}</span>
-                            {{end}}
-                        </div>
-                    </div>
-
-                    <!-- VS/@ separator -->
-                    <div class="vs-section">@</div>
-
-                    <!-- Home Team Section -->
-                    <div class="team-section home">
-                        <div class="team-name">
-                            {{if ne .State "scheduled"}}
-                                <span class="score-display">{{.HomeScore}}</span>
-                            {{end}}
-                            <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" 
-                                 onerror="this.style.display='none'"/>
-                            <div class="team-info">
-                                <div class="team-abbr">{{.Home}}</div>
-                                {{if .HasOdds}}
-                                    <div class="team-spread">{{.FormatHomeSpread}}</div>
-                                {{end}}
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Over/Under Section -->
-                    <div class="ou-section">
-                        {{if .HasOdds}}
-                            O/U {{.Odds.OU}}
-                        {{else}}
-                            -
-                        {{end}}
-                    </div>
-
-                    <!-- Game Status Section -->
-                    <div class="game-status-section">
-                        {{if eq .State "scheduled"}}
-                            <div class="game-time">{{.FormatGameTime}}</div>
-                        {{else if eq .State "in_play"}}
-                            <span class="live-indicator">LIVE</span>
-                            <span class="game-time">
-                                {{if .HasStatus}}
-                                    Q{{.Quarter}} {{.GetGameClock}}
-                                {{else}}
-                                    Q{{.Quarter}}
-                                {{end}}
+                    <div class="game-matchup">
+                        <div class="matchup-team">
+                            <img class="team-img-small" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
+                            <span></span>
+                            <span class="team-name-container">
+                                <span class="team-abbr mobile-only">{{.Away}}</span>
+                                <span class="team-mascot desktop-only">{{getTeamMascotName .Away}}</span>
                             </span>
-                        {{else if eq .State "completed"}}
-                            <span class="game-time">FINAL</span>
-                            {{if and .HasOdds .IsCompleted}}
-                                <span class="spread-result">
-                                    {{if eq .SpreadResult "push"}}
-                                        PUSH
-                                    {{else if eq .SpreadResult "home-covered"}}
-                                        {{.Home}} ✓
-                                    {{else if eq .SpreadResult "away-covered"}}
-                                        {{.Away}} ✓
-                                    {{end}}
-                                </span>
+                            {{if ne .State "scheduled"}}
+                                <span class="team-score">{{.AwayScore}}</span>
                             {{end}}
+                        </div>
+                        {{if eq .State "scheduled"}}<span class="matchup-vs">@</span>{{end}}
+                        <div class="matchup-team">
+                            <img class="team-img-small" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
+                            <span></span>
+                            <span class="team-name-container">
+                                <span class="team-abbr mobile-only">{{.Home}}</span>
+                                <span class="team-mascot desktop-only">{{getTeamMascotName .Home}}</span>
+                            </span>
+                            {{if ne .State "scheduled"}}
+                                <span class="team-score">{{.HomeScore}}</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    <div class="game-details">
+                        {{if .HasOdds}}
+                            <span class="ou-value">+{{.Odds.OU}}</span>
+                        {{else}}
+                            <span class="ou-value">-</span>
                         {{end}}
                     </div>
                 </div>
                 {{if eq .State "in_play"}}
                     <!-- Always visible game expansion -->
                     <div class="live-game-expansion">
+                        <!-- Game Clock and Quarter -->
+                        <span class="status-item game-clock">
+                            {{if eq .Quarter 5}}OT{{else if eq .Quarter 6}}2OT{{else}}Q{{.Quarter}}{{end}}
+                            {{if .HasStatus}}{{if ne .GetGameClock ""}} {{.GetGameClock}}{{end}}{{end}}
+                        </span>
+                        
                         <!-- Game Status and Possession -->
                         {{if .HasStatus}}
                             {{$possessionStr := .GetPossessionString}}
                             {{if ne $possessionStr ""}}
-                                <span class="status-item">{{$possessionStr}}</span>
                                 <span class="status-divider"> || </span>
+                                <span class="status-item">{{$possessionStr}}</span>
                             {{end}}
+                        {{end}}
+                        
+                        {{if or (.HasOdds) (.HasStatus)}}
+                            <span class="status-divider"> || </span>
                         {{end}}
                         
                         <!-- O/U Status with tracking -->
@@ -407,9 +374,31 @@
         <div class="pick-item {{getResultClass $pick $game}}">
             <div class="pick-matchup">
                 {{if $game}}
-                    <span class="matchup-text">
-                        <img class="team-img-small" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>{{$game.Away}} @ <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>{{$game.Home}}
-                    </span>
+                    <div class="matchup-team">
+                        <img class="team-img-small" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>
+                        <span></span>
+                        <span class="team-name-container">
+                            <span class="team-abbr mobile-only">{{$game.Away}}</span>
+                            <span class="team-mascot desktop-only">{{getTeamMascotName $game.Away}}</span>
+                        </span>
+                        {{if ne $game.State "scheduled"}}
+                            <span class="team-score">{{$game.AwayScore}}</span>
+                        {{end}}
+                    </div>
+                    <span></span>
+                    {{if eq $game.State "scheduled"}}<span class="matchup-vs">@</span>{{else}}<span></span>{{end}}
+                    <span></span>
+                    <div class="matchup-team">
+                        <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
+                        <span></span>
+                        <span class="team-name-container">
+                            <span class="team-abbr mobile-only">{{$game.Home}}</span>
+                            <span class="team-mascot desktop-only">{{getTeamMascotName $game.Home}}</span>
+                        </span>
+                        {{if ne $game.State "scheduled"}}
+                            <span class="team-score">{{$game.HomeScore}}</span>
+                        {{end}}
+                    </div>
                 {{end}}
             </div>
             <div class="pick-details">
@@ -419,7 +408,10 @@
                     {{$teamIcon := getPickTeamIcon $teamAbbr}}
                     {{$pickValue := getPickValue $pick $game $cleanDesc}}
                     <img class="team-img-small" src="{{$teamIcon}}" alt="{{$teamAbbr}}" onerror="this.style.display='none'"/>
-                    <span class="picked-team">{{$teamAbbr}}</span>
+                    <span class="team-name-container">
+                        <span class="picked-team mobile-only">{{$teamAbbr}}</span>
+                        <span class="picked-team desktop-only">{{getTeamMascotName $teamAbbr}}</span>
+                    </span>
                     <span class="pick-spread">{{$pickValue}}</span>
                 {{else}}
                     <span class="pick-type">{{$pick.PickType}}</span>
