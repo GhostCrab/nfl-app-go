@@ -93,6 +93,33 @@ func main() {
 				
 				return sorted
 			},
+			"sortUsersWithCurrentFirst": func(userPicks []*models.UserPicks, currentUserName string) []*models.UserPicks {
+				if len(userPicks) == 0 || currentUserName == "" {
+					return userPicks
+				}
+				// Create a copy to avoid modifying original slice
+				sorted := make([]*models.UserPicks, len(userPicks))
+				copy(sorted, userPicks)
+				
+				// Sort so current user appears first
+				sort.Slice(sorted, func(i, j int) bool {
+					isCurrent_i := sorted[i].UserName == currentUserName
+					isCurrent_j := sorted[j].UserName == currentUserName
+					
+					// Current user should come first
+					if isCurrent_i && !isCurrent_j {
+						return true
+					}
+					if !isCurrent_i && isCurrent_j {
+						return false
+					}
+					
+					// For non-current users, maintain alphabetical order
+					return sorted[i].UserName < sorted[j].UserName
+				})
+				
+				return sorted
+			},
 			"projectFinalScore": func(homeScore, awayScore, quarter int, timeLeft string) float64 {
 				// Parse time left (e.g., "12:34")
 				var minutes, seconds int
@@ -300,7 +327,7 @@ func main() {
 					"MIN": "VIKINGS", "NE": "PATRIOTS", "NO": "SAINTS", "NYG": "GIANTS",
 					"NYJ": "JETS", "PHI": "EAGLES", "PIT": "STEELERS", "SF": "49ERS",
 					"SEA": "SEAHAWKS", "TB": "BUCCANEERS", "TEN": "TITANS", "WSH": "COMMANDERS",
-					"OVR": "OVR", "UND": "UND", // Keep O/U abbreviations as-is
+					"OVR": "OVER", "UND": "UNDER", // Full names for O/U picks on desktop
 				}
 				if mascot, exists := mascotMap[abbr]; exists {
 					return mascot
@@ -610,7 +637,7 @@ func main() {
 				"MIN": "VIKINGS", "NE": "PATRIOTS", "NO": "SAINTS", "NYG": "GIANTS",
 				"NYJ": "JETS", "PHI": "EAGLES", "PIT": "STEELERS", "SF": "49ERS",
 				"SEA": "SEAHAWKS", "TB": "BUCCANEERS", "TEN": "TITANS", "WSH": "COMMANDERS",
-				"OVR": "OVR", "UND": "UND", // Keep O/U abbreviations as-is
+				"OVR": "OVER", "UND": "UNDER", // Full names for O/U picks on desktop
 			}
 			if mascot, exists := mascotMap[abbr]; exists {
 				return mascot
@@ -630,6 +657,33 @@ func main() {
 				scoreI := sorted[i].Record.ParlayPoints
 				scoreJ := sorted[j].Record.ParlayPoints
 				return scoreI > scoreJ
+			})
+			
+			return sorted
+		},
+		"sortUsersWithCurrentFirst": func(userPicks []*models.UserPicks, currentUserName string) []*models.UserPicks {
+			if len(userPicks) == 0 || currentUserName == "" {
+				return userPicks
+			}
+			// Create a copy to avoid modifying original slice
+			sorted := make([]*models.UserPicks, len(userPicks))
+			copy(sorted, userPicks)
+			
+			// Sort so current user appears first
+			sort.Slice(sorted, func(i, j int) bool {
+				isCurrent_i := sorted[i].UserName == currentUserName
+				isCurrent_j := sorted[j].UserName == currentUserName
+				
+				// Current user should come first
+				if isCurrent_i && !isCurrent_j {
+					return true
+				}
+				if !isCurrent_i && isCurrent_j {
+					return false
+				}
+				
+				// For non-current users, maintain alphabetical order
+				return sorted[i].UserName < sorted[j].UserName
 			})
 			
 			return sorted
@@ -733,6 +787,10 @@ func main() {
 	r.Handle("/events", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.SSEHandler))).Methods("GET")
 	r.Handle("/api/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGamesAPI))).Methods("GET")
 	r.Handle("/api/dashboard", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetDashboardDataAPI))).Methods("GET")
+	
+	// Pick picker routes (require authentication)
+	r.Handle("/pick-picker", authMiddleware.RequireAuth(http.HandlerFunc(gameHandler.ShowPickPicker))).Methods("GET")
+	r.Handle("/submit-picks", authMiddleware.RequireAuth(http.HandlerFunc(gameHandler.SubmitPicks))).Methods("POST")
 	
 	// Protected API routes
 	apiRouter := r.PathPrefix("/api").Subrouter()

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -15,11 +16,17 @@ import (
 )
 
 // GameHandler handles game-related HTTP requests
+// SSEClient represents a connected SSE client with user context
+type SSEClient struct {
+	Channel chan string
+	UserID  int
+}
+
 type GameHandler struct {
 	templates   *template.Template
 	gameService services.GameService
 	pickService *services.PickService
-	sseClients  map[chan string]bool
+	sseClients  map[*SSEClient]bool
 	authService *services.AuthService
 	dataLoader  *services.DataLoader
 }
@@ -29,7 +36,7 @@ func NewGameHandler(templates *template.Template, gameService services.GameServi
 	return &GameHandler{
 		templates:   templates,
 		gameService: gameService,
-		sseClients:  make(map[chan string]bool),
+		sseClients:  make(map[*SSEClient]bool),
 	}
 }
 
@@ -196,7 +203,14 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 
 // SSEHandler handles Server-Sent Events for real-time game updates
 func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("SSE: New client connected from %s", r.RemoteAddr)
+	// Get user from context (if authenticated)
+	user := middleware.GetUserFromContext(r)
+	userID := 0 // Default to user 0 if not authenticated
+	if user != nil {
+		userID = user.ID
+	}
+	
+	log.Printf("SSE: New client connected from %s (UserID: %d)", r.RemoteAddr, userID)
 
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -204,26 +218,29 @@ func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	// Create client channel
-	clientChan := make(chan string, 10)
-	h.sseClients[clientChan] = true
+	// Create client with user context
+	client := &SSEClient{
+		Channel: make(chan string, 10),
+		UserID:  userID,
+	}
+	h.sseClients[client] = true
 
 	// Send initial connection confirmation
 	fmt.Fprintf(w, "event: connected\n")
-	fmt.Fprintf(w, "data: SSE connection established\n\n")
+	fmt.Fprintf(w, "data: SSE connection established for user %d\n\n", userID)
 	w.(http.Flusher).Flush()
 
 	// Handle client disconnect
 	defer func() {
-		delete(h.sseClients, clientChan)
-		close(clientChan)
-		log.Printf("SSE: Client disconnected from %s", r.RemoteAddr)
+		delete(h.sseClients, client)
+		close(client.Channel)
+		log.Printf("SSE: Client disconnected from %s (UserID: %d)", r.RemoteAddr, userID)
 	}()
 
 	// Keep connection alive and send updates
 	for {
 		select {
-		case message := <-clientChan:
+		case message := <-client.Channel:
 			// Parse message format: "eventType:data"
 			parts := strings.SplitN(message, ":", 2)
 			eventType := "gameUpdate" // default
@@ -255,39 +272,45 @@ func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 
 // HandleDatabaseChange processes database changes and sends appropriate updates to SSE clients
 func (h *GameHandler) HandleDatabaseChange(event services.ChangeEvent) {
-	log.Printf("SSE: Processing change event: Collection=%s, Operation=%s, Season=%d, Week=%d", 
-		event.Collection, event.Operation, event.Season, event.Week)
+	log.Printf("SSE: Processing change event: Collection=%s, Operation=%s, Season=%d, Week=%d, UserID=%d", 
+		event.Collection, event.Operation, event.Season, event.Week, event.UserID)
 
-	// Create a structured update event
-	updateEvent := struct {
-		Type       string `json:"type"`
-		Collection string `json:"collection"`
-		Operation  string `json:"operation"`
-		Season     int    `json:"season"`
-		Week       int    `json:"week"`
-		GameID     string `json:"gameId,omitempty"`
-		UserID     int    `json:"userId,omitempty"`
-		Timestamp  int64  `json:"timestamp"`
-	}{
-		Type:       "databaseChange",
-		Collection: event.Collection,
-		Operation:  event.Operation,
-		Season:     event.Season,
-		Week:       event.Week,
-		GameID:     event.GameID,
-		UserID:     event.UserID,
-		Timestamp:  time.Now().UnixMilli(),
-	}
-
-	// Convert to JSON
-	updateJSON, err := json.Marshal(updateEvent)
-	if err != nil {
-		log.Printf("SSE: Error marshaling update event: %v", err)
+	// Skip pick changes - these are now handled directly by SubmitPicks handler
+	if event.Collection == "picks" {
+		log.Printf("SSE: Skipping pick change event (handled by SubmitPicks)")
 		return
 	}
+	
+	// For other collections (like games), send structured database change events
+	if event.Collection == "games" {
+		updateEvent := struct {
+			Type       string `json:"type"`
+			Collection string `json:"collection"`
+			Operation  string `json:"operation"`
+			Season     int    `json:"season"`
+			Week       int    `json:"week"`
+			GameID     string `json:"gameId,omitempty"`
+			Timestamp  int64  `json:"timestamp"`
+		}{
+			Type:       "databaseChange",
+			Collection: event.Collection,
+			Operation:  event.Operation,
+			Season:     event.Season,
+			Week:       event.Week,
+			GameID:     event.GameID,
+			Timestamp:  time.Now().UnixMilli(),
+		}
 
-	// Send structured update to all connected clients
-	h.broadcastStructuredUpdate("databaseChange", string(updateJSON))
+		// Convert to JSON
+		updateJSON, err := json.Marshal(updateEvent)
+		if err != nil {
+			log.Printf("SSE: Error marshaling update event: %v", err)
+			return
+		}
+
+		// Send structured update to all connected clients
+		h.broadcastStructuredUpdate("gameUpdate", string(updateJSON))
+	}
 }
 
 // BroadcastUpdate sends game updates to all connected SSE clients (legacy method)
@@ -327,15 +350,32 @@ func (h *GameHandler) BroadcastUpdate() {
 
 // broadcastStructuredUpdate sends a structured update to all SSE clients
 func (h *GameHandler) broadcastStructuredUpdate(eventType, data string) {
-	for clientChan := range h.sseClients {
+	for client := range h.sseClients {
 		select {
-		case clientChan <- fmt.Sprintf("%s:%s", eventType, data):
+		case client.Channel <- fmt.Sprintf("%s:%s", eventType, data):
 		default:
 			// Client channel is full, skip
 		}
 	}
 	
 	log.Printf("SSE: Broadcasted %s update to %d clients", eventType, len(h.sseClients))
+}
+
+// broadcastToUser sends a structured update to a specific user
+func (h *GameHandler) broadcastToUser(userID int, eventType, data string) {
+	count := 0
+	for client := range h.sseClients {
+		if client.UserID == userID {
+			select {
+			case client.Channel <- fmt.Sprintf("%s:%s", eventType, data):
+				count++
+			default:
+				// Client channel is full, skip
+			}
+		}
+	}
+	
+	log.Printf("SSE: Broadcasted %s update to %d clients for user %d", eventType, count, userID)
 }
 
 // getCurrentWeek determines the current NFL week based on game dates and season state
@@ -654,6 +694,411 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	
+}
+
+// ShowPickPicker displays the pick picker modal/overlay
+func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
+	log.Printf("PICK-PICKER: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	log.Printf("PICK-PICKER: Query params: %v", r.URL.RawQuery)
+	
+	// Get week from query parameters
+	weekParam := r.URL.Query().Get("week")
+	week, err := strconv.Atoi(weekParam)
+	if err != nil || week < 1 || week > 18 {
+		week = h.getCurrentWeek([]models.Game{}) // Default to current week
+	}
+	
+	// Get season from query parameters
+	seasonParam := r.URL.Query().Get("season")
+	season, err := strconv.Atoi(seasonParam)
+	if err != nil || season < 2020 || season > 2030 {
+		season = 2025 // Default to current season
+	}
+	
+	// Get user from context (set by auth middleware)
+	user := middleware.GetUserFromContext(r)
+	
+	// Get games for the season
+	var allGames []models.Game
+	
+	// Use GameService interface method that supports seasons
+	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+		allGames, err = gameServiceWithSeason.GetGamesBySeason(season)
+	} else {
+		allGames, err = h.gameService.GetGames()
+	}
+	
+	if err != nil {
+		log.Printf("Error getting games for week %d, season %d: %v", week, season, err)
+		http.Error(w, "Failed to load games", http.StatusInternalServerError)
+		return
+	}
+	
+	// Filter games by week and season, and only show scheduled games (can't pick games that started)
+	var availableGames []models.Game
+	for _, game := range allGames {
+		if game.Week == week && game.Season == season && game.State == models.GameStateScheduled {
+			availableGames = append(availableGames, game)
+		}
+	}
+	
+	// Get current user picks for this week if user is authenticated
+	var userPicks *models.UserPicks
+	if user != nil && h.pickService != nil {
+		picks, err := h.pickService.GetUserPicksForWeek(context.Background(), user.ID, season, week)
+		if err != nil {
+			log.Printf("Error getting user picks: %v", err)
+			// Continue without error - user just won't see current picks
+		} else {
+			userPicks = picks
+		}
+	}
+	
+	// Create pick state map for template
+	pickState := make(map[int]map[int]bool) // pickState[gameID][teamID] = selected
+	if userPicks != nil {
+		allPicks := append(userPicks.Picks, userPicks.SpreadPicks...)
+		allPicks = append(allPicks, userPicks.OverUnderPicks...)
+		for _, pick := range allPicks {
+			if pickState[pick.GameID] == nil {
+				pickState[pick.GameID] = make(map[int]bool)
+			}
+			pickState[pick.GameID][pick.TeamID] = true
+		}
+	}
+	
+	data := struct {
+		Games     []models.Game
+		Week      int
+		Season    int
+		User      *models.User
+		PickState map[int]map[int]bool
+	}{
+		Games:     availableGames,
+		Week:      week,
+		Season:    season,
+		User:      user,
+		PickState: pickState,
+	}
+	
+	// Set content type for HTML response
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
+	log.Printf("PICK-PICKER: Rendering template with %d games for week %d, season %d", len(availableGames), week, season)
+	
+	// Render pick picker template
+	err = h.templates.ExecuteTemplate(w, "pick-picker", data)
+	if err != nil {
+		log.Printf("PICK-PICKER: Template error: %v", err)
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+	
+	log.Printf("PICK-PICKER: Template rendered successfully")
+}
+
+// SubmitPicks handles pick submissions via HTMX form
+func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Get user from context
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+	
+	// Parse form data
+	err := r.ParseForm()
+	if err != nil {
+		log.Printf("Error parsing form: %v", err)
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	
+	// Get week and season from form
+	week, _ := strconv.Atoi(r.FormValue("week"))
+	season, _ := strconv.Atoi(r.FormValue("season"))
+	
+	if week < 1 || week > 18 || season < 2020 || season > 2030 {
+		http.Error(w, "Invalid week or season", http.StatusBadRequest)
+		return
+	}
+	
+	// Get games data to resolve team names
+	var games []models.Game
+	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+		games, err = gameServiceWithSeason.GetGamesBySeason(season)
+	} else {
+		games, err = h.gameService.GetGames()
+	}
+	
+	if err != nil {
+		log.Printf("Error fetching games for pick submission: %v", err)
+		http.Error(w, "Failed to fetch games data", http.StatusInternalServerError)
+		return
+	}
+	
+	// Create game lookup map
+	gameMap := make(map[int]models.Game)
+	for _, game := range games {
+		gameMap[game.ID] = game
+	}
+
+	// Parse picks from form data  
+	// Checkbox form fields: "pick-{gameID}-{away/home/98/99}" = "1"
+	var picks []*models.Pick
+	
+	for fieldName, values := range r.Form {
+		if len(values) == 0 || values[0] != "1" {
+			continue // Skip unchecked checkboxes
+		}
+		
+		if strings.HasPrefix(fieldName, "pick-") {
+			// Parse pick-{gameID}-{team} from the field name
+			parts := strings.Split(fieldName, "-")
+			if len(parts) == 3 {
+				gameID, err1 := strconv.Atoi(parts[1])
+				if err1 == nil {
+					game, gameExists := gameMap[gameID]
+					if !gameExists {
+						log.Printf("Game %d not found for pick submission", gameID)
+						continue
+					}
+					
+					var teamName string
+					var teamID int
+					pickType := models.PickTypeSpread // Default to spread pick
+					
+					switch parts[2] {
+					case "away":
+						teamName = game.Away
+						teamID = h.getESPNTeamID(game.Away) // Use actual ESPN team ID
+					case "home":
+						teamName = game.Home  
+						teamID = h.getESPNTeamID(game.Home) // Use actual ESPN team ID
+					case "98":
+						teamName = "Under"
+						teamID = 98
+						pickType = models.PickTypeOverUnder
+					case "99":
+						teamName = "Over"
+						teamID = 99
+						pickType = models.PickTypeOverUnder
+					default:
+						continue // Skip unknown team types
+					}
+					
+					// Create pick using model helper
+					pick := models.CreatePickFromLegacyData(user.ID, gameID, teamID, season, week)
+					pick.PickType = pickType
+					pick.TeamName = teamName // Set the team name directly
+					
+					// Set pick description for template display
+					if pickType == models.PickTypeOverUnder {
+						pick.PickDescription = fmt.Sprintf("%s @ %s - %s", game.Away, game.Home, teamName)
+					} else {
+						// For spread picks, include spread info if available
+						if game.HasOdds() {
+							var spreadDesc string
+							if teamName == game.Home {
+								spreadDesc = game.FormatHomeSpread()
+							} else {
+								spreadDesc = game.FormatAwaySpread()
+							}
+							pick.PickDescription = fmt.Sprintf("%s @ %s - %s %s (spread)", game.Away, game.Home, teamName, spreadDesc)
+						} else {
+							pick.PickDescription = fmt.Sprintf("%s @ %s - %s (spread)", game.Away, game.Home, teamName)
+						}
+					}
+					
+					picks = append(picks, pick)
+				}
+			}
+		}
+	}
+	
+	log.Printf("User %d submitting %d picks for week %d, season %d", user.ID, len(picks), week, season)
+	
+	// Replace picks via pick service (clear existing and create new ones atomically)
+	if h.pickService != nil {
+		err := h.pickService.ReplaceUserPicksForWeek(context.Background(), user.ID, season, week, picks)
+		if err != nil {
+			log.Printf("Error replacing user picks: %v", err)
+			http.Error(w, "Failed to submit picks", http.StatusInternalServerError)
+			return
+		}
+		
+		// Trigger single SSE update after all database operations complete
+		h.broadcastPickUpdate(user.ID, season, week)
+	}
+	
+	// Return success response for HTMX
+	w.Header().Set("HX-Trigger", "picks-updated")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "Picks submitted successfully!")
+}
+
+// broadcastPickUpdate sends personalized HTML updates to all connected SSE clients
+func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
+	// Get fresh data for the updated week
+	var games []models.Game
+	var err error
+	
+	// Use GameService interface method that supports seasons
+	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+		games, err = gameServiceWithSeason.GetGamesBySeason(season)
+	} else {
+		games, err = h.gameService.GetGames()
+	}
+	
+	if err != nil {
+		log.Printf("SSE: Error fetching games for pick update broadcast: %v", err)
+		return
+	}
+	
+	// Filter games by week
+	filteredGames := make([]models.Game, 0)
+	for _, game := range games {
+		if game.Week == week {
+			filteredGames = append(filteredGames, game)
+		}
+	}
+	games = filteredGames
+	
+	// Get fresh pick data
+	var allUserPicks []*models.UserPicks
+	if h.pickService != nil {
+		var pickErr error
+		allUserPicks, pickErr = h.pickService.GetAllUserPicksForWeek(context.Background(), season, week)
+		if pickErr != nil {
+			log.Printf("SSE: Warning - failed to load picks for week %d, season %d: %v", week, season, pickErr)
+			return
+		}
+		allUserPicks = h.applyDemoEffectsToPicksForWeek1(allUserPicks)
+	}
+	
+	// Generate weeks list
+	weeks := make([]int, 18)
+	for i := range weeks {
+		weeks[i] = i + 1
+	}
+	
+	// Send personalized updates to each connected user
+	for client := range h.sseClients {
+		// Find user info for this client
+		var viewingUser *models.User
+		users := []*models.User{
+			{ID: 0, Name: "ANDREW", Email: "ackilpatrick@gmail.com"},
+			{ID: 1, Name: "BARDIA", Email: "bbakhtari@gmail.com"},
+			{ID: 2, Name: "COOPER", Email: "cooper.kocsis@mattel.com"},
+			{ID: 3, Name: "MICAH", Email: "micahgoldman@gmail.com"},
+			{ID: 4, Name: "RYAN", Email: "ryan.pielow@gmail.com"},
+			{ID: 5, Name: "TJ", Email: "tyerke@yahoo.com"},
+			{ID: 6, Name: "BRAD", Email: "bradvassar@gmail.com"},
+		}
+		
+		// Find the user for this client
+		for _, user := range users {
+			if user.ID == client.UserID {
+				viewingUser = user
+				break
+			}
+		}
+		
+		if viewingUser == nil {
+			log.Printf("SSE: Could not find user info for client UserID %d", client.UserID)
+			continue
+		}
+		
+		// Personalize picks for this viewing user
+		personalizedUserPicks := h.personalizeUserPicksForViewer(allUserPicks, viewingUser, games)
+		
+		// Create template data for this specific user
+		data := struct {
+			Games         []models.Game
+			UserPicks     []*models.UserPicks
+			User          *models.User
+			Weeks         []int
+			CurrentWeek   int
+			CurrentSeason int
+		}{
+			Games:         games,
+			UserPicks:     personalizedUserPicks,
+			User:          viewingUser,
+			Weeks:         weeks,
+			CurrentWeek:   week,
+			CurrentSeason: season,
+		}
+		
+		// Debug logging
+		log.Printf("SSE: Broadcasting to user %d - %d games, %d user picks", client.UserID, len(data.Games), len(data.UserPicks))
+		if len(data.UserPicks) > 0 {
+			log.Printf("SSE: First user picks: %s with %d picks", data.UserPicks[0].UserName, len(data.UserPicks[0].Picks))
+		}
+		
+		// Render picks section for this user
+		var htmlContent strings.Builder
+		
+		if err := h.templates.ExecuteTemplate(&htmlContent, "picks-section", data); err != nil {
+			log.Printf("SSE: Template error for user %d: %v", client.UserID, err)
+			continue
+		}
+		
+		// Debug the rendered content
+		renderedContent := htmlContent.String()
+		log.Printf("SSE: Rendered content length: %d characters", len(renderedContent))
+		
+		// Debug first few lines of rendered content
+		lines := strings.Split(renderedContent, "\n")
+		log.Printf("SSE: First 10 lines of rendered content:")
+		for i, line := range lines {
+			if i >= 10 {
+				break
+			}
+			log.Printf("SSE:   Line %d: '%s'", i+1, line)
+		}
+		
+		// Send personalized update to this specific client
+		select {
+		case client.Channel <- fmt.Sprintf("pickUpdate:%s", htmlContent.String()):
+		default:
+			// Client channel is full, skip
+		}
+	}
+	
+	log.Printf("SSE: Sent personalized pick updates to %d connected clients, triggered by user %d", len(h.sseClients), userID)
+}
+
+// personalizeUserPicksForViewer filters and modifies user picks based on what the viewing user should see
+func (h *GameHandler) personalizeUserPicksForViewer(allUserPicks []*models.UserPicks, viewingUser *models.User, games []models.Game) []*models.UserPicks {
+	// For now, return all picks (no filtering)
+	// TODO: Add logic to hide picks for games that haven't started based on viewing user permissions
+	return allUserPicks
+}
+
+// getESPNTeamID maps team abbreviations to ESPN team IDs
+func (h *GameHandler) getESPNTeamID(teamAbbr string) int {
+	// ESPN team ID mapping (matching the one used in pick service)
+	teamIDMap := map[string]int{
+		"ATL": 1, "BUF": 2, "CHI": 3, "CIN": 4, "CLE": 5, "DAL": 6, "DEN": 7, "DET": 8,
+		"GB": 9, "TEN": 10, "IND": 11, "KC": 12, "LV": 13, "LAR": 14, "MIA": 15, "MIN": 16,
+		"NE": 17, "NO": 18, "NYG": 19, "NYJ": 20, "PHI": 21, "ARI": 22, "PIT": 23, "LAC": 24,
+		"SF": 25, "SEA": 26, "TB": 27, "WSH": 28, "CAR": 29, "JAX": 30, "BAL": 33, "HOU": 34,
+	}
+	
+	if id, exists := teamIDMap[teamAbbr]; exists {
+		return id
+	}
+	
+	// Fallback: return 0 if team not found
+	log.Printf("Warning: Unknown team abbreviation '%s', using teamID 0", teamAbbr)
+	return 0
 }
 
 

@@ -152,10 +152,18 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 		return nil, fmt.Errorf("failed to get week picks: %w", err)
 	}
 	
+	log.Printf("PickService: Found %d total picks for season %d, week %d", len(allPicks), season, week)
+	
 	// Group picks by user
 	picksByUser := make(map[int][]*models.Pick)
 	for _, pick := range allPicks {
 		picksByUser[pick.UserID] = append(picksByUser[pick.UserID], pick)
+		log.Printf("PickService: Assigning pick for game %d to user %d (team: %s)", pick.GameID, pick.UserID, pick.TeamName)
+	}
+	
+	log.Printf("PickService: Grouped picks by user: %d users have picks", len(picksByUser))
+	for userID, userPicks := range picksByUser {
+		log.Printf("PickService: User %d has %d picks", userID, len(userPicks))
 	}
 	
 	// Get game information for categorizing picks by day
@@ -626,5 +634,23 @@ func (s *PickService) ProcessWeekParlayScoring(ctx context.Context, season, week
 	}
 	
 	log.Printf("Completed parlay scoring for Season %d, Week %d", season, week)
+	return nil
+}
+
+// ReplaceUserPicksForWeek clears existing picks and creates new ones for a user/week
+func (s *PickService) ReplaceUserPicksForWeek(ctx context.Context, userID, season, week int, picks []*models.Pick) error {
+	// First, delete all existing picks for this user/season/week
+	if err := s.pickRepo.DeleteByUserAndWeek(ctx, userID, season, week); err != nil {
+		return fmt.Errorf("failed to clear existing picks: %w", err)
+	}
+	
+	// Create new picks
+	for _, pick := range picks {
+		if err := s.pickRepo.Create(ctx, pick); err != nil {
+			return fmt.Errorf("failed to create pick: %w", err)
+		}
+	}
+	
+	log.Printf("Replaced picks for user %d, season %d, week %d: %d picks", userID, season, week, len(picks))
 	return nil
 }

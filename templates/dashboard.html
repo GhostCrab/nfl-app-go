@@ -42,7 +42,8 @@
     </mat-toolbar>
 
     <!-- Dashboard Container - Exact legacy three-column layout -->
-    <div class="dashboard-container" hx-ext="sse" sse-connect="/events">
+    <div class="dashboard-container">
+        
         <div class="dashboard-content" id="dashboard-content">
             {{template "dashboard-content" .}}
         </div>
@@ -54,26 +55,29 @@
                 <div class="game-row inline-game {{.State}}" id="game-{{.ID}}">
                     <div class="game-matchup">
                         <div class="matchup-team">
-                            <img class="team-img-small" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
-                            <span></span>
+                            <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
                             <span class="team-name-container">
                                 <span class="team-abbr mobile-only">{{.Away}}</span>
                                 <span class="team-mascot desktop-only">{{getTeamMascotName .Away}}</span>
+                                {{if .HasOdds}}<span class="team-spread">{{.FormatAwaySpread}}</span>{{end}}
                             </span>
                             {{if ne .State "scheduled"}}
                                 <span class="team-score">{{.AwayScore}}</span>
+                            {{else}}
+                                <span class="team-score"></span>
                             {{end}}
                         </div>
-                        {{if eq .State "scheduled"}}<span class="matchup-vs">@</span>{{end}}
                         <div class="matchup-team">
-                            <img class="team-img-small" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
-                            <span></span>
+                            <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
                             <span class="team-name-container">
                                 <span class="team-abbr mobile-only">{{.Home}}</span>
                                 <span class="team-mascot desktop-only">{{getTeamMascotName .Home}}</span>
+                                {{if .HasOdds}}<span class="team-spread">{{.FormatHomeSpread}}</span>{{end}}
                             </span>
                             {{if ne .State "scheduled"}}
                                 <span class="team-score">{{.HomeScore}}</span>
+                            {{else}}
+                                <span class="team-score"></span>
                             {{end}}
                         </div>
                     </div>
@@ -82,6 +86,45 @@
                             <span class="ou-value">+{{.Odds.OU}}</span>
                         {{else}}
                             <span class="ou-value">-</span>
+                        {{end}}
+                    </div>
+                    <div class="game-status-section">
+                        {{if eq .State "scheduled"}}
+                            <div class="game-time">{{.FormatGameTime}}</div>
+                        {{else if eq .State "in_play"}}
+                            <span class="live-indicator">LIVE</span>
+                            <span class="game-time">
+                                {{if .HasStatus}}
+                                    Q{{.Quarter}} {{.GetGameClock}}
+                                {{else}}
+                                    Q{{.Quarter}}
+                                {{end}}
+                            </span>
+                        {{else if eq .State "completed"}}
+                            <div class="game-time">
+                                {{$winner := .Winner}}
+                                {{$totalPoints := add .HomeScore .AwayScore}}
+                                {{$pointDiff := 0}}
+                                {{if eq $winner .Home}}
+                                    {{$pointDiff = minus .HomeScore .AwayScore}}
+                                    <span class="covering-team">{{.Home}} +{{$pointDiff}}</span>
+                                {{else if eq $winner .Away}}
+                                    {{$pointDiff = minus .AwayScore .HomeScore}}
+                                    <span class="covering-team">{{.Away}} +{{$pointDiff}}</span>
+                                {{else}}
+                                    <span class="tied-status">TIE</span>
+                                {{end}}
+                                {{if .HasOdds}}
+                                    {{$totalPointsFloat := float64 $totalPoints}}
+                                    {{if gt $totalPointsFloat .Odds.OU}}
+                                        <span class="ou-status over">O {{$totalPoints}}</span>
+                                    {{else if lt $totalPointsFloat .Odds.OU}}
+                                        <span class="ou-status under">U {{$totalPoints}}</span>
+                                    {{else}}
+                                        <span class="ou-status push">PUSH {{$totalPoints}}</span>
+                                    {{end}}
+                                {{end}}
+                            </div>
                         {{end}}
                     </div>
                 </div>
@@ -152,152 +195,11 @@
     <!-- Dashboard Content Template (for HTMX partial updates) -->
     {{define "dashboard-content"}}
         <!-- Left Column: Pick Lists - Material Design Structure -->
-        <div class="pick-flex-item">
-            <!-- Unified rendering for all users (current user first, then others) -->
-            {{if .UserPicks}}
-                {{$currentUserName := ""}}
-                {{if .User}}{{$currentUserName = .User.Name}}{{end}}
-                
-                <!-- Render current user first if logged in -->
-                {{range .UserPicks}}
-                    {{if eq .UserName $currentUserName}}
-                        <fieldset class="user-picks-section">
-                            <legend>MY PICKS</legend>
-                            <div class="user-picks-content">
-
-                            <!-- Bonus Thursday picks -->
-                            {{if .BonusThursdayPicks}}
-                                <div class="regular-picks-section">
-                                    <div class="picks-category-header">BONUS THURSDAY</div>
-                                    <div class="picks-list">
-                                        {{range .BonusThursdayPicks}}
-                                            {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" true}}
-                                        {{end}}
-                                    </div>
-                                </div>
-                            {{end}}
-
-                            <!-- Bonus Friday picks -->
-                            {{if .BonusFridayPicks}}
-                                <div class="regular-picks-section">
-                                    <div class="picks-category-header">BONUS FRIDAY</div>
-                                    <div class="picks-list">
-                                        {{range .BonusFridayPicks}}
-                                            {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" true}}
-                                        {{end}}
-                                    </div>
-                                </div>
-                            {{end}}
-
-                            <!-- Regular picks (filtered to exclude bonus picks) -->
-                            {{if .Picks}}
-                                {{$hasAnyBonusPicks := or .BonusThursdayPicks .BonusFridayPicks}}
-                                {{if $hasAnyBonusPicks}}
-                                    <div class="regular-picks-section">
-                                        <div class="picks-category-header">REMAINING PICKS</div>
-                                        <div class="picks-list">
-                                            {{$userPicks := .}}
-                                            {{range .Picks}}
-                                                {{$currentPick := .}}
-                                                {{$isBonus := false}}
-                                                {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                                {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                                {{if not $isBonus}}
-                                                    {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" true}}
-                                                {{end}}
-                                            {{end}}
-                                        </div>
-                                    </div>
-                                {{else}}
-                                    <div class="regular-picks-section">
-                                        <div class="picks-category-header">REMAINING PICKS</div>
-                                        <div class="picks-list">
-                                            {{range .Picks}}
-                                                {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" true}}
-                                            {{end}}
-                                        </div>
-                                    </div>
-                                {{end}}
-                            {{end}}
-                            </div>
-                        </fieldset>
-                    {{end}}
-                {{end}}
-
-                <!-- Render other users -->
-                {{range .UserPicks}}
-                    {{if ne .UserName $currentUserName}}
-                        <fieldset class="user-picks-section">
-                            <legend>{{.UserName}}'S PICKS</legend>
-                            <div class="user-picks-content">
-
-                            <!-- Bonus Thursday picks -->
-                            {{if .BonusThursdayPicks}}
-                                <div class="regular-picks-section">
-                                    <div class="picks-category-header">BONUS THURSDAY</div>
-                                    <div class="picks-list">
-                                        {{range .BonusThursdayPicks}}
-                                            {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" false}}
-                                        {{end}}
-                                    </div>
-                                </div>
-                            {{end}}
-
-                            <!-- Bonus Friday picks -->
-                            {{if .BonusFridayPicks}}
-                                <div class="regular-picks-section">
-                                    <div class="picks-category-header">BONUS FRIDAY</div>
-                                    <div class="picks-list">
-                                        {{range .BonusFridayPicks}}
-                                            {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" false}}
-                                        {{end}}
-                                    </div>
-                                </div>
-                            {{end}}
-
-                            <!-- Regular picks (filtered to exclude bonus picks) -->
-                            {{if .Picks}}
-                                {{$hasAnyBonusPicks := or .BonusThursdayPicks .BonusFridayPicks}}
-                                {{if $hasAnyBonusPicks}}
-                                    <div class="regular-picks-section">
-                                        <div class="picks-category-header">REMAINING PICKS</div>
-                                        <div class="picks-list">
-                                            {{$userPicks := .}}
-                                            {{range .Picks}}
-                                                {{$currentPick := .}}
-                                                {{$isBonus := false}}
-                                                {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                                {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                                {{if not $isBonus}}
-                                                    {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" false}}
-                                                {{end}}
-                                            {{end}}
-                                        </div>
-                                    </div>
-                                {{else}}
-                                    <div class="regular-picks-section">
-                                        <div class="picks-category-header">REMAINING PICKS</div>
-                                        <div class="picks-list">
-                                            {{range .Picks}}
-                                                {{template "unified-pick-item" dict "Pick" . "Games" $.Games "IsCurrentUser" false}}
-                                            {{end}}
-                                        </div>
-                                    </div>
-                                {{end}}
-                            {{end}}
-                            </div>
-                        </fieldset>
-                    {{end}}
-                {{end}}
-            {{else}}
-                <!-- No picks data available -->
-                <fieldset class="user-picks-section mt-4">
-                    <legend>My Picks</legend>
-                    <div class="user-picks-content">
-                        <div class="no-picks">Please log in to see picks</div>
-                    </div>
-                </fieldset>
-            {{end}}
+        <div class="pick-flex-item" id="picks-container" 
+             hx-ext="sse" 
+             sse-connect="/events" 
+             sse-swap="pickUpdate">
+            {{template "picks-section" .}}
         </div>
 
         <!-- Center Column: Current Games - Material Design Structure -->
@@ -323,9 +225,12 @@
                     Use ← → arrow keys to navigate
                 </span>
                 {{if .User}}
-                    <a href="/picker" class="update-picks-btn">
+                    <button class="update-picks-btn"
+                            hx-get="/pick-picker?week={{.CurrentWeek}}&season={{.CurrentSeason}}"
+                            hx-target="body"
+                            hx-swap="beforeend">
                         Update Picks
-                    </a>
+                    </button>
                 {{end}}
             </div>
 
@@ -365,6 +270,91 @@
         </div>
     {{end}}
 
+    {{define "picks-section"}}
+{{if .UserPicks -}}
+{{$currentUserName := ""}}{{if .User}}{{$currentUserName = .User.Name}}{{end -}}
+{{$sortedUserPicks := .UserPicks}}{{if $currentUserName}}{{$sortedUserPicks = sortUsersWithCurrentFirst .UserPicks $currentUserName}}{{end -}}
+{{range $index, $userPicks := $sortedUserPicks -}}
+{{$isCurrentUser := eq .UserName $currentUserName -}}
+{{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0) -}}
+{{end -}}
+{{else -}}
+<div class="user-picks-section mt-4">
+<div class="user-picks-header">My Picks</div>
+<div class="user-picks-content">
+<div class="no-picks">Please log in to see picks</div>
+</div>
+</div>
+{{end -}}
+{{end}}
+
+    <!-- Unified User Picks Block Template -->
+    {{define "user-picks-block"}}
+        {{$userPicks := .UserPicks}}
+        {{$games := .Games}}
+        {{$isCurrentUser := .IsCurrentUser}}
+        <div class="user-picks-section">
+            <div class="user-picks-header">
+                {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
+            </div>
+            <div class="user-picks-content">
+
+            <!-- Bonus Thursday picks -->
+            {{if $userPicks.BonusThursdayPicks}}
+                <div class="regular-picks-section">
+                    <div class="picks-category-header">BONUS THURSDAY</div>
+                    <div class="picks-list">
+                        {{range $userPicks.BonusThursdayPicks}}
+                            {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
+                        {{end}}
+                    </div>
+                </div>
+            {{end}}
+
+            <!-- Bonus Friday picks -->
+            {{if $userPicks.BonusFridayPicks}}
+                <div class="regular-picks-section">
+                    <div class="picks-category-header">BONUS FRIDAY</div>
+                    <div class="picks-list">
+                        {{range $userPicks.BonusFridayPicks}}
+                            {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
+                        {{end}}
+                    </div>
+                </div>
+            {{end}}
+
+            <!-- Regular picks (filtered to exclude bonus picks) -->
+            {{if $userPicks.Picks}}
+                {{$hasAnyBonusPicks := or $userPicks.BonusThursdayPicks $userPicks.BonusFridayPicks}}
+                {{if $hasAnyBonusPicks}}
+                    <div class="regular-picks-section">
+                        <div class="picks-category-header">REMAINING PICKS</div>
+                        <div class="picks-list">
+                            {{range $userPicks.Picks}}
+                                {{$currentPick := .}}
+                                {{$isBonus := false}}
+                                {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
+                                {{if not $isBonus}}
+                                    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
+                                {{end}}
+                            {{end}}
+                        </div>
+                    </div>
+                {{else}}
+                    <div class="regular-picks-section">
+                        <div class="picks-list">
+                            {{range $userPicks.Picks}}
+                                {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
+                            {{end}}
+                        </div>
+                    </div>
+                {{end}}
+            {{end}}
+            </div>
+        </div>
+    {{end}}
+
     <!-- Unified Pick Item Template -->
     {{define "unified-pick-item"}}
         {{$pick := .Pick}}
@@ -376,7 +366,6 @@
                 {{if $game}}
                     <div class="matchup-team">
                         <img class="team-img-small" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>
-                        <span></span>
                         <span class="team-name-container">
                             <span class="team-abbr mobile-only">{{$game.Away}}</span>
                             <span class="team-mascot desktop-only">{{getTeamMascotName $game.Away}}</span>
@@ -385,12 +374,9 @@
                             <span class="team-score">{{$game.AwayScore}}</span>
                         {{end}}
                     </div>
-                    <span></span>
-                    {{if eq $game.State "scheduled"}}<span class="matchup-vs">@</span>{{else}}<span></span>{{end}}
-                    <span></span>
+                    {{if eq $game.State "scheduled"}}<span class="matchup-vs">@</span>{{end}}
                     <div class="matchup-team">
                         <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
-                        <span></span>
                         <span class="team-name-container">
                             <span class="team-abbr mobile-only">{{$game.Home}}</span>
                             <span class="team-mascot desktop-only">{{getTeamMascotName $game.Home}}</span>
@@ -402,17 +388,57 @@
                 {{end}}
             </div>
             <div class="pick-details">
-                {{if $pick.PickDescription}}
-                    {{$cleanDesc := regexReplace $pick.PickDescription "\\s*\\([^)]*\\)\\s*" ""}}
-                    {{$teamAbbr := getPickTeamAbbr $pick $game $cleanDesc}}
-                    {{$teamIcon := getPickTeamIcon $teamAbbr}}
-                    {{$pickValue := getPickValue $pick $game $cleanDesc}}
-                    <img class="team-img-small" src="{{$teamIcon}}" alt="{{$teamAbbr}}" onerror="this.style.display='none'"/>
-                    <span class="team-name-container">
-                        <span class="picked-team mobile-only">{{$teamAbbr}}</span>
-                        <span class="picked-team desktop-only">{{getTeamMascotName $teamAbbr}}</span>
-                    </span>
-                    <span class="pick-spread">{{$pickValue}}</span>
+                {{if $pick.TeamName}}
+                    {{if eq $pick.PickType "over_under"}}
+                        <!-- Over/Under pick display -->
+                        {{if eq $pick.TeamName "Over"}}
+                            <img class="team-img-small" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR"/>
+                            <span class="team-name-container">
+                                <span class="picked-team mobile-only">OVER</span>
+                                <span class="picked-team desktop-only">OVER</span>
+                            </span>
+                            {{if and $game $game.HasOdds}}
+                                <span class="pick-spread">{{$game.Odds.OU}}</span>
+                            {{end}}
+                        {{else}}
+                            <img class="team-img-small" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND"/>
+                            <span class="team-name-container">
+                                <span class="picked-team mobile-only">UNDER</span>
+                                <span class="picked-team desktop-only">UNDER</span>
+                            </span>
+                            {{if and $game $game.HasOdds}}
+                                <span class="pick-spread">{{$game.Odds.OU}}</span>
+                            {{end}}
+                        {{end}}
+                    {{else}}
+                        <!-- Spread pick display -->
+                        {{if and $game (eq $pick.TeamName $game.Away)}}
+                            <img class="team-img-small" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>
+                            <span class="team-name-container">
+                                <span class="picked-team mobile-only">{{$game.Away}}</span>
+                                <span class="picked-team desktop-only">{{getTeamMascotName $game.Away}}</span>
+                            </span>
+                            {{if $game.HasOdds}}
+                                <span class="pick-spread">{{$game.FormatAwaySpread}}</span>
+                            {{end}}
+                        {{else if and $game (eq $pick.TeamName $game.Home)}}
+                            <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
+                            <span class="team-name-container">
+                                <span class="picked-team mobile-only">{{$game.Home}}</span>
+                                <span class="picked-team desktop-only">{{getTeamMascotName $game.Home}}</span>
+                            </span>
+                            {{if $game.HasOdds}}
+                                <span class="pick-spread">{{$game.FormatHomeSpread}}</span>
+                            {{end}}
+                        {{else}}
+                            <!-- Fallback for unknown team -->
+                            <span class="team-name-container">
+                                <span class="picked-team mobile-only">{{$pick.TeamName}}</span>
+                                <span class="picked-team desktop-only">{{$pick.TeamName}}</span>
+                            </span>
+                            <span class="pick-spread">{{$pick.PickType}}</span>
+                        {{end}}
+                    {{end}}
                 {{else}}
                     <span class="pick-type">{{$pick.PickType}}</span>
                 {{end}}
@@ -480,12 +506,114 @@
         {{end}}
     {{end}}
 
+    <!-- Pick Picker Modal Template -->
+    {{define "pick-picker"}}
+        <div id="pick-picker-overlay" class="pick-picker-overlay">
+            <div class="pick-picker-modal">
+                <div class="pick-picker-header">
+                    <h2>Make Your Picks - Week {{.Week}} {{.Season}}</h2>
+                    <button class="close-picker">×</button>
+                </div>
+                <form id="pick-form" 
+                      hx-post="/submit-picks" 
+                      hx-target="#pick-result" 
+                      hx-swap="innerHTML">
+                    <input type="hidden" name="week" value="{{.Week}}">
+                    <input type="hidden" name="season" value="{{.Season}}">
+                    
+                    <div class="pick-picker-content">
+                        {{if .Games}}
+                            <div class="pick-picker-grid">
+                                <div class="pick-grid-header">
+                                    <div class="pick-header-away">Away</div>
+                                    <div class="pick-header-home">Home</div>
+                                    <div class="pick-header-ou">O/U</div>
+                                    <div class="pick-header-under">Under</div>
+                                    <div class="pick-header-over">Over</div>
+                                </div>
+                                
+                                {{range .Games}}
+                                    <div class="pick-game-row" data-game-id="{{.ID}}">
+                                        <!-- Away Team Pick -->
+                                        <div class="pick-team-option">
+                                            <label class="pick-checkbox-label">
+                                                <input type="checkbox" 
+                                                       name="pick-{{.ID}}-away" 
+                                                       value="1"
+                                                       class="pick-checkbox"
+                                                       {{if index (index $.PickState .ID) 1}}checked{{end}}>
+                                                <img class="pick-team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'">
+                                                <span class="pick-team-name">{{.Away}}</span>
+                                                {{if .HasOdds}}
+                                                    <span class="pick-spread">{{.FormatAwaySpread}}</span>
+                                                {{end}}
+                                            </label>
+                                        </div>
+                                        
+                                        <!-- Home Team Pick -->
+                                        <div class="pick-team-option">
+                                            <label class="pick-checkbox-label">
+                                                <input type="checkbox" 
+                                                       name="pick-{{.ID}}-home" 
+                                                       value="1"
+                                                       class="pick-checkbox"
+                                                       {{if index (index $.PickState .ID) 2}}checked{{end}}>
+                                                <img class="pick-team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'">
+                                                <span class="pick-team-name">{{.Home}}</span>
+                                                {{if .HasOdds}}
+                                                    <span class="pick-spread">{{.FormatHomeSpread}}</span>
+                                                {{end}}
+                                            </label>
+                                        </div>
+                                        
+                                        <!-- O/U Display -->
+                                        <div class="pick-ou-display">
+                                            {{if .HasOdds}}{{.Odds.OU}}{{else}}-{{end}}
+                                        </div>
+                                        
+                                        <!-- Under Pick -->
+                                        <div class="pick-team-option">
+                                            <label class="pick-checkbox-label">
+                                                <input type="checkbox" 
+                                                       name="pick-{{.ID}}-98" 
+                                                       value="1"
+                                                       class="pick-checkbox"
+                                                       {{if index (index $.PickState .ID) 98}}checked{{end}}>
+                                                <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND">
+                                            </label>
+                                        </div>
+                                        
+                                        <!-- Over Pick -->
+                                        <div class="pick-team-option">
+                                            <label class="pick-checkbox-label">
+                                                <input type="checkbox" 
+                                                       name="pick-{{.ID}}-99" 
+                                                       value="1"
+                                                       class="pick-checkbox"
+                                                       {{if index (index $.PickState .ID) 99}}checked{{end}}>
+                                                <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR">
+                                            </label>
+                                        </div>
+                                    </div>
+                                {{end}}
+                            </div>
+                        {{else}}
+                            <p>No games available for picking this week.</p>
+                        {{end}}
+                    </div>
+                    
+                    <div class="pick-picker-footer">
+                        <div id="pick-result"></div>
+                        <button type="submit" class="submit-picks-btn">Submit Picks</button>
+                        <button type="button" class="cancel-picks-btn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {{end}}
+
     <script>
-        // Initialize global navigation state
-        window.currentWeek = {{.CurrentWeek}};
-        window.currentSeason = {{.CurrentSeason}};
-        
-        // Minimal JavaScript for theme toggle
+        // Only essential functionality - theme toggle and keyboard navigation
         document.getElementById('theme-toggle').addEventListener('click', function() {
             const html = document.documentElement;
             const currentTheme = html.getAttribute('data-theme');
@@ -494,56 +622,77 @@
             html.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
         });
-        
-        // Keyboard navigation for weeks using HTMX
-        document.addEventListener('keydown', function(e) {
-            // Don't interfere with form inputs
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-                return;
+
+        // Keyboard navigation for week traversal
+        document.addEventListener('keydown', function(event) {
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                return; // Don't interfere with form inputs
             }
             
-            // Read current values from JavaScript variables that get updated via HTMX
-            const currentWeek = window.currentWeek || {{.CurrentWeek}};
-            const currentSeason = window.currentSeason || {{.CurrentSeason}};
+            const weekSelect = document.getElementById('week-select');
+            if (!weekSelect) return;
+            
+            const currentWeek = parseInt(weekSelect.value);
             let newWeek = currentWeek;
-            let newSeason = currentSeason;
             
-            if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                if (currentWeek > 1) {
-                    newWeek = currentWeek - 1;
-                } else if (currentSeason > 2023) { // Don't go back past 2023
-                    newWeek = 18;
-                    newSeason = currentSeason - 1;
-                }
-                // If we're at 2023 Week 1, don't allow going further back
-            } else if (e.key === 'ArrowRight') {
-                e.preventDefault();
-                if (currentWeek < 18) {
-                    newWeek = currentWeek + 1;
-                } else if (currentSeason < {{.CurrentSeason}}) { // Don't go past current season
-                    newWeek = 1;
-                    newSeason = currentSeason + 1;
-                }
-                // If we're at current season Week 18, don't allow going further forward
+            if (event.key === 'ArrowLeft' && currentWeek > 1) {
+                newWeek = currentWeek - 1;
+            } else if (event.key === 'ArrowRight' && currentWeek < 18) {
+                newWeek = currentWeek + 1;
             }
             
-            // Navigate if week or season changed using HTMX
-            if (newWeek !== currentWeek || newSeason !== currentSeason) {
-                // Update global variables
-                window.currentWeek = newWeek;
-                window.currentSeason = newSeason;
-                // Use HTMX to fetch new content
-                htmx.ajax('GET', '/?week=' + newWeek + '&season=' + newSeason, {
-                    target: '#dashboard-content',
-                    swap: 'innerHTML'
+            if (newWeek !== currentWeek) {
+                weekSelect.value = newWeek;
+                htmx.trigger(weekSelect, 'change');
+                event.preventDefault();
+            }
+        });
+
+        // Modal management event listeners (CSP-compliant)
+        document.addEventListener('htmx:afterSettle', function(event) {
+            // Set up modal event listeners when pick picker is loaded
+            const overlay = document.getElementById('pick-picker-overlay');
+            if (overlay) {
+                // Click outside modal to close
+                overlay.addEventListener('click', function(e) {
+                    if (e.target === overlay) {
+                        overlay.remove();
+                    }
                 });
                 
-                // Update URL without reload
-                const url = new URL(window.location);
-                url.searchParams.set('week', newWeek);
-                url.searchParams.set('season', newSeason);
-                history.pushState({week: newWeek, season: newSeason}, '', url.toString());
+                // Close button
+                const closeBtn = overlay.querySelector('.close-picker');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', function() {
+                        overlay.remove();
+                    });
+                }
+                
+                // Cancel button
+                const cancelBtn = overlay.querySelector('.cancel-picks-btn');
+                if (cancelBtn) {
+                    cancelBtn.addEventListener('click', function() {
+                        overlay.remove();
+                    });
+                }
+                
+                // Form submission success
+                const form = overlay.querySelector('#pick-form');
+                if (form) {
+                    form.addEventListener('htmx:afterRequest', function(e) {
+                        if (e.detail.xhr.status === 200) {
+                            overlay.remove();
+                        }
+                    });
+                }
+            }
+        });
+
+        // Listen for custom trigger from server
+        document.addEventListener('picks-updated', function() {
+            const overlay = document.getElementById('pick-picker-overlay');
+            if (overlay) {
+                overlay.remove();
             }
         });
     </script>

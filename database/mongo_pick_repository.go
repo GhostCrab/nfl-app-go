@@ -281,6 +281,23 @@ func (r *MongoPickRepository) Delete(ctx context.Context, id primitive.ObjectID)
 	return nil
 }
 
+// DeleteByUserAndWeek removes all picks for a user in a specific season/week
+func (r *MongoPickRepository) DeleteByUserAndWeek(ctx context.Context, userID, season, week int) error {
+	filter := bson.M{
+		"user_id": userID,
+		"season":  season,
+		"week":    week,
+	}
+	
+	result, err := r.collection.DeleteMany(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to delete picks by user and week: %w", err)
+	}
+	
+	log.Printf("Deleted %d picks for user %d, season %d, week %d", result.DeletedCount, userID, season, week)
+	return nil
+}
+
 // GetUserRecord calculates a user's win-loss record for a season
 func (r *MongoPickRepository) GetUserRecord(ctx context.Context, userID, season int) (*models.UserRecord, error) {
 	pipeline := mongo.Pipeline{
