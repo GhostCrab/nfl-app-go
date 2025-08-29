@@ -71,11 +71,12 @@
                     <div class="game-matchup">
                         <div class="matchup-team">
                             <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
-                            <span class="team-name-container">
-                                <span class="team-abbr mobile-only">{{.Away}}</span>
-                                <span class="team-mascot desktop-only">{{getTeamMascotName .Away}}</span>
+                            <div class="team-name-spread">
+                                <span class="team-name-container">
+                                    <span class="team-abbr">{{.Away}}</span>
+                                </span>
                                 {{if .HasOdds}}<span class="team-spread">{{.FormatAwaySpread}}</span>{{end}}
-                            </span>
+                            </div>
                             {{if ne .State "scheduled"}}
                                 <span class="team-score">{{.AwayScore}}</span>
                             {{else}}
@@ -84,11 +85,12 @@
                         </div>
                         <div class="matchup-team">
                             <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
-                            <span class="team-name-container">
-                                <span class="team-abbr mobile-only">{{.Home}}</span>
-                                <span class="team-mascot desktop-only">{{getTeamMascotName .Home}}</span>
+                            <div class="team-name-spread">
+                                <span class="team-name-container">
+                                    <span class="team-abbr">{{.Home}}</span>
+                                </span>
                                 {{if .HasOdds}}<span class="team-spread">{{.FormatHomeSpread}}</span>{{end}}
-                            </span>
+                            </div>
                             {{if ne .State "scheduled"}}
                                 <span class="team-score">{{.HomeScore}}</span>
                             {{else}}
@@ -381,8 +383,7 @@
                     <div class="matchup-team">
                         <img class="team-img-small" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>
                         <span class="team-name-container">
-                            <span class="team-abbr mobile-only">{{$game.Away}}</span>
-                            <span class="team-mascot desktop-only">{{getTeamMascotName $game.Away}}</span>
+                            <span class="team-abbr">{{$game.Away}}</span>
                         </span>
                         {{if ne $game.State "scheduled"}}
                             <span class="team-score">{{$game.AwayScore}}</span>
@@ -392,8 +393,7 @@
                     <div class="matchup-team">
                         <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
                         <span class="team-name-container">
-                            <span class="team-abbr mobile-only">{{$game.Home}}</span>
-                            <span class="team-mascot desktop-only">{{getTeamMascotName $game.Home}}</span>
+                            <span class="team-abbr">{{$game.Home}}</span>
                         </span>
                         {{if ne $game.State "scheduled"}}
                             <span class="team-score">{{$game.HomeScore}}</span>
@@ -408,8 +408,7 @@
                         {{if eq $pick.TeamName "Over"}}
                             <img class="team-img-small" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR"/>
                             <span class="team-name-container">
-                                <span class="picked-team mobile-only">OVER</span>
-                                <span class="picked-team desktop-only">OVER</span>
+                                <span class="picked-team">OVR</span>
                             </span>
                             {{if and $game $game.HasOdds}}
                                 <span class="pick-spread">{{$game.Odds.OU}}</span>
@@ -417,8 +416,7 @@
                         {{else}}
                             <img class="team-img-small" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND"/>
                             <span class="team-name-container">
-                                <span class="picked-team mobile-only">UNDER</span>
-                                <span class="picked-team desktop-only">UNDER</span>
+                                <span class="picked-team">UND</span>
                             </span>
                             {{if and $game $game.HasOdds}}
                                 <span class="pick-spread">{{$game.Odds.OU}}</span>
@@ -426,31 +424,21 @@
                         {{end}}
                     {{else}}
                         <!-- Spread pick display -->
-                        {{if and $game (eq $pick.TeamName $game.Away)}}
+                        {{if and $game (or (contains $pick.TeamName $game.Away) (eq $pick.TeamName $game.Away))}}
                             <img class="team-img-small" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>
                             <span class="team-name-container">
-                                <span class="picked-team mobile-only">{{$game.Away}}</span>
-                                <span class="picked-team desktop-only">{{getTeamMascotName $game.Away}}</span>
+                                <span class="picked-team">{{$game.Away}}</span>
                             </span>
-                            {{if $game.HasOdds}}
-                                <span class="pick-spread">{{$game.FormatAwaySpread}}</span>
-                            {{end}}
-                        {{else if and $game (eq $pick.TeamName $game.Home)}}
+                        {{else if and $game (or (contains $pick.TeamName $game.Home) (eq $pick.TeamName $game.Home))}}
                             <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
                             <span class="team-name-container">
-                                <span class="picked-team mobile-only">{{$game.Home}}</span>
-                                <span class="picked-team desktop-only">{{getTeamMascotName $game.Home}}</span>
+                                <span class="picked-team">{{$game.Home}}</span>
                             </span>
-                            {{if $game.HasOdds}}
-                                <span class="pick-spread">{{$game.FormatHomeSpread}}</span>
-                            {{end}}
                         {{else}}
                             <!-- Fallback for unknown team -->
                             <span class="team-name-container">
-                                <span class="picked-team mobile-only">{{$pick.TeamName}}</span>
-                                <span class="picked-team desktop-only">{{$pick.TeamName}}</span>
+                                <span class="picked-team">{{$pick.TeamName}}</span>
                             </span>
-                            <span class="pick-spread">{{$pick.PickType}}</span>
                         {{end}}
                     {{end}}
                 {{else}}
@@ -637,27 +625,47 @@
             localStorage.setItem('theme', newTheme);
         });
 
-        // Keyboard navigation for week traversal
+        // Keyboard navigation for week traversal with season wrapping
         document.addEventListener('keydown', function(event) {
             if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
                 return; // Don't interfere with form inputs
             }
             
             const weekSelect = document.getElementById('week-select');
-            if (!weekSelect) return;
+            const seasonInput = document.querySelector('input[name="season"]');
+            if (!weekSelect || !seasonInput) return;
             
             const currentWeek = parseInt(weekSelect.value);
+            const currentSeason = parseInt(seasonInput.value);
             let newWeek = currentWeek;
+            let newSeason = currentSeason;
             
-            if (event.key === 'ArrowLeft' && currentWeek > 1) {
-                newWeek = currentWeek - 1;
-            } else if (event.key === 'ArrowRight' && currentWeek < 18) {
-                newWeek = currentWeek + 1;
+            if (event.key === 'ArrowLeft') {
+                if (currentWeek > 1) {
+                    newWeek = currentWeek - 1;
+                } else if (currentSeason > 2023) {
+                    // Wrap to previous season, week 18
+                    newWeek = 18;
+                    newSeason = currentSeason - 1;
+                }
+            } else if (event.key === 'ArrowRight') {
+                if (currentWeek < 18) {
+                    newWeek = currentWeek + 1;
+                } else if (currentSeason < 2025) {
+                    // Wrap to next season, week 1
+                    newWeek = 1;
+                    newSeason = currentSeason + 1;
+                }
             }
             
-            if (newWeek !== currentWeek) {
-                weekSelect.value = newWeek;
-                htmx.trigger(weekSelect, 'change');
+            if (newWeek !== currentWeek || newSeason !== currentSeason) {
+                // Update both week and season, then navigate
+                const url = new URL(window.location);
+                url.searchParams.set('week', newWeek);
+                url.searchParams.set('season', newSeason);
+                
+                // Use HTMX to load the new week/season
+                htmx.ajax('GET', url.toString(), '#dashboard-content');
                 event.preventDefault();
             }
         });
