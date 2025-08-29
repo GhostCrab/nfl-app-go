@@ -195,11 +195,11 @@ body {
 /* Form Field styles */
 .week-selector-container {
     display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 16px;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 8px;
     background: var(--card-bg);
-    padding: 16px;
+    padding: 8px 12px;
     border-radius: 4px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
 }
@@ -216,17 +216,18 @@ body {
     font-size: 12px;
     font-weight: 400;
     line-height: 1.125;
-    padding: 4px 0;
+    padding: 2px 0;
+    margin-bottom: 2px;
 }
 
 .week-select {
     background: var(--input-bg);
     border: 1px solid var(--border-color);
     color: var(--text-color);
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-radius: 4px;
     font-size: 14px;
-    min-height: 24px;
+    height: 32px;
     outline: none;
 }
 
@@ -240,12 +241,14 @@ body {
     background: var(--nav-bg);
     color: white;
     border: none;
-    padding: 8px 16px;
+    padding: 6px 12px;
     border-radius: 4px;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition: background-color 0.2s;
+    height: 32px;
+    white-space: nowrap;
 }
 
 .update-picks-btn:hover {
@@ -1354,6 +1357,29 @@ fieldset legend {
         padding: 8px;
     }
     
+    .pick-flex-item, #picks-container {
+        overflow-y: visible;
+        max-width: none;
+        min-width: unset;
+        flex: none;
+    }
+    
+    .week-selector-container {
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .form-field {
+        min-width: 120px;
+        flex-shrink: 0;
+    }
+    
+    .update-picks-btn {
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+    
     .mat-toolbar {
         padding: 0 16px;
     }
@@ -1456,6 +1482,67 @@ fieldset legend {
 
 
 
+/* Picks Container */
+#picks-container {
+    overflow: visible;
+    max-height: none;
+}
+
+/* Pick Picker Element Styles */
+.pick-team-option {
+    display: flex;
+    align-items: center;
+    padding: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 0;
+    transition: background-color 0.2s;
+    min-width: 0;
+}
+
+.pick-team-option:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.pick-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    width: 100%;
+    min-width: 0;
+}
+
+.pick-ou-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border: 1px solid var(--border-color);
+    font-size: 0.9em;
+    font-weight: normal;
+    align-self: stretch;
+    min-height: 0;
+    line-height: 1.1;
+}
+
+.pick-picker-footer {
+    background: var(--card-bg);
+    border-top: 1px solid var(--border-color);
+    padding: 6px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+}
+
+/* Prevent body scroll when modal is open */
+body.modal-open {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+}
+
 /* Pick Picker Modal Styles */
 .pick-picker-overlay {
     position: fixed;
@@ -1474,7 +1561,7 @@ fieldset legend {
     background: var(--card-bg);
     border-radius: 0;
     max-width: 90vw;
-    max-height: 85vh;
+    max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 40px);
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -1484,7 +1571,7 @@ fieldset legend {
 .pick-picker-header {
     background: var(--nav-bg);
     color: white;
-    padding: 16px 20px;
+    padding: 8px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1493,7 +1580,7 @@ fieldset legend {
 
 .pick-picker-header h2 {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.1rem;
     font-weight: 600;
 }
 
@@ -1515,7 +1602,9 @@ fieldset legend {
 .pick-picker-content {
     overflow-y: auto;
     padding: 12px;
-    max-height: calc(85vh - 120px); /* Account for header and footer */
+    flex: 1;
+    min-height: 0;
+    max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 160px);
     border-top: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
 }
@@ -1546,21 +1635,6 @@ fieldset legend {
     align-items: center;
 }
 
-.pick-grid-header {
-    display: contents;
-}
-
-.pick-grid-header > div {
-    font-weight: bold;
-    color: var(--text-primary);
-    padding: 12px 8px;
-    border-bottom: 2px solid var(--border-color);
-    text-align: center;
-}
-
-.pick-header-away, .pick-header-home {
-    text-align: left;
-}
 
 .pick-game-row {
     display: contents;
@@ -1627,23 +1701,25 @@ fieldset legend {
 .pick-picker-footer {
     background: var(--card-bg);
     border-top: 1px solid var(--border-color);
-    padding: 16px 20px;
+    padding: 6px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 16px;
+    flex-shrink: 0;
 }
 
 .submit-picks-btn {
     background: var(--nav-bg);
     color: white;
     border: none;
-    padding: 10px 20px;
+    padding: 8px 16px;
     border-radius: 4px;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition: background-color 0.2s;
+    height: 32px;
 }
 
 .submit-picks-btn:hover {
@@ -1654,12 +1730,13 @@ fieldset legend {
     background: transparent;
     color: var(--text-secondary);
     border: 1px solid var(--border-color);
-    padding: 10px 20px;
+    padding: 8px 16px;
     border-radius: 4px;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
+    height: 32px;
 }
 
 .cancel-picks-btn:hover {
@@ -1678,17 +1755,57 @@ fieldset legend {
     .pick-picker-modal {
         width: 95vw;
         max-width: 100vw;
-        max-height: 90vh;
+        max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 20px);
     }
     
     .pick-picker-grid {
-        grid-template-columns: 100px 100px 40px 40px 40px;
-        gap: 3px;
+        grid-template-columns: 1fr 1fr 50px 50px 50px;
+        gap: 4px;
+    }
+    
+    .pick-checkbox-label {
+        gap: 4px;
+        align-items: center;
+    }
+    
+    .pick-text-container {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: flex-start;
     }
     
     .pick-team-name {
-        min-width: 25px;
-        font-size: 0.85em;
+        font-size: 0.8em;
+        line-height: 1.1;
+        white-space: nowrap;
+        margin-right: 4px;
+    }
+    
+    .pick-spread {
+        font-size: 0.75em;
+        line-height: 1.1;
+        opacity: 0.8;
+        white-space: nowrap;
+        margin-left: 0;
+    }
+    
+    .pick-game-row {
+        display: contents;
+    }
+    
+    .pick-team-option, .pick-ou-display {
+        align-self: stretch;
+    }
+    
+    .pick-ou-display {
+        font-size: 0.8em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px;
+        border: 1px solid var(--border-color);
+        min-height: 0;
     }
     
     .pick-team-img {
@@ -1704,17 +1821,14 @@ fieldset legend {
     
     .pick-picker-content {
         padding: 8px;
-        max-height: calc(90vh - 100px);
     }
     
     .pick-picker-footer {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-        padding: 12px;
-    }
-    
-    .pick-picker-footer > div {
-        order: -1;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        flex-wrap: wrap;
     }
 }

@@ -776,15 +776,58 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Create pick state map for template
-	pickState := make(map[int]map[int]bool) // pickState[gameID][teamID] = selected
+	pickState := make(map[int]map[int]bool) // pickState[gameID][templateKey] = selected
 	if userPicks != nil {
+		// Combine all pick types
 		allPicks := append(userPicks.Picks, userPicks.SpreadPicks...)
 		allPicks = append(allPicks, userPicks.OverUnderPicks...)
+		allPicks = append(allPicks, userPicks.BonusThursdayPicks...)
+		allPicks = append(allPicks, userPicks.BonusFridayPicks...)
+		
+		// Create game lookup for team mapping
+		gameMap := make(map[int]models.Game)
+		for _, game := range availableGames {
+			gameMap[game.ID] = game
+		}
+		
 		for _, pick := range allPicks {
 			if pickState[pick.GameID] == nil {
 				pickState[pick.GameID] = make(map[int]bool)
 			}
-			pickState[pick.GameID][pick.TeamID] = true
+			
+			// Map database TeamID to template key
+			var templateKey int
+			if pick.TeamID == 98 {
+				templateKey = 98 // Under
+			} else if pick.TeamID == 99 {
+				templateKey = 99 // Over
+			} else if game, exists := gameMap[pick.GameID]; exists {
+				// For spread picks, determine if it's away (1) or home (2)
+				awayTeamID := h.getESPNTeamID(game.Away)
+				homeTeamID := h.getESPNTeamID(game.Home)
+				
+				if pick.TeamID == awayTeamID {
+					templateKey = 1 // Away
+				} else if pick.TeamID == homeTeamID {
+					templateKey = 2 // Home
+				} else {
+					// Fallback: try to match by team name
+					if strings.Contains(strings.ToLower(pick.TeamName), strings.ToLower(game.Away)) {
+						templateKey = 1 // Away
+					} else if strings.Contains(strings.ToLower(pick.TeamName), strings.ToLower(game.Home)) {
+						templateKey = 2 // Home
+					} else {
+						log.Printf("PICK-PICKER: Warning - Could not map pick TeamID %d to template key for game %d", pick.TeamID, pick.GameID)
+						continue
+					}
+				}
+			} else {
+				log.Printf("PICK-PICKER: Warning - Game %d not found for pick TeamID %d", pick.GameID, pick.TeamID)
+				continue
+			}
+			
+			pickState[pick.GameID][templateKey] = true
+			log.Printf("PICK-PICKER: Mapped pick GameID=%d, TeamID=%d, TeamName=%s -> templateKey=%d", pick.GameID, pick.TeamID, pick.TeamName, templateKey)
 		}
 	}
 	

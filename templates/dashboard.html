@@ -212,12 +212,7 @@
     <!-- Dashboard Content Template (for HTMX partial updates) -->
     {{define "dashboard-content"}}
         <!-- Left Column: Pick Lists - Material Design Structure -->
-        <div class="pick-flex-item" id="picks-container">
-            {{template "picks-section" .}}
-        </div>
-
-        <!-- Center Column: Current Games - Material Design Structure -->
-        <div class="game-flex-item">
+        <div class="pick-flex-item">
             <!-- Week Selector with mat-form-field structure -->
             <div class="week-selector-container">
                 <div class="form-field">
@@ -235,9 +230,6 @@
                     </select>
                     <input type="hidden" name="season" value="{{.CurrentSeason}}">
                 </div>
-                <span class="keyboard-hint">
-                    Use ← → arrow keys to navigate
-                </span>
                 {{if .User}}
                     <button class="update-picks-btn"
                             hx-get="/pick-picker?week={{.CurrentWeek}}&season={{.CurrentSeason}}"
@@ -247,6 +239,13 @@
                     </button>
                 {{end}}
             </div>
+            <div id="picks-container">
+                {{template "picks-section" .}}
+            </div>
+        </div>
+
+        <!-- Center Column: Current Games - Material Design Structure -->
+        <div class="game-flex-item">
 
             <!-- Games Grid with inline structure -->
             <div class="games-container">
@@ -389,7 +388,6 @@
                             <span class="team-score">{{$game.AwayScore}}</span>
                         {{end}}
                     </div>
-                    {{if eq $game.State "scheduled"}}<span class="matchup-vs">@</span>{{end}}
                     <div class="matchup-team">
                         <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
                         <span class="team-name-container">
@@ -408,18 +406,18 @@
                         {{if eq $pick.TeamName "Over"}}
                             <img class="team-img-small" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR"/>
                             <span class="team-name-container">
-                                <span class="picked-team">OVR</span>
+                                <span class="team-abbr">OVR</span>
                             </span>
                             {{if and $game $game.HasOdds}}
-                                <span class="pick-spread">{{$game.Odds.OU}}</span>
+                                <span class="pick-spread">+{{$game.Odds.OU}}</span>
                             {{end}}
                         {{else}}
                             <img class="team-img-small" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND"/>
                             <span class="team-name-container">
-                                <span class="picked-team">UND</span>
+                                <span class="team-abbr">UND</span>
                             </span>
                             {{if and $game $game.HasOdds}}
-                                <span class="pick-spread">{{$game.Odds.OU}}</span>
+                                <span class="pick-spread">+{{$game.Odds.OU}}</span>
                             {{end}}
                         {{end}}
                     {{else}}
@@ -427,17 +425,23 @@
                         {{if and $game (or (contains $pick.TeamName $game.Away) (eq $pick.TeamName $game.Away))}}
                             <img class="team-img-small" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>
                             <span class="team-name-container">
-                                <span class="picked-team">{{$game.Away}}</span>
+                                <span class="team-abbr">{{$game.Away}}</span>
                             </span>
+                            {{if and $game.HasOdds}}
+                                <span class="pick-spread">{{$game.FormatAwaySpread}}</span>
+                            {{end}}
                         {{else if and $game (or (contains $pick.TeamName $game.Home) (eq $pick.TeamName $game.Home))}}
                             <img class="team-img-small" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
                             <span class="team-name-container">
-                                <span class="picked-team">{{$game.Home}}</span>
+                                <span class="team-abbr">{{$game.Home}}</span>
                             </span>
+                            {{if and $game.HasOdds}}
+                                <span class="pick-spread">{{$game.FormatHomeSpread}}</span>
+                            {{end}}
                         {{else}}
                             <!-- Fallback for unknown team -->
                             <span class="team-name-container">
-                                <span class="picked-team">{{$pick.TeamName}}</span>
+                                <span class="team-abbr">{{$pick.TeamName}}</span>
                             </span>
                         {{end}}
                     {{end}}
@@ -513,7 +517,7 @@
         <div id="pick-picker-overlay" class="pick-picker-overlay">
             <div class="pick-picker-modal">
                 <div class="pick-picker-header">
-                    <h2>Make Your Picks - Week {{.Week}} {{.Season}}</h2>
+                    <h2>Week {{.Week}}</h2>
                     <button class="close-picker">×</button>
                 </div>
                 <form id="pick-form" 
@@ -526,14 +530,6 @@
                     <div class="pick-picker-content">
                         {{if .Games}}
                             <div class="pick-picker-grid">
-                                <div class="pick-grid-header">
-                                    <div class="pick-header-away">Away</div>
-                                    <div class="pick-header-home">Home</div>
-                                    <div class="pick-header-ou">O/U</div>
-                                    <div class="pick-header-under">Under</div>
-                                    <div class="pick-header-over">Over</div>
-                                </div>
-                                
                                 {{range .Games}}
                                     <div class="pick-game-row" data-game-id="{{.ID}}">
                                         <!-- Away Team Pick -->
@@ -545,10 +541,12 @@
                                                        class="pick-checkbox"
                                                        {{if index (index $.PickState .ID) 1}}checked{{end}}>
                                                 <img class="pick-team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'">
-                                                <span class="pick-team-name">{{.Away}}</span>
-                                                {{if .HasOdds}}
-                                                    <span class="pick-spread">{{.FormatAwaySpread}}</span>
-                                                {{end}}
+                                                <div class="pick-text-container">
+                                                    <span class="pick-team-name">{{.Away}}</span>
+                                                    {{if .HasOdds}}
+                                                        <span class="pick-spread">{{.FormatAwaySpread}}</span>
+                                                    {{end}}
+                                                </div>
                                             </label>
                                         </div>
                                         
@@ -561,16 +559,18 @@
                                                        class="pick-checkbox"
                                                        {{if index (index $.PickState .ID) 2}}checked{{end}}>
                                                 <img class="pick-team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'">
-                                                <span class="pick-team-name">{{.Home}}</span>
-                                                {{if .HasOdds}}
-                                                    <span class="pick-spread">{{.FormatHomeSpread}}</span>
-                                                {{end}}
+                                                <div class="pick-text-container">
+                                                    <span class="pick-team-name">{{.Home}}</span>
+                                                    {{if .HasOdds}}
+                                                        <span class="pick-spread">{{.FormatHomeSpread}}</span>
+                                                    {{end}}
+                                                </div>
                                             </label>
                                         </div>
                                         
                                         <!-- O/U Display -->
                                         <div class="pick-ou-display">
-                                            {{if .HasOdds}}{{.Odds.OU}}{{else}}-{{end}}
+                                            {{if .HasOdds}}+{{.Odds.OU}}{{else}}-{{end}}
                                         </div>
                                         
                                         <!-- Under Pick -->
@@ -615,6 +615,42 @@
     {{end}}
 
     <script>
+        // Set up mutual exclusion for pick checkboxes
+        function setupPickMutualExclusion(container) {
+            const checkboxes = container.querySelectorAll('.pick-checkbox');
+            
+            checkboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        const parts = this.name.split('-');
+                        if (parts.length === 3) {
+                            const gameId = parts[1];
+                            const selectedType = parts[2];
+                            
+                            // Find mutually exclusive checkbox
+                            let exclusiveType;
+                            if (selectedType === 'away') {
+                                exclusiveType = 'home';
+                            } else if (selectedType === 'home') {
+                                exclusiveType = 'away';
+                            } else if (selectedType === '98') { // Under
+                                exclusiveType = '99'; // Over
+                            } else if (selectedType === '99') { // Over
+                                exclusiveType = '98'; // Under
+                            }
+                            
+                            if (exclusiveType) {
+                                const exclusiveCheckbox = container.querySelector(`input[name="pick-${gameId}-${exclusiveType}"]`);
+                                if (exclusiveCheckbox && exclusiveCheckbox.checked) {
+                                    exclusiveCheckbox.checked = false;
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+        }
+
         // Only essential functionality - theme toggle and keyboard navigation
         document.getElementById('theme-toggle').addEventListener('click', function() {
             const html = document.documentElement;
@@ -659,13 +695,12 @@
             }
             
             if (newWeek !== currentWeek || newSeason !== currentSeason) {
-                // Update both week and season, then navigate
-                const url = new URL(window.location);
-                url.searchParams.set('week', newWeek);
-                url.searchParams.set('season', newSeason);
+                // Update the form values
+                weekSelect.value = newWeek;
+                seasonInput.value = newSeason;
                 
-                // Use HTMX to load the new week/season
-                htmx.ajax('GET', url.toString(), '#dashboard-content');
+                // Trigger the HTMX change event on the select element
+                htmx.trigger(weekSelect, 'change');
                 event.preventDefault();
             }
         });
@@ -675,9 +710,15 @@
             // Set up modal event listeners when pick picker is loaded
             const overlay = document.getElementById('pick-picker-overlay');
             if (overlay) {
+                // Lock body scroll when modal opens
+                document.body.classList.add('modal-open');
+                
+                // Set up mutual exclusion for pick checkboxes
+                setupPickMutualExclusion(overlay);
                 // Click outside modal to close
                 overlay.addEventListener('click', function(e) {
                     if (e.target === overlay) {
+                        document.body.classList.remove('modal-open');
                         overlay.remove();
                     }
                 });
@@ -686,6 +727,7 @@
                 const closeBtn = overlay.querySelector('.close-picker');
                 if (closeBtn) {
                     closeBtn.addEventListener('click', function() {
+                        document.body.classList.remove('modal-open');
                         overlay.remove();
                     });
                 }
@@ -694,6 +736,7 @@
                 const cancelBtn = overlay.querySelector('.cancel-picks-btn');
                 if (cancelBtn) {
                     cancelBtn.addEventListener('click', function() {
+                        document.body.classList.remove('modal-open');
                         overlay.remove();
                     });
                 }
@@ -703,6 +746,7 @@
                 if (form) {
                     form.addEventListener('htmx:afterRequest', function(e) {
                         if (e.detail.xhr.status === 200) {
+                            document.body.classList.remove('modal-open');
                             overlay.remove();
                         }
                     });
@@ -714,6 +758,7 @@
         document.addEventListener('picks-updated', function() {
             const overlay = document.getElementById('pick-picker-overlay');
             if (overlay) {
+                document.body.classList.remove('modal-open');
                 overlay.remove();
             }
         });
@@ -745,11 +790,17 @@
         
         // Monitor HTMX events
         document.addEventListener('htmx:afterSettle', function(e) {
-            console.log('HTMX afterSettle:', e.detail.target.id || e.detail.target.tagName);
+            const target = e.detail && e.detail.target;
+            const eventType = e.detail && e.detail.requestConfig ? 'user-initiated' : 'sse/programmatic';
+            const targetInfo = target ? (target.id || target.tagName) : `no target (${eventType})`;
+            console.log('HTMX afterSettle:', targetInfo);
         });
         
         document.addEventListener('htmx:afterSwap', function(e) {
-            console.log('HTMX afterSwap:', e.detail.target.id || e.detail.target.tagName);
+            const target = e.detail && e.detail.target;
+            const eventType = e.detail && e.detail.requestConfig ? 'user-initiated' : 'sse/programmatic';
+            const targetInfo = target ? (target.id || target.tagName) : `no target (${eventType})`;
+            console.log('HTMX afterSwap:', targetInfo);
         });
     </script>
 </body>
