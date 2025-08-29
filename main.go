@@ -29,12 +29,12 @@ func getEnv(key, defaultValue string) string {
 func main() {
 	// Set log format with milliseconds for timing analysis
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	
+
 	// Load .env file
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: Could not load .env file: %v", err)
 	}
-	
+
 	// Initialize MongoDB connection
 	dbConfig := database.Config{
 		Host:     getEnv("DB_HOST", "p5server"),
@@ -43,15 +43,15 @@ func main() {
 		Password: getEnv("DB_PASSWORD", ""),
 		Database: getEnv("DB_NAME", "nfl_app"),
 	}
-	
-	log.Printf("DB Config - Host: %s, Port: %s, Username: %s, Database: %s, Password set: %t", 
+
+	log.Printf("DB Config - Host: %s, Port: %s, Username: %s, Database: %s, Password set: %t",
 		dbConfig.Host, dbConfig.Port, dbConfig.Username, dbConfig.Database, dbConfig.Password != "")
 
 	db, err := database.NewMongoConnection(dbConfig)
 	if err != nil {
 		log.Printf("Database connection failed: %v", err)
 		log.Println("Continuing without database connection...")
-		
+
 		// Parse templates with custom functions
 		templateFuncs := template.FuncMap{
 			"add": func(a, b int) int {
@@ -83,29 +83,40 @@ func main() {
 				// Create a copy to avoid modifying original slice
 				sorted := make([]*models.UserPicks, len(userPicks))
 				copy(sorted, userPicks)
-				
+
 				// Sort by parlay points (descending - highest first)
 				sort.Slice(sorted, func(i, j int) bool {
 					scoreI := sorted[i].Record.ParlayPoints
 					scoreJ := sorted[j].Record.ParlayPoints
 					return scoreI > scoreJ
 				})
-				
+
 				return sorted
 			},
+			"debugLog": func(msg string) string {
+				log.Printf("TEMPLATE DEBUG: %s", msg)
+				return ""
+			},
 			"sortUsersWithCurrentFirst": func(userPicks []*models.UserPicks, currentUserName string) []*models.UserPicks {
+				log.Printf("TEMPLATE DEBUG: sortUsersWithCurrentFirst called - input count: %d, currentUser: %s", len(userPicks), currentUserName)
+
 				if len(userPicks) == 0 || currentUserName == "" {
 					return userPicks
 				}
 				// Create a copy to avoid modifying original slice
 				sorted := make([]*models.UserPicks, len(userPicks))
 				copy(sorted, userPicks)
-				
+
+				// Debug input data
+				for i, up := range userPicks {
+					log.Printf("TEMPLATE DEBUG: Input user %d: %s (picks: %d)", i, up.UserName, len(up.Picks))
+				}
+
 				// Sort so current user appears first
 				sort.Slice(sorted, func(i, j int) bool {
 					isCurrent_i := sorted[i].UserName == currentUserName
 					isCurrent_j := sorted[j].UserName == currentUserName
-					
+
 					// Current user should come first
 					if isCurrent_i && !isCurrent_j {
 						return true
@@ -113,11 +124,16 @@ func main() {
 					if !isCurrent_i && isCurrent_j {
 						return false
 					}
-					
+
 					// For non-current users, maintain alphabetical order
 					return sorted[i].UserName < sorted[j].UserName
 				})
-				
+
+				// Debug output data
+				for i, up := range sorted {
+					log.Printf("TEMPLATE DEBUG: Output user %d: %s (picks: %d)", i, up.UserName, len(up.Picks))
+				}
+
 				return sorted
 			},
 			"projectFinalScore": func(homeScore, awayScore, quarter int, timeLeft string) float64 {
@@ -129,7 +145,7 @@ func main() {
 				} else {
 					fmt.Sscanf(timeLeft, "%d:%d", &minutes, &seconds)
 				}
-				
+
 				// Calculate elapsed time in minutes
 				var elapsedMinutes float64
 				switch quarter {
@@ -146,16 +162,16 @@ func main() {
 				default:
 					elapsedMinutes = 60 // Overtime or unknown, assume full game
 				}
-				
+
 				// Avoid division by zero
 				if elapsedMinutes <= 0 {
 					elapsedMinutes = 1
 				}
-				
+
 				// Calculate current total and project to 60 minutes
 				currentTotal := float64(homeScore + awayScore)
 				projectedTotal := (currentTotal / elapsedMinutes) * 60
-				
+
 				return projectedTotal
 			},
 			"findGameByID": func(games []models.Game, gameID int) *models.Game {
@@ -177,20 +193,20 @@ func main() {
 				if !pick.IsSpreadPick() || !game.HasOdds() {
 					return "neutral"
 				}
-				
+
 				teamName := pick.TeamName
-				
+
 				// Check if picked team name contains home or away team abbreviation
 				isHomeTeamPick := false
 				isAwayTeamPick := false
-				
+
 				// Simple matching - check if team abbreviation is in the name
 				if len(teamName) > 0 && len(game.Home) > 0 && len(game.Away) > 0 {
 					// Try to match by checking if abbreviation is in the name
 					homeTeamLower := strings.ToLower(game.Home)
-					awayTeamLower := strings.ToLower(game.Away) 
+					awayTeamLower := strings.ToLower(game.Away)
 					teamNameLower := strings.ToLower(teamName)
-					
+
 					// Check various ways the team might be referenced
 					if strings.Contains(teamNameLower, homeTeamLower) {
 						isHomeTeamPick = true
@@ -201,15 +217,15 @@ func main() {
 						isAwayTeamPick = true
 					}
 				}
-				
+
 				// Calculate spread coverage
 				scoreDiff := game.HomeScore - game.AwayScore
 				spread := game.Odds.Spread
 				adjustedDiff := float64(scoreDiff) + spread
-				
+
 				if isHomeTeamPick {
 					if adjustedDiff > 0 {
-						return "covering" 
+						return "covering"
 					} else if adjustedDiff < 0 {
 						return "not-covering"
 					} else {
@@ -219,12 +235,12 @@ func main() {
 					if adjustedDiff < 0 {
 						return "covering"
 					} else if adjustedDiff > 0 {
-						return "not-covering" 
+						return "not-covering"
 					} else {
 						return "push"
 					}
 				}
-				
+
 				return "neutral"
 			},
 			"dict": func(values ...interface{}) (map[string]interface{}, error) {
@@ -243,7 +259,7 @@ func main() {
 			},
 			"getResultClass": func(pick models.Pick, game *models.Game) string {
 				baseClass := pick.GetResultClass()
-				
+
 				// Add state-specific classes for pending picks
 				if baseClass == "pick-class" && game != nil {
 					if game.State == models.GameStateInPlay {
@@ -252,7 +268,7 @@ func main() {
 						return baseClass + " pending"
 					}
 				}
-				
+
 				return baseClass
 			},
 			"isOverUnder": func(pick models.Pick) bool {
@@ -335,7 +351,7 @@ func main() {
 				return abbr // Fallback to abbreviation if not found
 			},
 		}
-		
+
 		templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
 		if err != nil {
 			log.Fatal("Error parsing templates:", err)
@@ -345,7 +361,7 @@ func main() {
 		gameService := services.NewDemoGameService()
 		gameHandler := handlers.NewGameHandler(templates, gameService)
 		// Note: Demo mode doesn't support parlay scoring
-		
+
 		// Setup routes without database
 		r := mux.NewRouter()
 		r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
@@ -358,9 +374,9 @@ func main() {
 		log.Fatal(http.ListenAndServe("0.0.0.0:8080", r))
 		return
 	}
-	
+
 	defer db.Close()
-	
+
 	// Test the connection
 	if err := db.TestConnection(); err != nil {
 		log.Printf("Database test failed: %v", err)
@@ -429,7 +445,7 @@ func main() {
 			} else {
 				fmt.Sscanf(timeLeft, "%d:%d", &minutes, &seconds)
 			}
-			
+
 			// Calculate elapsed time in minutes
 			var elapsedMinutes float64
 			switch quarter {
@@ -446,16 +462,16 @@ func main() {
 			default:
 				elapsedMinutes = 60 // Overtime or unknown, assume full game
 			}
-			
+
 			// Avoid division by zero
 			if elapsedMinutes <= 0 {
 				elapsedMinutes = 1
 			}
-			
+
 			// Calculate current total and project to 60 minutes
 			currentTotal := float64(homeScore + awayScore)
 			projectedTotal := (currentTotal / elapsedMinutes) * 60
-			
+
 			return projectedTotal
 		},
 		"findGameByID": func(games []models.Game, gameID int) *models.Game {
@@ -470,20 +486,20 @@ func main() {
 			if !pick.IsSpreadPick() || !game.HasOdds() {
 				return "neutral"
 			}
-			
+
 			teamName := pick.TeamName
-			
+
 			// Check if picked team name contains home or away team abbreviation
 			isHomeTeamPick := false
 			isAwayTeamPick := false
-			
+
 			// Simple matching - check if team abbreviation is in the name
 			if len(teamName) > 0 && len(game.Home) > 0 && len(game.Away) > 0 {
 				// Try to match by checking if abbreviation is in the name
 				homeTeamLower := strings.ToLower(game.Home)
-				awayTeamLower := strings.ToLower(game.Away) 
+				awayTeamLower := strings.ToLower(game.Away)
 				teamNameLower := strings.ToLower(teamName)
-				
+
 				// Check various ways the team might be referenced
 				if strings.Contains(teamNameLower, homeTeamLower) {
 					isHomeTeamPick = true
@@ -494,15 +510,15 @@ func main() {
 					isAwayTeamPick = true
 				}
 			}
-			
+
 			// Calculate spread coverage
 			scoreDiff := game.HomeScore - game.AwayScore
 			spread := game.Odds.Spread
 			adjustedDiff := float64(scoreDiff) + spread
-			
+
 			if isHomeTeamPick {
 				if adjustedDiff > 0 {
-					return "covering" 
+					return "covering"
 				} else if adjustedDiff < 0 {
 					return "not-covering"
 				} else {
@@ -512,12 +528,12 @@ func main() {
 				if adjustedDiff < 0 {
 					return "covering"
 				} else if adjustedDiff > 0 {
-					return "not-covering" 
+					return "not-covering"
 				} else {
 					return "push"
 				}
 			}
-			
+
 			return "neutral"
 		},
 		"isSpreadPickWinning": func(pick models.Pick, game models.Game) bool {
@@ -553,7 +569,7 @@ func main() {
 		},
 		"getResultClass": func(pick models.Pick, game *models.Game) string {
 			baseClass := pick.GetResultClass()
-			
+
 			// Add state-specific classes for pending picks
 			if baseClass == "pick-class" && game != nil {
 				if game.State == models.GameStateInPlay {
@@ -562,7 +578,7 @@ func main() {
 					return baseClass + " pending"
 				}
 			}
-			
+
 			return baseClass
 		},
 		"isOverUnder": func(pick models.Pick) bool {
@@ -651,29 +667,40 @@ func main() {
 			// Create a copy to avoid modifying original slice
 			sorted := make([]*models.UserPicks, len(userPicks))
 			copy(sorted, userPicks)
-			
+
 			// Sort by parlay points (descending - highest first)
 			sort.Slice(sorted, func(i, j int) bool {
 				scoreI := sorted[i].Record.ParlayPoints
 				scoreJ := sorted[j].Record.ParlayPoints
 				return scoreI > scoreJ
 			})
-			
+
 			return sorted
 		},
+		"debugLog": func(msg string) string {
+			log.Printf("TEMPLATE DEBUG: %s", msg)
+			return ""
+		},
 		"sortUsersWithCurrentFirst": func(userPicks []*models.UserPicks, currentUserName string) []*models.UserPicks {
+			log.Printf("TEMPLATE DEBUG: sortUsersWithCurrentFirst called - input count: %d, currentUser: %s", len(userPicks), currentUserName)
+
 			if len(userPicks) == 0 || currentUserName == "" {
 				return userPicks
 			}
 			// Create a copy to avoid modifying original slice
 			sorted := make([]*models.UserPicks, len(userPicks))
 			copy(sorted, userPicks)
-			
+
+			// Debug input data
+			for i, up := range userPicks {
+				log.Printf("TEMPLATE DEBUG: Input user %d: %s (picks: %d)", i, up.UserName, len(up.Picks))
+			}
+
 			// Sort so current user appears first
 			sort.Slice(sorted, func(i, j int) bool {
 				isCurrent_i := sorted[i].UserName == currentUserName
 				isCurrent_j := sorted[j].UserName == currentUserName
-				
+
 				// Current user should come first
 				if isCurrent_i && !isCurrent_j {
 					return true
@@ -681,15 +708,20 @@ func main() {
 				if !isCurrent_i && isCurrent_j {
 					return false
 				}
-				
+
 				// For non-current users, maintain alphabetical order
 				return sorted[i].UserName < sorted[j].UserName
 			})
-			
+
+			// Debug output data
+			for i, up := range sorted {
+				log.Printf("TEMPLATE DEBUG: Output user %d: %s (picks: %d)", i, up.UserName, len(up.Picks))
+			}
+
 			return sorted
 		},
 	}
-	
+
 	templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
 	if err != nil {
 		log.Fatal("Error parsing templates:", err)
@@ -725,32 +757,32 @@ func main() {
 	gameService := services.NewDatabaseGameService(gameRepo)
 	pickRepo := database.NewMongoPickRepository(db)
 	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
-	
+
 	// Create middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
-	
+
 	// Create handlers
 	gameHandler := handlers.NewGameHandler(templates, gameService)
 	authHandler := handlers.NewAuthHandler(templates, authService, emailService)
-	
+
 	// Wire up pick service to game handler
 	gameHandler.SetPickService(pickService)
-	
+
 	// Start background ESPN API updater
 	backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, currentSeason)
 	backgroundUpdater.Start()
 	defer backgroundUpdater.Stop()
-	
+
 	// Start change stream watcher for real-time updates
 	changeWatcher := services.NewChangeStreamWatcher(db, gameHandler.HandleDatabaseChange)
 	changeWatcher.StartWatching()
 
 	// Setup routes
 	r := mux.NewRouter()
-	
+
 	// Add security middleware
 	r.Use(middleware.SecurityMiddleware)
-	
+
 	// Add no-cache middleware for development only
 	isDevelopment := getEnv("ENVIRONMENT", "development") == "development"
 	log.Printf("Server starting in %s mode (isDevelopment: %t)", getEnv("ENVIRONMENT", "development"), isDevelopment)
@@ -764,34 +796,34 @@ func main() {
 			})
 		})
 	}
-	
+
 	// Static files
 	log.Printf("Setting up static file server for /static/ directory")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
-	
+
 	// Auth routes (public)
 	r.HandleFunc("/login", authHandler.LoginPage).Methods("GET")
 	r.HandleFunc("/login", authHandler.Login).Methods("POST")
 	r.HandleFunc("/logout", authHandler.Logout).Methods("GET", "POST")
 	r.HandleFunc("/api/login", authHandler.LoginAPI).Methods("POST")
-	
+
 	// Password reset routes (public)
 	r.HandleFunc("/forgot-password", authHandler.ForgotPasswordPage).Methods("GET")
 	r.HandleFunc("/forgot-password", authHandler.ForgotPassword).Methods("POST")
 	r.HandleFunc("/reset-password", authHandler.ResetPasswordPage).Methods("GET")
 	r.HandleFunc("/reset-password", authHandler.ResetPassword).Methods("POST")
-	
+
 	// Game routes (with optional auth to show user info)
 	r.Handle("/", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGames))).Methods("GET")
 	r.Handle("/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGames))).Methods("GET")
 	r.Handle("/events", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.SSEHandler))).Methods("GET")
 	r.Handle("/api/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGamesAPI))).Methods("GET")
 	r.Handle("/api/dashboard", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetDashboardDataAPI))).Methods("GET")
-	
+
 	// Pick picker routes (require authentication)
 	r.Handle("/pick-picker", authMiddleware.RequireAuth(http.HandlerFunc(gameHandler.ShowPickPicker))).Methods("GET")
 	r.Handle("/submit-picks", authMiddleware.RequireAuth(http.HandlerFunc(gameHandler.SubmitPicks))).Methods("POST")
-	
+
 	// Protected API routes
 	apiRouter := r.PathPrefix("/api").Subrouter()
 	apiRouter.Use(authMiddleware.RequireAuth)
@@ -801,7 +833,7 @@ func main() {
 	useTLS := getEnv("USE_TLS", "true") == "true"
 	serverPort := getEnv("SERVER_PORT", "8080")
 	behindProxy := getEnv("BEHIND_PROXY", "false") == "true"
-	
+
 	if !emailService.IsConfigured() {
 		log.Println("")
 		log.Println("📧 EMAIL CONFIGURATION:")
@@ -813,10 +845,10 @@ func main() {
 		log.Println("  FROM_NAME=\"NFL Games\"")
 		log.Println("")
 	}
-	
+
 	// Start server
 	serverAddr := "0.0.0.0:" + serverPort
-	
+
 	if behindProxy {
 		log.Printf("Server starting on %s (HTTP - behind proxy/tunnel)", serverAddr)
 		log.Println("⚡ Configured for Cloudflare Tunnel or reverse proxy")
@@ -828,7 +860,7 @@ func main() {
 		log.Printf("Login page: https://localhost:%s/login or https://[your-pi-ip]:%s/login", serverPort, serverPort)
 		log.Println("Default password for all users: password123")
 		log.Println("⚠️  Using self-signed certificate - browser will show security warning")
-		
+
 		// Check if certificate files exist
 		if _, err := os.Stat("server.crt"); os.IsNotExist(err) {
 			log.Fatal("server.crt not found. Set USE_TLS=false or generate certificates.")
@@ -836,7 +868,7 @@ func main() {
 		if _, err := os.Stat("server.key"); os.IsNotExist(err) {
 			log.Fatal("server.key not found. Set USE_TLS=false or generate certificates.")
 		}
-		
+
 		log.Fatal(http.ListenAndServeTLS(serverAddr, "server.crt", "server.key", r))
 	} else {
 		log.Printf("Server starting on %s (HTTP - available on LAN)", serverAddr)

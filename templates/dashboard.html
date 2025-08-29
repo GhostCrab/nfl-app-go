@@ -42,15 +42,30 @@
     </mat-toolbar>
 
     <!-- Dashboard Container - Exact legacy three-column layout -->
-    <div class="dashboard-container">
+    <!-- SSE listener - persistent across navigation -->
+    <div id="sse-listener" 
+         hx-ext="sse" 
+         sse-connect="/events">
+        <!-- User picks updates listener -->
+        <div sse-swap="user-picks-updated" 
+             hx-swap="innerHTML" 
+             hx-target="#picks-container"></div>
         
+        <!-- Dashboard updates listener -->
+        <div sse-swap="dashboard-update" 
+             hx-swap="innerHTML" 
+             hx-target="#dashboard-content"></div>
+    </div>
+         
+    <div class="dashboard-container">        
         <div class="dashboard-content" id="dashboard-content">
             {{template "dashboard-content" .}}
         </div>
+    </div>
 
     <!-- Template for game grid that will be updated via SSE - Inline Grid Structure -->
     {{define "game-grid"}}
-        <div class="games-list-container" sse-swap="gameUpdate">
+        <div class="games-list-container">
             {{range .Games}}
                 <div class="game-row inline-game {{.State}}" id="game-{{.ID}}">
                     <div class="game-matchup">
@@ -195,10 +210,7 @@
     <!-- Dashboard Content Template (for HTMX partial updates) -->
     {{define "dashboard-content"}}
         <!-- Left Column: Pick Lists - Material Design Structure -->
-        <div class="pick-flex-item" id="picks-container" 
-             hx-ext="sse" 
-             sse-connect="/events" 
-             sse-swap="pickUpdate">
+        <div class="pick-flex-item" id="picks-container">
             {{template "picks-section" .}}
         </div>
 
@@ -271,88 +283,90 @@
     {{end}}
 
     {{define "picks-section"}}
-{{if .UserPicks -}}
-{{$currentUserName := ""}}{{if .User}}{{$currentUserName = .User.Name}}{{end -}}
-{{$sortedUserPicks := .UserPicks}}{{if $currentUserName}}{{$sortedUserPicks = sortUsersWithCurrentFirst .UserPicks $currentUserName}}{{end -}}
-{{range $index, $userPicks := $sortedUserPicks -}}
-{{$isCurrentUser := eq .UserName $currentUserName -}}
-{{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0) -}}
-{{end -}}
-{{else -}}
-<div class="user-picks-section mt-4">
-<div class="user-picks-header">My Picks</div>
-<div class="user-picks-content">
-<div class="no-picks">Please log in to see picks</div>
-</div>
-</div>
-{{end -}}
+{{debugLog "picks-section template started"}}
+{{if .UserPicks}}
+    {{debugLog "UserPicks exists, checking User"}}
+    {{if .User}}
+        {{debugLog "User exists, calling sortUsersWithCurrentFirst"}}
+        {{$sortedUserPicks := sortUsersWithCurrentFirst .UserPicks .User.Name}}
+        {{debugLog "sortUsersWithCurrentFirst returned, starting range"}}
+        {{range $index, $userPicks := $sortedUserPicks}}
+            {{$isCurrentUser := eq .UserName $.User.Name}}
+            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0)}}
+        {{end}}
+    {{else}}
+        {{debugLog "No User, using basic range"}}
+        {{range $index, $userPicks := .UserPicks}}
+            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" false "IsFirst" (eq $index 0)}}
+        {{end}}
+    {{end}}
+{{else}}
+    <div class="user-picks-section mt-4">
+        <div class="user-picks-header">My Picks</div>
+        <div class="user-picks-content">
+            <div class="no-picks">Please log in to see picks</div>
+        </div>
+    </div>
+{{end}}
 {{end}}
 
-    <!-- Unified User Picks Block Template -->
     {{define "user-picks-block"}}
-        {{$userPicks := .UserPicks}}
-        {{$games := .Games}}
-        {{$isCurrentUser := .IsCurrentUser}}
-        <div class="user-picks-section">
-            <div class="user-picks-header">
-                {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
-            </div>
-            <div class="user-picks-content">
+{{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
+<div class="user-picks-section" data-user-id="{{$userPicks.UserID}}">
+<div class="user-picks-header">
+{{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
+</div>
+<div class="user-picks-content">
 
-            <!-- Bonus Thursday picks -->
-            {{if $userPicks.BonusThursdayPicks}}
-                <div class="regular-picks-section">
-                    <div class="picks-category-header">BONUS THURSDAY</div>
-                    <div class="picks-list">
-                        {{range $userPicks.BonusThursdayPicks}}
-                            {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
-                        {{end}}
-                    </div>
-                </div>
-            {{end}}
-
-            <!-- Bonus Friday picks -->
-            {{if $userPicks.BonusFridayPicks}}
-                <div class="regular-picks-section">
-                    <div class="picks-category-header">BONUS FRIDAY</div>
-                    <div class="picks-list">
-                        {{range $userPicks.BonusFridayPicks}}
-                            {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
-                        {{end}}
-                    </div>
-                </div>
-            {{end}}
-
-            <!-- Regular picks (filtered to exclude bonus picks) -->
-            {{if $userPicks.Picks}}
-                {{$hasAnyBonusPicks := or $userPicks.BonusThursdayPicks $userPicks.BonusFridayPicks}}
-                {{if $hasAnyBonusPicks}}
-                    <div class="regular-picks-section">
-                        <div class="picks-category-header">REMAINING PICKS</div>
-                        <div class="picks-list">
-                            {{range $userPicks.Picks}}
-                                {{$currentPick := .}}
-                                {{$isBonus := false}}
-                                {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end}}
-                                {{if not $isBonus}}
-                                    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
-                                {{end}}
-                            {{end}}
-                        </div>
-                    </div>
-                {{else}}
-                    <div class="regular-picks-section">
-                        <div class="picks-list">
-                            {{range $userPicks.Picks}}
-                                {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
-                            {{end}}
-                        </div>
-                    </div>
-                {{end}}
-            {{end}}
-            </div>
-        </div>
+{{if $userPicks.BonusThursdayPicks -}}
+<div class="regular-picks-section">
+<div class="picks-category-header">BONUS THURSDAY</div>
+<div class="picks-list">
+{{range $userPicks.BonusThursdayPicks -}}
+{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+{{end -}}
+</div>
+</div>
+{{end -}}
+{{if $userPicks.BonusFridayPicks -}}
+<div class="regular-picks-section">
+<div class="picks-category-header">BONUS FRIDAY</div>
+<div class="picks-list">
+{{range $userPicks.BonusFridayPicks -}}
+{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+{{end -}}
+</div>
+</div>
+{{end -}}
+{{if $userPicks.Picks -}}
+{{$hasAnyBonusPicks := or $userPicks.BonusThursdayPicks $userPicks.BonusFridayPicks -}}
+{{if $hasAnyBonusPicks -}}
+<div class="regular-picks-section">
+<div class="picks-category-header">REMAINING PICKS</div>
+<div class="picks-list">
+{{range $userPicks.Picks -}}
+{{$currentPick := . -}}
+{{$isBonus := false -}}
+{{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
+{{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
+{{if not $isBonus -}}
+{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+{{end -}}
+{{end -}}
+</div>
+</div>
+{{else -}}
+<div class="regular-picks-section">
+<div class="picks-list">
+{{range $userPicks.Picks -}}
+{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+{{end -}}
+</div>
+</div>
+{{end -}}
+{{end -}}
+</div>
+</div>
     {{end}}
 
     <!-- Unified Pick Item Template -->
@@ -694,6 +708,40 @@
             if (overlay) {
                 overlay.remove();
             }
+        });
+
+        // Debug HTMX SSE events
+        document.addEventListener('htmx:sseMessage', function(e) {
+            console.log('HTMX SSE Message received:', e.detail);
+        });
+
+        document.addEventListener('htmx:oobAfterSwap', function(e) {
+            console.log('HTMX OOB swap completed:', e.detail);
+        });
+
+        // Log SSE connection status
+        document.addEventListener('htmx:sseOpen', function(e) {
+            console.log('SSE connection opened successfully');
+        });
+        
+        // Debug DOM manipulation
+        console.log('Page loaded - checking picks container structure');
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('picks-container');
+            if (container) {
+                console.log('Picks container found with', container.children.length, 'children');
+                console.log('Container innerHTML preview:', container.innerHTML.substring(0, 200));
+            }
+        });
+        
+        // Monitor HTMX events
+        document.addEventListener('htmx:afterSettle', function(e) {
+            console.log('HTMX afterSettle:', e.detail.target.id || e.detail.target.tagName);
+        });
+        
+        document.addEventListener('htmx:afterSwap', function(e) {
+            console.log('HTMX afterSwap:', e.detail.target.id || e.detail.target.tagName);
         });
     </script>
 </body>

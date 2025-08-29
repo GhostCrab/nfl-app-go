@@ -149,9 +149,14 @@ mat-toolbar, .mat-toolbar {
 }
 
 /* Three column layout - 40/45/15 ratio */
-.pick-flex-item {
-    flex: 0 0 40%;
-    min-width: 280px;
+.pick-flex-item, #picks-container {
+    flex: 1 1 300px;
+    min-width: 300px;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .game-flex-item {

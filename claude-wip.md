@@ -85,3 +85,48 @@ $env:DB_PASSWORD="your_actual_password"; go run main.go
 
 ---
 *Last updated: Session end - NFL app with odds display and spread results implemented*
+
+======== prompts
+    REMINDER: Project Constraints
+
+    - HTMX Best Practices: Follow https://htmx.org/docs/, https://htmx.org/extensions/sse/, https://htmx.org/attributes/hx-swap-oob/ as the bible
+    - Minimal JavaScript: Server-side rendering, HTMX attributes over custom JS
+    - Current Stack: Go, MongoDB, HTMX, SSE for real-time updates
+    - I'm always running the app and using the port, you can try using a different port when you run, or you can just check logs without the port just to make sure it starts up properly
+
+    Please start by reviewing HTMX documentation, especially SSE handling, before making any changes.
+
+
+==================
+  Context: NFL picks application with HTMX, Go backend, MongoDB. Working on real-time pick updates via Server-Sent Events.
+
+  Current Status:
+  - ✅ Pick submissions work and save to database correctly
+  - ✅ Team names display properly (fixed ESPN team ID mapping)
+  - ✅ Week selector works for navigation
+  - ✅ SSE events are being sent and received by HTMX
+  - ❌ Main Issue: Dashboard goes blank when submitting picks due to SSE processing conflicts
+
+  Architecture:
+  - Frontend: HTMX with SSE extension for real-time updates
+  - Backend: Go handlers send precision-targeted SSE updates (only changed user's picks)
+  - Database: MongoDB with proper team ID mapping
+  - Template: Uses hx-swap-oob="outerHTML" for targeted DOM updates
+
+  Recent Changes Made:
+  1. Fixed team names: Updated handlers to use proper ESPN team IDs instead of generated ones
+  2. Optimized SSE payloads: Only sends specific user's picks that changed (not all users)
+  3. Added debug logging: Console logs show HTMX is receiving and processing SSE events correctly
+  4. Template cleanup: Removed excessive whitespace to minimize SSE response size
+
+  Current Issue:
+  The SSE response format is correct and HTMX processes it (console shows "OOB swap completed"), but there's a double processing conflict causing dashboard to go blank.
+
+  Latest Approach:
+  Added hx-swap="none" to the dashboard container with sse-swap="pickUpdate" to prevent content being swapped into the container while still processing hx-swap-oob attributes.
+
+  Files Modified:
+  - /home/ryanp/nfl-app-go/templates/dashboard.html (SSE setup, debug logging)
+  - /home/ryanp/nfl-app-go/handlers/games.go (team ID mapping, SSE broadcasting)
+
+  Next Steps: Test if hx-swap="none" resolves the double processing issue and allows proper out-of-band swapping.

@@ -143,6 +143,26 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		}
 		// Apply demo effects to picks for Week 1 games (but avoid "pending" string)
 		userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks)
+		
+		// Ensure all users have a pick entry, even if empty
+		userPicksMap := make(map[int]*models.UserPicks)
+		for _, up := range userPicks {
+			userPicksMap[up.UserID] = up
+		}
+		
+		// Add empty pick entries for users who don't have picks this week
+		for _, user := range users {
+			if _, exists := userPicksMap[user.ID]; !exists {
+				userPicks = append(userPicks, &models.UserPicks{
+					UserID:               user.ID,
+					UserName:             user.Name,
+					Picks:                []models.Pick{},
+					BonusThursdayPicks:   []models.Pick{},
+					BonusFridayPicks:     []models.Pick{},
+					Record:               models.UserRecord{},
+				})
+			}
+		}
 	} else {
 		log.Printf("GameHandler: WARNING - No pick service available")
 	}
@@ -199,6 +219,7 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	log.Printf("HTTP: Successfully served %s %s", r.Method, r.URL.Path)
+	log.Printf("DEBUG: Template data - UserPicks count: %d, User: %v", len(userPicks), user)
 }
 
 // SSEHandler handles Server-Sent Events for real-time game updates
@@ -971,16 +992,15 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 	}
 	games = filteredGames
 	
-	// Get fresh pick data
-	var allUserPicks []*models.UserPicks
+	// Get picks for ONLY the user who updated their picks
+	var updatedUserPicks *models.UserPicks
 	if h.pickService != nil {
-		var pickErr error
-		allUserPicks, pickErr = h.pickService.GetAllUserPicksForWeek(context.Background(), season, week)
+		userPicks, pickErr := h.pickService.GetUserPicksForWeek(context.Background(), userID, season, week)
 		if pickErr != nil {
-			log.Printf("SSE: Warning - failed to load picks for week %d, season %d: %v", week, season, pickErr)
+			log.Printf("SSE: Warning - failed to load picks for user %d, week %d, season %d: %v", userID, week, season, pickErr)
 			return
 		}
-		allUserPicks = h.applyDemoEffectsToPicksForWeek1(allUserPicks)
+		updatedUserPicks = userPicks
 	}
 	
 	// Generate weeks list
@@ -989,21 +1009,34 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		weeks[i] = i + 1
 	}
 	
-	// Send personalized updates to each connected user
-	for client := range h.sseClients {
-		// Find user info for this client
-		var viewingUser *models.User
-		users := []*models.User{
-			{ID: 0, Name: "ANDREW", Email: "ackilpatrick@gmail.com"},
-			{ID: 1, Name: "BARDIA", Email: "bbakhtari@gmail.com"},
-			{ID: 2, Name: "COOPER", Email: "cooper.kocsis@mattel.com"},
-			{ID: 3, Name: "MICAH", Email: "micahgoldman@gmail.com"},
-			{ID: 4, Name: "RYAN", Email: "ryan.pielow@gmail.com"},
-			{ID: 5, Name: "TJ", Email: "tyerke@yahoo.com"},
-			{ID: 6, Name: "BRAD", Email: "bradvassar@gmail.com"},
+	// Get user info for the updated user
+	users := []*models.User{
+		{ID: 0, Name: "ANDREW", Email: "ackilpatrick@gmail.com"},
+		{ID: 1, Name: "BARDIA", Email: "bbakhtari@gmail.com"},
+		{ID: 2, Name: "COOPER", Email: "cooper.kocsis@mattel.com"},
+		{ID: 3, Name: "MICAH", Email: "micahgoldman@gmail.com"},
+		{ID: 4, Name: "RYAN", Email: "ryan.pielow@gmail.com"},
+		{ID: 5, Name: "TJ", Email: "tyerke@yahoo.com"},
+		{ID: 6, Name: "BRAD", Email: "bradvassar@gmail.com"},
+	}
+	
+	var updatedUser *models.User
+	for _, user := range users {
+		if user.ID == userID {
+			updatedUser = user
+			break
 		}
-		
-		// Find the user for this client
+	}
+	
+	if updatedUser == nil {
+		log.Printf("SSE: Could not find user info for updated user %d", userID)
+		return
+	}
+	
+	// Send targeted update to all connected clients
+	for client := range h.sseClients {
+		// Find viewing user info for this client
+		var viewingUser *models.User
 		for _, user := range users {
 			if user.ID == client.UserID {
 				viewingUser = user
@@ -1016,57 +1049,49 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 			continue
 		}
 		
-		// Personalize picks for this viewing user
-		personalizedUserPicks := h.personalizeUserPicksForViewer(allUserPicks, viewingUser, games)
-		
-		// Create template data for this specific user
-		data := struct {
-			Games         []models.Game
-			UserPicks     []*models.UserPicks
-			User          *models.User
-			Weeks         []int
-			CurrentWeek   int
-			CurrentSeason int
-		}{
-			Games:         games,
-			UserPicks:     personalizedUserPicks,
-			User:          viewingUser,
-			Weeks:         weeks,
-			CurrentWeek:   week,
-			CurrentSeason: season,
-		}
-		
 		// Debug logging
-		log.Printf("SSE: Broadcasting to user %d - %d games, %d user picks", client.UserID, len(data.Games), len(data.UserPicks))
-		if len(data.UserPicks) > 0 {
-			log.Printf("SSE: First user picks: %s with %d picks", data.UserPicks[0].UserName, len(data.UserPicks[0].Picks))
+		log.Printf("SSE: Broadcasting user %s picks update to client %d", updatedUser.Name, client.UserID)
+		if updatedUserPicks != nil {
+			log.Printf("SSE: Updated user %s has %d picks", updatedUserPicks.UserName, len(updatedUserPicks.Picks))
 		}
 		
-		// Render picks section for this user
-		var htmlContent strings.Builder
-		
-		if err := h.templates.ExecuteTemplate(&htmlContent, "picks-section", data); err != nil {
-			log.Printf("SSE: Template error for user %d: %v", client.UserID, err)
+		// Get all user picks for this week to render complete picks section
+		allUserPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, week)
+		if err != nil {
+			log.Printf("SSE: Error fetching all user picks for complete section render: %v", err)
 			continue
 		}
 		
-		// Debug the rendered content
-		renderedContent := htmlContent.String()
-		log.Printf("SSE: Rendered content length: %d characters", len(renderedContent))
+		// Render the complete picks section to maintain proper structure
+		var htmlContent strings.Builder
 		
-		// Debug first few lines of rendered content
-		lines := strings.Split(renderedContent, "\n")
-		log.Printf("SSE: First 10 lines of rendered content:")
-		for i, line := range lines {
-			if i >= 10 {
-				break
-			}
-			log.Printf("SSE:   Line %d: '%s'", i+1, line)
+		templateData := struct {
+			Games     []models.Game
+			UserPicks []*models.UserPicks
+			User      *models.User
+		}{
+			Games:     games,
+			UserPicks: allUserPicks,
+			User:      viewingUser,
 		}
 		
-		// Send personalized update to this specific client
+		if err := h.templates.ExecuteTemplate(&htmlContent, "picks-section", templateData); err != nil {
+			log.Printf("SSE: Template error for picks section: %v", err)
+			continue
+		}
+		
+		// Get the rendered content without OOB wrapper - let client-side handle the swap
+		renderedContent := strings.TrimSpace(htmlContent.String())
+		// Send plain content and let HTMX SSE listener handle the target
+		finalContent := renderedContent
+		
+		// Debug the rendered content
+		log.Printf("SSE: Rendered picks section content length: %d characters", len(finalContent))
+		log.Printf("SSE: Content preview: %s", finalContent[:min(200, len(finalContent))])
+		
+		// Send user-picks-updated event
 		select {
-		case client.Channel <- fmt.Sprintf("pickUpdate:%s", htmlContent.String()):
+		case client.Channel <- fmt.Sprintf("user-picks-updated:%s", finalContent):
 		default:
 			// Client channel is full, skip
 		}
