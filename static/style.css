@@ -150,8 +150,8 @@ body {
 
 /* Three column layout - 40/45/15 ratio */
 .pick-flex-item, #picks-container {
-    flex: 1 1 300px;
-    min-width: 300px;
+    flex: 0 0 400px;
+    min-width: 400px;
     max-width: 400px;
     display: flex;
     flex-direction: column;
@@ -160,13 +160,15 @@ body {
 }
 
 .game-flex-item {
-    flex: 0 0 45%;
-    min-width: 400px;
+    flex: 0 0 500px;
+    min-width: 500px;
+    max-width: 500px;
 }
 
 .score-flex-item {
-    flex: 0 0 15%;
+    flex: 0 0 200px;
     min-width: 200px;
+    max-width: 200px;
 }
 
 .user-info {
@@ -830,10 +832,17 @@ body {
 .live-pick-expansion .game-score,
 .live-pick-expansion .game-clock,
 .live-pick-expansion .game-possession,
+.live-pick-expansion .red-zone-indicator,
 .live-game-expansion .game-score,
 .live-game-expansion .game-clock,
 .live-game-expansion .game-possession {
     white-space: nowrap;
+}
+
+.red-zone-indicator {
+    color: #f44336;
+    font-weight: bold;
+    font-size: 0.75em;
 }
 
 /* Pick status highlighting */
@@ -854,172 +863,139 @@ body {
     white-space: nowrap;
 }
 
-/* Pick Item - Clean Responsive Design with Column Alignment */
+/* Pick Item - CSS Grid Implementation for Perfect Alignment */
 .pick-item {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(120px, 2fr);
     align-items: center;
     padding: 6px 12px;
     margin-bottom: 2px;
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    gap: 8px;
+    gap: 16px;
     font-size: 1em;
     font-weight: bold;
     color: var(--card-text);
 }
 
-/* Main matchup section - takes most space and shows both teams */
+/* Matchup section - fixed column widths for alignment */
 .pick-item .pick-matchup {
-    flex: 1 1 50%;
-    display: flex;
+    display: grid;
+    grid-template-columns: 24px 62px 24px 62px;
     align-items: center;
     gap: 8px;
-    min-width: 140px;
+    justify-content: center;
 }
 
-/* Individual team section in matchup */
-.pick-item .matchup-team {
-    flex: 1 1 50%;
-    display: flex;
+.pick-item .team-img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+.pick-item .team-info {
+    display: grid;
+    grid-template-columns: 22px auto;
     align-items: center;
-    gap: 3px;
-    min-width: 0;
+    gap: 2px;
+    padding: 1px 2px;
+    border: 1px solid transparent;
+    border-radius: 2px;
 }
 
-/* Team logo in matchup */
-.pick-item .team-img-small {
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
+.pick-item .team-abbr {
+    text-align: left;
+    font-size: 0.9em;
 }
 
-/* Team name container in matchup */
-.pick-item .matchup-team .team-name-container {
-    flex: 1;
-    min-width: 0;
-}
-
-/* Team score in matchup - fixed width for alignment */
 .pick-item .team-score {
-    width: 20px;
-    text-align: center;
-    flex-shrink: 0;
-    font-size: 0.9em;
-    margin-left: auto;
+    text-align: right;
+    font-size: 0.95em;
+    font-weight: 600;
 }
 
-/* Pick details section - shows the actual pick */
+
+/* Pick details section */
 .pick-item .pick-details {
-    flex: 0 0 100px;
-    display: flex;
+    display: grid;
+    grid-template-columns: 24px 1fr;
     align-items: center;
-    gap: 3px;
+    justify-content: center;
+    gap: 8px;
 }
 
-/* Pick details logo */
-.pick-item .pick-details .team-img-small {
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
+.pick-item .pick-icon {
+    width: 24px;
+    height: 24px;
 }
 
-/* Picked team name */
-.pick-item .picked-team {
-    flex: 1;
+.pick-item .pick-name {
     font-size: 0.9em;
-    min-width: 0;
 }
 
-/* Pick spread */
-.pick-item .pick-spread {
+.pick-item .pick-value {
+    display: grid;
+    grid-template-columns: auto auto auto;
+    align-items: center;
+    justify-self: center;
+    gap: 2px;
     font-size: 0.9em;
     color: var(--text-secondary);
-    font-weight: 500;
-    width: 35px;
-    text-align: right;
-    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 2px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    width: 90px;
 }
 
-/* Responsive adjustments for pick items */
-@media (max-width: 768px) {
-    .pick-item {
-        gap: 6px;
-        padding: 4px 8px;
-        font-size: 0.9em;
-    }
-    
-    .pick-item .pick-matchup {
-        flex: 1 1 45%;
-        min-width: 120px;
-        gap: 6px;
-    }
-    
-    .pick-item .matchup-team {
-        gap: 2px;
-    }
-    
-    .pick-item .team-score {
-        width: 18px;
-        font-size: 0.8em;
-    }
-    
-    .pick-item .pick-details {
-        flex: 0 0 85px;
-        gap: 2px;
-    }
-    
-    .pick-item .picked-team {
-        font-size: 0.8em;
-    }
-    
-    .pick-item .pick-spread {
-        font-size: 0.8em;
-        width: 30px;
-    }
+.pick-item .current-value {
+    font-weight: 600;
+    color: var(--card-text);
 }
 
-/* For very narrow screens */
-@media (max-width: 480px) {
-    .pick-item {
-        gap: 4px;
-        padding: 4px 6px;
-        font-size: 0.85em;
-    }
-    
-    .pick-item .pick-matchup {
-        min-width: 100px;
-        gap: 4px;
-    }
-    
-    .pick-item .team-score {
-        width: 16px;
-        font-size: 0.75em;
-    }
-    
-    .pick-item .pick-details {
-        flex: 0 0 70px;
-    }
-    
-    .pick-item .picked-team {
-        font-size: 0.75em;
-    }
-    
-    .pick-item .pick-spread {
-        font-size: 0.75em;
-        width: 25px;
-    }
+.pick-item .separator {
+    color: var(--text-secondary);
+    opacity: 0.7;
 }
 
-@media (min-width: 1200px) {
-    .pick-item .pick-details {
-        flex: 0 0 120px;
-    }
-    
-    .pick-item .pick-spread {
-        width: 40px;
-    }
+.pick-item .target-value {
+    color: var(--text-secondary);
 }
+
+/* Pick status color classes for in-progress games */
+.pick-item .current-value.pick-status-winning {
+    color: #4caf50;
+    font-weight: bold;
+}
+
+.pick-item .current-value.pick-status-losing {
+    color: #f44336;
+    font-weight: bold;
+}
+
+.pick-item .current-value.pick-status-pace {
+    color: #4caf50;
+    font-weight: bold;
+}
+
+.pick-item .current-value.pick-status-failing {
+    color: #ff9800;
+    font-weight: bold;
+}
+
+.pick-item .current-value.pick-status-push {
+    color: var(--card-text);
+    font-weight: bold;
+}
+
+/* Highlight picked team */
+/*.pick-item .team-info.picked {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: var(--nav-bg);
+}*/
+
+/* Responsive */
 
 /* Ensure all team name containers have consistent alignment */
 .game-row .team-name-container {
@@ -1179,7 +1155,7 @@ fieldset legend {
 }
 
 .user-picks-list, .user-picks-content {
-    padding: 4px 16px 6px 16px;
+    padding: 4px 8px 6px 8px;
 }
 
 .no-picks {
@@ -1370,6 +1346,18 @@ fieldset legend {
         gap: 8px;
     }
     
+    .user-picks-list, .user-picks-content {
+        padding: 2px 5px 2px 5px;
+    }
+    
+    .pick-item {
+        padding: 6px 4px;
+    }
+    
+    .pick-item .pick-value {
+        width: 75px;
+    }
+    
     .form-field {
         min-width: 120px;
         flex-shrink: 0;
@@ -1486,6 +1474,41 @@ fieldset legend {
 #picks-container {
     overflow: visible;
     max-height: none;
+}
+
+/* Pick Item Base Styling */
+.pick-item {
+    line-height: 1.2;
+}
+
+/* Enhanced Team Highlighting */
+.matchup-team.picked {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--nav-bg);
+    border-radius: 2px;
+    padding: 1px 4px;
+    box-shadow: none;
+    transition: all 0.2s;
+}
+
+.matchup-team.picked .team-abbr {
+    font-weight: 600;
+}
+
+/* Pick Details Layout */
+.pick-details {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+}
+
+.pick-spread {
+    font-weight: 600;
+    font-size: 1em;
+    color: var(--text-color);
+    text-align: center;
 }
 
 /* Pick Picker Element Styles */
@@ -1685,7 +1708,6 @@ body.modal-open {
 .pick-spread {
     font-size: 0.9em;
     color: var(--text-secondary);
-    margin-left: auto;
 }
 
 .pick-ou-display {
@@ -1831,4 +1853,10 @@ body.modal-open {
         padding: 8px 12px;
         flex-wrap: wrap;
     }
+}
+
+.red-zone-indicator {
+    color: #f44336;
+    font-weight: bold;
+    font-size: inherit;
 }
