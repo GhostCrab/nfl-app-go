@@ -23,12 +23,13 @@ type SSEClient struct {
 }
 
 type GameHandler struct {
-	templates   *template.Template
-	gameService services.GameService
-	pickService *services.PickService
-	sseClients  map[*SSEClient]bool
-	authService *services.AuthService
-	dataLoader  *services.DataLoader
+	templates         *template.Template
+	gameService       services.GameService
+	pickService       *services.PickService
+	sseClients        map[*SSEClient]bool
+	authService       *services.AuthService
+	dataLoader        *services.DataLoader
+	visibilityService *services.PickVisibilityService
 }
 
 // NewGameHandler creates a new game handler
@@ -50,9 +51,37 @@ func (h *GameHandler) SetAuthService(authService *services.AuthService) {
 	h.authService = authService
 }
 
+// SetVisibilityService sets the pick visibility service
+func (h *GameHandler) SetVisibilityService(visibilityService *services.PickVisibilityService) {
+	h.visibilityService = visibilityService
+}
+
 // GetGames handles GET / and /games - displays dashboard
 func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HTTP: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	
+	// Handle debug datetime parameter for testing visibility
+	debugDateTimeStr := r.URL.Query().Get("datetime")
+	if debugDateTimeStr != "" && h.visibilityService != nil {
+		// Parse the datetime as Pacific time (not UTC)
+		pacific, err := time.LoadLocation("America/Los_Angeles")
+		if err != nil {
+			log.Printf("DEBUG: Could not load Pacific timezone: %v", err)
+		} else {
+			if debugTime, err := time.ParseInLocation("2006-01-02T15:04", debugDateTimeStr, pacific); err == nil {
+				h.visibilityService.SetDebugDateTime(debugTime)
+				log.Printf("DEBUG: Set debug datetime to %v (parsed as Pacific time)", debugTime.Format("2006-01-02 15:04:05 MST"))
+				
+				// Check if we should enable demo games for games within 60 minutes
+				h.applyDebugGameStates(debugTime)
+			} else {
+				log.Printf("DEBUG: Invalid datetime format: %s (use YYYY-MM-DDTHH:MM)", debugDateTimeStr)
+			}
+		}
+	} else if debugDateTimeStr == "" && h.visibilityService != nil {
+		// Clear debug time if no parameter provided
+		h.visibilityService.ClearDebugDateTime()
+	}
 	
 	// Get week filter from query params
 	weekStr := r.URL.Query().Get("week")
@@ -141,6 +170,15 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			log.Printf("GameHandler: Warning - failed to load picks for week %d, season %d: %v", currentWeek, season, err)
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		}
+		
+		// Apply pick visibility filtering if visibility service is available
+		if h.visibilityService != nil && user != nil {
+			userPicks, err = h.visibilityService.FilterVisibleUserPicks(r.Context(), userPicks, season, currentWeek, user.ID)
+			if err != nil {
+				log.Printf("GameHandler: Warning - failed to filter pick visibility: %v", err)
+			}
+		}
+		
 		// Apply demo effects to picks for Week 1 games (but avoid "pending" string)
 		userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks)
 		
@@ -330,7 +368,7 @@ func (h *GameHandler) HandleDatabaseChange(event services.ChangeEvent) {
 		}
 
 		// Send structured update to all connected clients
-		h.broadcastStructuredUpdate("gameUpdate", string(updateJSON))
+		h.BroadcastStructuredUpdate("gameUpdate", string(updateJSON))
 	}
 }
 
@@ -366,11 +404,11 @@ func (h *GameHandler) BroadcastUpdate() {
 	}
 	
 	// Send HTML update to all connected clients
-	h.broadcastStructuredUpdate("gameUpdate", htmlContent)
+	h.BroadcastStructuredUpdate("gameUpdate", htmlContent)
 }
 
-// broadcastStructuredUpdate sends a structured update to all SSE clients
-func (h *GameHandler) broadcastStructuredUpdate(eventType, data string) {
+// BroadcastStructuredUpdate sends a structured update to all SSE clients
+func (h *GameHandler) BroadcastStructuredUpdate(eventType, data string) {
 	for client := range h.sseClients {
 		select {
 		case client.Channel <- fmt.Sprintf("%s:%s", eventType, data):
@@ -1167,6 +1205,48 @@ func (h *GameHandler) getESPNTeamID(teamAbbr string) int {
 	// Fallback: return 0 if team not found
 	log.Printf("Warning: Unknown team abbreviation '%s', using teamID 0", teamAbbr)
 	return 0
+}
+
+// applyDebugGameStates applies demo game states for testing based on debug datetime
+func (h *GameHandler) applyDebugGameStates(debugTime time.Time) {
+	// Get games to check which ones should be modified
+	var games []models.Game
+	var err error
+	
+	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+		games, err = gameServiceWithSeason.GetGamesBySeason(2025)
+	} else {
+		games, err = h.gameService.GetGames()
+	}
+	
+	if err != nil {
+		log.Printf("DEBUG: Error fetching games for demo state application: %v", err)
+		return
+	}
+	
+	demoGamesCount := 0
+	completedGamesCount := 0
+	
+	for _, game := range games {
+		gameTime := game.PacificTime()
+		timeDiff := debugTime.Sub(gameTime)
+		
+		// Games within 60 minutes of debug time should be "in-progress"
+		if timeDiff > -60*time.Minute && timeDiff < 60*time.Minute {
+			demoGamesCount++
+		}
+		
+		// Games before debug time should be "completed"
+		if timeDiff > 60*time.Minute {
+			completedGamesCount++
+		}
+	}
+	
+	log.Printf("DEBUG: Demo time analysis - %d games would be in-progress, %d would be completed (debug time: %s)",
+		demoGamesCount, completedGamesCount, debugTime.Format("2006-01-02 15:04:05 MST"))
+	
+	// Note: Actual game state modification would require a different game service implementation
+	// that can dynamically alter game states. For now, we just log what would happen.
 }
 
 

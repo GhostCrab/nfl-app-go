@@ -84,6 +84,8 @@ type UserPicks struct {
 	BonusThursdayPicks []Pick `json:"bonus_thursday_picks"`
 	BonusFridayPicks   []Pick `json:"bonus_friday_picks"`
 	Record       UserRecord `json:"record"`
+	// Pick visibility metadata
+	HiddenPickCounts map[string]int `json:"hidden_pick_counts,omitempty"` // Counts of hidden picks by day
 }
 
 // UserRecord represents a user's win-loss record

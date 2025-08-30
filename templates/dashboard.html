@@ -55,6 +55,13 @@
         <div sse-swap="dashboard-update" 
              hx-swap="innerHTML" 
              hx-target="#dashboard-content"></div>
+             
+        <!-- Visibility change updates listener -->
+        <div sse-swap="visibility-change" 
+             hx-swap="none" 
+             hx-trigger="sse:visibility-change"
+             hx-get="/"
+             hx-target="#dashboard-content"></div>
     </div>
          
     <div class="dashboard-container">        
@@ -366,6 +373,32 @@
 </div>
 {{end -}}
 {{end -}}
+
+{{/* Show hidden pick counts if user is not viewing their own picks */}}
+{{if and (not $isCurrentUser) $userPicks.HiddenPickCounts -}}
+{{$hasHiddenPicks := false -}}
+{{range $day, $count := $userPicks.HiddenPickCounts}}{{if gt $count 0}}{{$hasHiddenPicks = true}}{{end}}{{end -}}
+{{if $hasHiddenPicks -}}
+<div class="hidden-picks-section">
+<div class="picks-category-header">HIDDEN PICKS</div>
+<div class="hidden-picks-summary">
+{{/* Display hidden picks in chronological order */}}
+{{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday/Monday") -}}
+{{range $orderedDays -}}
+{{$count := index $userPicks.HiddenPickCounts . -}}
+{{if gt $count 0 -}}
+<div class="hidden-pick-count">
+<span class="day-name">{{.}}:</span>
+<span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
+</div>
+{{end -}}
+{{end -}}
+<div class="hidden-picks-note">Picks will be revealed based on game schedule</div>
+</div>
+</div>
+{{end -}}
+{{end -}}
+
 </div>
 </div>
     {{end}}

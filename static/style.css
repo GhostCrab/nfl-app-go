@@ -1319,6 +1319,45 @@ fieldset legend {
     100% { opacity: 1; }
 }
 
+/* Hidden picks section styling */
+.hidden-picks-section {
+    margin-top: 12px;
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 4px;
+    padding: 8px;
+}
+
+.hidden-picks-summary {
+    margin-top: 4px;
+}
+
+.hidden-pick-count {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+    font-size: 0.85em;
+}
+
+.day-name {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.count-value {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.hidden-picks-note {
+    font-size: 0.75em;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-top: 4px;
+    text-align: center;
+}
+
 /* Utility classes */
 .text-center { text-align: center; }
 .text-bold { font-weight: bold; }

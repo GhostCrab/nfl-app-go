@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log"
@@ -436,6 +437,9 @@ func main() {
 		"ceil": func(f float64) int {
 			return int(f + 0.999999) // Ceiling function
 		},
+		"slice": func(items ...string) []string {
+			return items
+		},
 		"projectFinalScore": func(homeScore, awayScore, quarter int, timeLeft string) float64 {
 			// Parse time left (e.g., "12:34")
 			var minutes, seconds int
@@ -757,6 +761,7 @@ func main() {
 	gameService := services.NewDatabaseGameService(gameRepo)
 	pickRepo := database.NewMongoPickRepository(db)
 	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
+	visibilityService := services.NewPickVisibilityService(gameService)
 
 	// Create middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
@@ -765,8 +770,10 @@ func main() {
 	gameHandler := handlers.NewGameHandler(templates, gameService)
 	authHandler := handlers.NewAuthHandler(templates, authService, emailService)
 
-	// Wire up pick service to game handler
+	// Wire up services to game handler
 	gameHandler.SetPickService(pickService)
+	gameHandler.SetAuthService(authService)
+	gameHandler.SetVisibilityService(visibilityService)
 
 	// Start background ESPN API updater
 	backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, currentSeason)
@@ -776,6 +783,21 @@ func main() {
 	// Start change stream watcher for real-time updates
 	changeWatcher := services.NewChangeStreamWatcher(db, gameHandler.HandleDatabaseChange)
 	changeWatcher.StartWatching()
+
+	// Start visibility timer service for automatic pick visibility updates
+	visibilityTimer := services.NewVisibilityTimerService(
+		visibilityService, 
+		func(eventType, data string) {
+			// Broadcast visibility changes via SSE
+			gameHandler.BroadcastStructuredUpdate(eventType, data)
+		}, 
+		currentSeason,
+	)
+	visibilityTimer.Start()
+	defer visibilityTimer.Stop()
+	
+	// Log upcoming visibility changes for debugging
+	visibilityTimer.LogUpcomingChanges(context.Background())
 
 	// Setup routes
 	r := mux.NewRouter()
