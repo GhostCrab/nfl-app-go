@@ -17,6 +17,7 @@ type BackgroundUpdater struct {
 	ticker       *time.Ticker
 	stopChan     chan bool
 	running      bool
+	lastUpdateType string // Track what type of update we last did
 }
 
 // NewBackgroundUpdater creates a new background updater service
@@ -38,31 +39,14 @@ func (bu *BackgroundUpdater) Start() {
 		return
 	}
 
-	log.Println("BackgroundUpdater: Starting background ESPN API polling")
+	log.Println("BackgroundUpdater: Starting intelligent background ESPN API polling")
 	bu.running = true
-	
-	// Poll every 2 minutes during NFL season (September to February)
-	// Poll every 30 minutes during off-season
-	updateInterval := bu.getUpdateInterval()
-	log.Printf("BackgroundUpdater: Using update interval: %v", updateInterval)
-	
-	bu.ticker = time.NewTicker(updateInterval)
 	
 	// Do an initial update
 	go bu.updateGames()
 	
-	// Start the ticker loop
-	go func() {
-		for {
-			select {
-			case <-bu.ticker.C:
-				go bu.updateGames() // Run in goroutine to avoid blocking ticker
-			case <-bu.stopChan:
-				log.Println("BackgroundUpdater: Stopping background updates")
-				return
-			}
-		}
-	}()
+	// Start the intelligent scheduler
+	go bu.intelligentScheduler()
 }
 
 // Stop halts the background updating process
@@ -226,6 +210,130 @@ func (bu *BackgroundUpdater) checkForCompletedWeeks(games []models.Game) []int {
 }
 
 // getUpdateInterval returns the appropriate update interval based on the time of year
+// intelligentScheduler manages intelligent polling based on game urgency
+func (bu *BackgroundUpdater) intelligentScheduler() {
+	for {
+		select {
+		case <-bu.stopChan:
+			log.Println("BackgroundUpdater: Stopping intelligent scheduler")
+			return
+		default:
+			// Determine next update interval based on game states
+			interval, updateType := bu.getIntelligentUpdateInterval()
+			
+			if updateType != bu.lastUpdateType {
+				log.Printf("BackgroundUpdater: Switching to %s polling (interval: %v)", updateType, interval)
+				bu.lastUpdateType = updateType
+			}
+			
+			// Wait for the calculated interval
+			timer := time.NewTimer(interval)
+			
+			select {
+			case <-timer.C:
+				go bu.updateGames()
+			case <-bu.stopChan:
+				timer.Stop()
+				log.Println("BackgroundUpdater: Stopping intelligent scheduler")
+				return
+			}
+		}
+	}
+}
+
+// getIntelligentUpdateInterval calculates update interval based on current game states
+func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, string) {
+	// Get current games from database to analyze their states
+	games, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
+	if err != nil {
+		log.Printf("BackgroundUpdater: Error fetching games for intelligent scheduling: %v", err)
+		// Fallback to 30-minute intervals if we can't determine game states
+		return 30 * time.Minute, "fallback"
+	}
+	
+	now := time.Now()
+	currentWeek := bu.getCurrentNFLWeek(now)
+	
+	// Check for games in progress (highest priority - 5 seconds)
+	for _, game := range games {
+		if game.State == models.GameStateInPlay {
+			return 5 * time.Second, "live-games"
+		}
+	}
+	
+	// Check for games starting soon in current week (within 2 hours)
+	hasGamesStartingSoon := false
+	for _, game := range games {
+		if game.Week == currentWeek && game.State == models.GameStateScheduled {
+			gameTime := game.PacificTime()
+			if now.Add(2 * time.Hour).After(gameTime) && now.Before(gameTime.Add(4 * time.Hour)) {
+				hasGamesStartingSoon = true
+				break
+			}
+		}
+	}
+	if hasGamesStartingSoon {
+		return 30 * time.Second, "games-starting-soon"
+	}
+	
+	// Current week games (30 minutes)
+	hasCurrentWeekGames := false
+	for _, game := range games {
+		if game.Week == currentWeek {
+			hasCurrentWeekGames = true
+			break
+		}
+	}
+	if hasCurrentWeekGames {
+		return 30 * time.Minute, "current-week"
+	}
+	
+	// Next week games (6 hours)
+	hasNextWeekGames := false
+	nextWeek := currentWeek + 1
+	for _, game := range games {
+		if game.Week == nextWeek {
+			hasNextWeekGames = true
+			break
+		}
+	}
+	if hasNextWeekGames {
+		return 6 * time.Hour, "next-week"
+	}
+	
+	// Future weeks (24 hours)
+	return 24 * time.Hour, "future-weeks"
+}
+
+// getCurrentNFLWeek determines current NFL week based on date
+func (bu *BackgroundUpdater) getCurrentNFLWeek(now time.Time) int {
+	// Simple approximation: NFL season starts around September 5th, week 1
+	// Each week is 7 days, so we can estimate current week
+	year := now.Year()
+	if now.Month() < 9 {
+		year-- // If before September, we're in previous year's season
+	}
+	
+	// Approximate NFL season start (first Thursday in September)
+	seasonStart := time.Date(year, 9, 5, 0, 0, 0, 0, time.UTC)
+	// Adjust to first Thursday
+	for seasonStart.Weekday() != time.Thursday {
+		seasonStart = seasonStart.AddDate(0, 0, 1)
+	}
+	
+	daysSinceStart := int(now.Sub(seasonStart).Hours() / 24)
+	week := (daysSinceStart / 7) + 1
+	
+	// NFL regular season is weeks 1-18
+	if week < 1 {
+		week = 1
+	} else if week > 18 {
+		week = 18
+	}
+	
+	return week
+}
+
 func (bu *BackgroundUpdater) getUpdateInterval() time.Duration {
 	now := time.Now()
 	month := now.Month()

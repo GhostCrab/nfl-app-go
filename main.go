@@ -368,6 +368,7 @@ func main() {
 		r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
 		r.HandleFunc("/", gameHandler.GetGames).Methods("GET")
 		r.HandleFunc("/games", gameHandler.GetGames).Methods("GET")
+		r.HandleFunc("/games/refresh", gameHandler.RefreshGames).Methods("GET")
 
 		// Start server
 		log.Println("Server starting on 0.0.0.0:8080 (available on LAN)")
@@ -838,6 +839,8 @@ func main() {
 	// Game routes (with optional auth to show user info)
 	r.Handle("/", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGames))).Methods("GET")
 	r.Handle("/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGames))).Methods("GET")
+	r.Handle("/games/refresh", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.RefreshGames))).Methods("GET")
+	r.Handle("/games/test-update", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.TestGameUpdate))).Methods("POST")
 	r.Handle("/events", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.SSEHandler))).Methods("GET")
 	r.Handle("/api/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGamesAPI))).Methods("GET")
 	r.Handle("/api/dashboard", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetDashboardDataAPI))).Methods("GET")

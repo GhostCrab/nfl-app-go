@@ -52,7 +52,7 @@ type ESPNStatus struct {
 	Type         ESPNStatusType `json:"type"`
 	Period       int            `json:"period"`
 	DisplayClock string         `json:"displayClock,omitempty"`
-	Clock        int            `json:"clock,omitempty"`
+	Clock        float64        `json:"clock,omitempty"` // Changed to float64 to handle ESPN's 0.0 values
 }
 
 type ESPNStatusType struct {

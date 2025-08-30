@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"math/rand"
 	"net/http"
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
@@ -258,6 +259,145 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	
 	log.Printf("HTTP: Successfully served %s %s", r.Method, r.URL.Path)
 	log.Printf("DEBUG: Template data - UserPicks count: %d, User: %v", len(userPicks), user)
+}
+
+// RefreshGames handles game refresh requests from SSE events
+func (h *GameHandler) RefreshGames(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP: SSE Game refresh request from %s", r.RemoteAddr)
+	
+	// Extract season and week from query parameters
+	seasonStr := r.URL.Query().Get("season")
+	weekStr := r.URL.Query().Get("week")
+	
+	season := 2025 // Default season
+	week := 1      // Default week
+	
+	if seasonStr != "" {
+		if parsedSeason, err := strconv.Atoi(seasonStr); err == nil {
+			season = parsedSeason
+		}
+	}
+	
+	if weekStr != "" {
+		if parsedWeek, err := strconv.Atoi(weekStr); err == nil {
+			week = parsedWeek
+		}
+	}
+	
+	// Fetch games for the specific season/week
+	var games []models.Game
+	var err error
+	
+	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+		allGames, err := gameServiceWithSeason.GetGamesBySeason(season)
+		if err != nil {
+			log.Printf("RefreshGames: Error fetching games: %v", err)
+			http.Error(w, "Error fetching games", http.StatusInternalServerError)
+			return
+		}
+		
+		// Filter to specific week
+		for _, game := range allGames {
+			if game.Week == week {
+				games = append(games, game)
+			}
+		}
+	} else {
+		games, err = h.gameService.GetGames()
+		if err != nil {
+			log.Printf("RefreshGames: Error fetching games: %v", err)
+			http.Error(w, "Error fetching games", http.StatusInternalServerError)
+			return
+		}
+	}
+	
+	// Create template data
+	data := struct {
+		Games []models.Game
+	}{
+		Games: games,
+	}
+	
+	// Return only the game-grid template (games container content)
+	err = h.templates.ExecuteTemplate(w, "game-grid", data)
+	if err != nil {
+		log.Printf("RefreshGames: Template error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	
+	log.Printf("HTTP: Successfully refreshed games for season %d, week %d (%d games)", season, week, len(games))
+}
+
+// TestGameUpdate simulates a game update for testing SSE functionality
+func (h *GameHandler) TestGameUpdate(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP: Test game update request from %s", r.RemoteAddr)
+	
+	// Get test parameters
+	gameIDStr := r.URL.Query().Get("gameId")
+	testType := r.URL.Query().Get("type") // "score", "state", "live"
+	
+	if gameIDStr == "" {
+		http.Error(w, "gameId parameter required", http.StatusBadRequest)
+		return
+	}
+	
+	gameID, err := strconv.Atoi(gameIDStr)
+	if err != nil {
+		http.Error(w, "Invalid gameId", http.StatusBadRequest)
+		return
+	}
+	
+	// Default test type
+	if testType == "" {
+		testType = "score"
+	}
+	
+	// Simulate different types of game updates
+	switch testType {
+	case "score":
+		// Simulate score update
+		log.Printf("TestGameUpdate: Simulating score update for game %d", gameID)
+		h.simulateScoreUpdate(gameID)
+	case "state":
+		// Simulate state change (scheduled -> in_play -> completed)
+		log.Printf("TestGameUpdate: Simulating state change for game %d", gameID)
+		h.simulateStateChange(gameID)
+	case "live":
+		// Simulate live game updates
+		log.Printf("TestGameUpdate: Simulating live updates for game %d", gameID)
+		h.simulateLiveUpdate(gameID)
+	default:
+		http.Error(w, "Invalid test type. Use: score, state, or live", http.StatusBadRequest)
+		return
+	}
+	
+	// Trigger SSE update
+	h.BroadcastStructuredUpdate("gameUpdate", fmt.Sprintf(`{"type":"testUpdate","gameId":%d,"testType":"%s","timestamp":%d}`, gameID, testType, time.Now().UnixMilli()))
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf(`{"success":true,"message":"Test %s update triggered for game %d","gameId":%d,"type":"%s"}`, testType, gameID, gameID, testType)))
+}
+
+// Helper methods for test game updates
+func (h *GameHandler) simulateScoreUpdate(gameID int) {
+	// This would update the game in database with new scores
+	// For now, just log the simulation
+	log.Printf("SIMULATION: Game %d - Updated scores (Home: %d, Away: %d)", gameID, 14+rand.Intn(21), 10+rand.Intn(21))
+}
+
+func (h *GameHandler) simulateStateChange(gameID int) {
+	// This would change game state in database
+	log.Printf("SIMULATION: Game %d - State changed to in_play", gameID)
+}
+
+func (h *GameHandler) simulateLiveUpdate(gameID int) {
+	// This would update live game data (clock, possession, etc.)
+	quarter := rand.Intn(4) + 1
+	clockMinutes := rand.Intn(15)
+	clockSeconds := rand.Intn(60)
+	log.Printf("SIMULATION: Game %d - Live update (Q%d %d:%02d)", gameID, quarter, clockMinutes, clockSeconds)
 }
 
 // SSEHandler handles Server-Sent Events for real-time game updates
