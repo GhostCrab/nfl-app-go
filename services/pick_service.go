@@ -484,6 +484,19 @@ func (s *PickService) getTeamNameFromID(teamID int, game *models.Game) string {
 		if abbr == game.Away || abbr == game.Home {
 			return abbr
 		}
+		
+		// Special case for Washington - handle both WAS and WSH
+		if abbr == "WSH" && (game.Away == "WAS" || game.Home == "WAS") {
+			return "WAS"
+		}
+		if abbr == "WAS" && (game.Away == "WSH" || game.Home == "WSH") {
+			return "WSH"
+		}
+	}
+	
+	// Debug logging for unmatched teams
+	if teamID == 28 { // Washington
+		log.Printf("Warning: Washington team ID 28 not matched - Game: %s @ %s, Expected: WSH", game.Away, game.Home)
 	}
 	
 	// Fallback: return the team ID as string
@@ -653,4 +666,72 @@ func (s *PickService) ReplaceUserPicksForWeek(ctx context.Context, userID, seaso
 	
 	log.Printf("Replaced picks for user %d, season %d, week %d: %d picks", userID, season, week, len(picks))
 	return nil
+}
+
+// GetPicksForAnalytics retrieves picks for analytics calculations with enriched team names
+func (s *PickService) GetPicksForAnalytics(ctx context.Context, season int, week *int, allSeasons bool) ([]models.Pick, error) {
+	var picks []*models.Pick
+	var err error
+	
+	if allSeasons {
+		// Would need to implement getting picks from all seasons
+		// For now, just return current season
+		picks, err = s.pickRepo.FindBySeason(ctx, season)
+		if err != nil {
+			return nil, err
+		}
+	} else if week != nil {
+		// Get picks for specific week
+		picks, err = s.pickRepo.FindByWeek(ctx, season, *week)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Get picks for entire season
+		picks, err = s.pickRepo.FindBySeason(ctx, season)
+		if err != nil {
+			return nil, err
+		}
+	}
+	
+	// Enrich picks with team names for analytics
+	enrichedPicks := make([]models.Pick, len(picks))
+	for i, pick := range picks {
+		enrichedPick := *pick
+		
+		// Get game data to populate team names
+		game, err := s.gameRepo.FindByESPNID(ctx, pick.GameID)
+		if err == nil && game != nil {
+			s.populateTeamName(&enrichedPick, game)
+		}
+		
+		enrichedPicks[i] = enrichedPick
+	}
+	
+	return enrichedPicks, nil
+}
+
+// populateTeamName populates the TeamName field based on TeamID and game data
+func (s *PickService) populateTeamName(pick *models.Pick, game *models.Game) {
+	switch pick.PickType {
+	case models.PickTypeOverUnder:
+		if pick.TeamID == 98 {
+			pick.TeamName = "UND" // Use consistent abbreviation for analytics
+		} else if pick.TeamID == 99 {
+			pick.TeamName = "OVR" // Use consistent abbreviation for analytics
+		}
+	case models.PickTypeSpread:
+		// Get team abbreviation from ID mapping
+		teamAbbr := s.getTeamNameFromID(pick.TeamID, game)
+		pick.TeamName = teamAbbr // Use clean abbreviation for analytics
+	}
+}
+
+// Helper function to convert []*Pick to []Pick
+func convertPickPointers(picks []*models.Pick) []models.Pick {
+	result := make([]models.Pick, len(picks))
+	for i, pick := range picks {
+		result[i] = *pick
+	}
+	return result
 }

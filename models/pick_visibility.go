@@ -48,12 +48,20 @@ func (s *PickVisibilityService) ClearDebugDateTime() {
 	s.debugDateTime = nil
 }
 
-// GetCurrentTime returns debug time if set, otherwise actual current time
+// GetCurrentTime returns debug time if set, otherwise actual current time in Pacific timezone
 func (s *PickVisibilityService) GetCurrentTime() time.Time {
 	if s.debugDateTime != nil {
 		return *s.debugDateTime
 	}
-	return time.Now()
+	
+	// Always return time in Pacific timezone to match game times
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		// Fallback to manual UTC offset if timezone loading fails
+		return time.Now().Add(-8 * time.Hour) // Use PST as default
+	}
+	
+	return time.Now().In(loc)
 }
 
 // generateInProgressGameState creates realistic in-progress game data for debug mode

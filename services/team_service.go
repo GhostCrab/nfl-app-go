@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"nfl-app-go/models"
 	"strings"
 )
 
@@ -82,4 +83,52 @@ func GetTeamName(teamAbbr string) string {
 		return team.City + " " + team.Name
 	}
 	return teamAbbr // Return abbreviation if team not found
+}
+
+// TeamService interface for analytics
+type TeamService interface {
+	GetAllTeams() ([]models.Team, error)
+	GetTeamByAbbr(abbr string) (*models.Team, error)
+}
+
+// StaticTeamService implements TeamService with static NFL team data
+type StaticTeamService struct {
+	teams []models.Team
+}
+
+// NewStaticTeamService creates a new static team service
+func NewStaticTeamService() *StaticTeamService {
+	teamData := GetTeamData()
+	teams := make([]models.Team, 0, len(teamData)+2)
+	
+	// Convert existing team data to models.Team
+	for abbr, data := range teamData {
+		teams = append(teams, models.Team{
+			Abbr:    abbr,
+			Name:    data.Name,
+			City:    data.City,
+			Active:  true,
+		})
+	}
+	
+	// Add O/U teams
+	teams = append(teams, models.Team{Abbr: "OVR", Name: "Over", City: "", Active: true})
+	teams = append(teams, models.Team{Abbr: "UND", Name: "Under", City: "", Active: true})
+	
+	return &StaticTeamService{teams: teams}
+}
+
+// GetAllTeams returns all teams
+func (s *StaticTeamService) GetAllTeams() ([]models.Team, error) {
+	return s.teams, nil
+}
+
+// GetTeamByAbbr returns a team by abbreviation
+func (s *StaticTeamService) GetTeamByAbbr(abbr string) (*models.Team, error) {
+	for _, team := range s.teams {
+		if team.Abbr == abbr {
+			return &team, nil
+		}
+	}
+	return nil, nil // Team not found
 }

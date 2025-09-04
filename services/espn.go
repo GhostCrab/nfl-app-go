@@ -345,9 +345,12 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 	enrichedGames := make([]models.Game, len(games))
 	copy(enrichedGames, games)
 
-	log.Printf("ESPN Odds: Attempting to fetch odds for up to %d games", maxGames)
+	log.Printf("ESPN Odds: Starting odds enrichment for up to %d games", maxGames)
 	
 	count := 0
+	successCount := 0
+	failedCount := 0
+	
 	// First pass: prioritize scheduled games without odds
 	for i := range enrichedGames {
 		if count >= maxGames {
@@ -355,14 +358,17 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 		}
 		
 		if !enrichedGames[i].HasOdds() && enrichedGames[i].State == models.GameStateScheduled {
-			// log.Printf("ESPN Odds: Trying to fetch odds for game %d", enrichedGames[i].ID)
+			log.Printf("ESPN Odds: Fetching odds for Game %d (%s vs %s)", 
+				enrichedGames[i].ID, enrichedGames[i].Away, enrichedGames[i].Home)
 			
 			if odds, err := e.GetOdds(enrichedGames[i].ID); err == nil {
+				log.Printf("ESPN Odds: SUCCESS - Game %d got odds: Spread=%.1f, O/U=%.1f", 
+					enrichedGames[i].ID, odds.Spread, odds.OU)
 				enrichedGames[i].Odds = odds
-				// log.Printf("ESPN Odds: Successfully got odds for game %d (spread: %.1f, o/u: %.1f)", 
-				// 	enrichedGames[i].ID, odds.Spread, odds.OU)
+				successCount++
 			} else {
-				log.Printf("ESPN Odds: Failed to get odds for game %d: %v", enrichedGames[i].ID, err)
+				log.Printf("ESPN Odds: FAILED - Game %d odds fetch error: %v", enrichedGames[i].ID, err)
+				failedCount++
 			}
 			count++
 		}
@@ -375,19 +381,23 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 		}
 		
 		if !enrichedGames[i].HasOdds() {
-			// log.Printf("ESPN Odds: Trying to fetch odds for game %d", enrichedGames[i].ID)
+			log.Printf("ESPN Odds: Fetching odds for Game %d (%s vs %s) [second pass]", 
+				enrichedGames[i].ID, enrichedGames[i].Away, enrichedGames[i].Home)
 			
 			if odds, err := e.GetOdds(enrichedGames[i].ID); err == nil {
+				log.Printf("ESPN Odds: SUCCESS - Game %d got odds: Spread=%.1f, O/U=%.1f", 
+					enrichedGames[i].ID, odds.Spread, odds.OU)
 				enrichedGames[i].Odds = odds
-				// log.Printf("ESPN Odds: Successfully got odds for game %d (spread: %.1f, o/u: %.1f)", 
-				// 	enrichedGames[i].ID, odds.Spread, odds.OU)
+				successCount++
 			} else {
-				log.Printf("ESPN Odds: Failed to get odds for game %d: %v", enrichedGames[i].ID, err)
+				log.Printf("ESPN Odds: FAILED - Game %d odds fetch error: %v", enrichedGames[i].ID, err)
+				failedCount++
 			}
 			count++
 		}
 	}
 
-	log.Printf("ESPN Odds: Fetched odds for %d games", count)
+	log.Printf("ESPN Odds: Enrichment complete - %d attempts, %d successful, %d failed", 
+		count, successCount, failedCount)
 	return enrichedGames
 }

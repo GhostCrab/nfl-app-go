@@ -172,16 +172,24 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		}
 		
-		// Apply pick visibility filtering if visibility service is available
-		if h.visibilityService != nil && user != nil {
-			userPicks, err = h.visibilityService.FilterVisibleUserPicks(r.Context(), userPicks, season, currentWeek, user.ID)
+		// Apply pick visibility filtering for security  
+		if h.visibilityService != nil {
+			viewingUserID := -1 // Default for anonymous users
+			if user != nil {
+				viewingUserID = user.ID
+			}
+			
+			filteredUserPicks, err := h.visibilityService.FilterVisibleUserPicks(r.Context(), userPicks, season, currentWeek, viewingUserID)
 			if err != nil {
 				log.Printf("GameHandler: Warning - failed to filter pick visibility: %v", err)
+			} else {
+				userPicks = filteredUserPicks
+				log.Printf("GameHandler: Applied pick visibility filtering for user ID %d", viewingUserID)
 			}
 		}
 		
 		// Apply demo effects to picks for Week 1 games (but avoid "pending" string)
-		userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks)
+		// userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks) // DISABLED for analytics
 		
 		// Ensure all users have a pick entry, even if empty
 		userPicksMap := make(map[int]*models.UserPicks)
@@ -859,8 +867,25 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 			log.Printf("API: Warning - failed to load picks for week %d, season %d: %v", currentWeek, season, err)
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		}
+		
+		// Apply pick visibility filtering for security
+		if h.visibilityService != nil {
+			viewingUserID := -1 // Default for anonymous users
+			if user != nil {
+				viewingUserID = user.ID
+			}
+			
+			filteredUserPicks, err := h.visibilityService.FilterVisibleUserPicks(r.Context(), userPicks, season, currentWeek, viewingUserID)
+			if err != nil {
+				log.Printf("API: Warning - failed to filter pick visibility: %v", err)
+			} else {
+				userPicks = filteredUserPicks
+				log.Printf("API: Applied pick visibility filtering for user ID %d", viewingUserID)
+			}
+		}
+		
 		// Apply demo effects to picks for Week 1 games (but avoid "pending" string)
-		userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks)
+		// userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks) // DISABLED for analytics
 	} else {
 		log.Printf("API: WARNING - No pick service available")
 	}
@@ -1010,17 +1035,21 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	data := struct {
-		Games     []models.Game
-		Week      int
-		Season    int
-		User      *models.User
-		PickState map[int]map[int]bool
+		Games         []models.Game
+		Week          int
+		CurrentWeek   int
+		Season        int
+		CurrentSeason int
+		User          *models.User
+		PickState     map[int]map[int]bool
 	}{
-		Games:     availableGames,
-		Week:      week,
-		Season:    season,
-		User:      user,
-		PickState: pickState,
+		Games:         availableGames,
+		Week:          week,
+		CurrentWeek:   week,
+		Season:        season,
+		CurrentSeason: season,
+		User:          user,
+		PickState:     pickState,
 	}
 	
 	// Set content type for HTML response
@@ -1281,6 +1310,17 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		if err != nil {
 			log.Printf("SSE: Error fetching all user picks for complete section render: %v", err)
 			continue
+		}
+		
+		// Apply pick visibility filtering for security
+		if h.visibilityService != nil {
+			filteredUserPicks, err := h.visibilityService.FilterVisibleUserPicks(context.Background(), allUserPicks, season, week, client.UserID)
+			if err != nil {
+				log.Printf("SSE: Warning - failed to filter pick visibility for user %d: %v", client.UserID, err)
+			} else {
+				allUserPicks = filteredUserPicks
+				log.Printf("SSE: Applied pick visibility filtering for user ID %d", client.UserID)
+			}
 		}
 		
 		// Render the complete picks section to maintain proper structure

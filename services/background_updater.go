@@ -118,16 +118,29 @@ func (bu *BackgroundUpdater) updateGames() {
 				
 				gameChanged = true
 				updatedGames = append(updatedGames, games[i])
-				log.Printf("BackgroundUpdater: Game %d changed - %s vs %s (%s -> %s, %d-%d)", 
-					games[i].ID, games[i].Away, games[i].Home, existing.State, games[i].State,
-					games[i].AwayScore, games[i].HomeScore)
+				log.Printf("BackgroundUpdater: GAME UPDATE for Game %d (%s vs %s)", 
+					games[i].ID, games[i].Away, games[i].Home)
+				log.Printf("  BEFORE: State=%s, Score=%d-%d, Quarter=%d", 
+					existing.State, existing.AwayScore, existing.HomeScore, existing.Quarter)
+				log.Printf("  AFTER:  State=%s, Score=%d-%d, Quarter=%d", 
+					games[i].State, games[i].AwayScore, games[i].HomeScore, games[i].Quarter)
+				
+				// Log odds preservation
+				if existing.Odds != nil {
+					log.Printf("  ODDS: Preserved from database - Spread: %.1f, O/U: %.1f", 
+						existing.Odds.Spread, existing.Odds.OU)
+				} else {
+					log.Printf("  ODDS: None available (will attempt enrichment separately)")
+				}
 			}
 		} else {
 			// New game that doesn't exist in database
 			gameChanged = true
 			updatedGames = append(updatedGames, games[i])
-			log.Printf("BackgroundUpdater: New game detected - %d: %s vs %s", 
+			log.Printf("BackgroundUpdater: NEW GAME detected - %d: %s vs %s", 
 				games[i].ID, games[i].Away, games[i].Home)
+			log.Printf("  State=%s, Score=%d-%d, Quarter=%d", 
+				games[i].State, games[i].AwayScore, games[i].HomeScore, games[i].Quarter)
 		}
 		
 		// Add to update list if changed, but preserve existing odds data
@@ -261,22 +274,8 @@ func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, stri
 		}
 	}
 	
-	// Check for games starting soon in current week (within 2 hours)
-	hasGamesStartingSoon := false
-	for _, game := range games {
-		if game.Week == currentWeek && game.State == models.GameStateScheduled {
-			gameTime := game.PacificTime()
-			if now.Add(2 * time.Hour).After(gameTime) && now.Before(gameTime.Add(4 * time.Hour)) {
-				hasGamesStartingSoon = true
-				break
-			}
-		}
-	}
-	if hasGamesStartingSoon {
-		return 30 * time.Second, "games-starting-soon"
-	}
-	
-	// Current week games (30 minutes)
+	// Current week games (30 minutes) - but no need for frequent updates if games are starting soon
+	// since odds don't change during game day
 	hasCurrentWeekGames := false
 	for _, game := range games {
 		if game.Week == currentWeek {
@@ -348,7 +347,51 @@ func (bu *BackgroundUpdater) getUpdateInterval() time.Duration {
 	}
 }
 
+// isAfterOddsCutoff checks if current time is after Wednesday 10 PM Pacific for the given week
+func (bu *BackgroundUpdater) isAfterOddsCutoff(week int) bool {
+	now := time.Now()
+	
+	// Load Pacific timezone
+	pacificLoc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		log.Printf("BackgroundUpdater: Failed to load Pacific timezone: %v", err)
+		// Fallback to UTC-8 (PST)
+		pacificLoc = time.FixedZone("PST", -8*3600)
+	}
+	
+	nowPacific := now.In(pacificLoc)
+	
+	// Calculate the Wednesday cutoff for the specified week
+	year := nowPacific.Year()
+	if nowPacific.Month() < 9 {
+		year-- // If before September, we're in previous year's season
+	}
+	
+	// NFL 2025 season opener is September 5, 2025 (which is actually a Friday)
+	// Week 1 runs Tuesday Sept 3 - Monday Sept 9  
+	seasonOpener := time.Date(year, 9, 5, 0, 0, 0, 0, pacificLoc)
+	
+	// Find what day of week the season opener falls on
+	openerWeekday := seasonOpener.Weekday()
+	
+	// Calculate days back to Tuesday of that week
+	daysBackToTuesday := int((openerWeekday - time.Tuesday + 7) % 7)
+	week1Tuesday := seasonOpener.AddDate(0, 0, -daysBackToTuesday)
+	
+	// Calculate the Tuesday that starts the given week
+	weekStartTuesday := week1Tuesday.AddDate(0, 0, (week-1)*7)
+	
+	// Wednesday is 1 day after Tuesday
+	wednesday := weekStartTuesday.AddDate(0, 0, 1)
+	
+	// Set cutoff time to 10 PM Pacific on Wednesday
+	cutoffTime := time.Date(wednesday.Year(), wednesday.Month(), wednesday.Day(), 22, 0, 0, 0, pacificLoc)
+	
+	return nowPacific.After(cutoffTime)
+}
+
 // enrichOddsForMissingGames checks database for games without odds and enriches them
+// Only updates odds if we haven't passed the Wednesday 10 PM Pacific cutoff for that week
 func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 	// Get all games from database for current season
 	dbGames, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
@@ -357,21 +400,44 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 		return
 	}
 	
-	// Find scheduled games without odds
+	// Find scheduled games without odds, but only if we haven't passed the cutoff
 	var gamesNeedingOdds []models.Game
+	var gamesSkippedByCutoff []models.Game
+	
 	for _, game := range dbGames {
 		if game.Odds == nil && game.State == models.GameStateScheduled {
+			// Check if odds cutoff has passed for this game's week
+			if bu.isAfterOddsCutoff(game.Week) {
+				gamesSkippedByCutoff = append(gamesSkippedByCutoff, *game)
+				continue // Skip this game - odds are locked for this week
+			}
 			gamesNeedingOdds = append(gamesNeedingOdds, *game)
 		}
 	}
 	
-	if len(gamesNeedingOdds) == 0 {
-		return // No games need odds
+	// Log cutoff information
+	if len(gamesSkippedByCutoff) > 0 {
+		log.Printf("BackgroundUpdater: ODDS CUTOFF - Skipped %d games past Wednesday 10 PM Pacific deadline:", len(gamesSkippedByCutoff))
+		for _, game := range gamesSkippedByCutoff {
+			log.Printf("  Week %d: Game %d (%s vs %s) - odds locked", 
+				game.Week, game.ID, game.Away, game.Home)
+		}
 	}
 	
-	log.Printf("BackgroundUpdater: Found %d games in database needing odds", len(gamesNeedingOdds))
+	if len(gamesNeedingOdds) == 0 {
+		if len(gamesSkippedByCutoff) > 0 {
+			log.Printf("BackgroundUpdater: No odds updates needed - all eligible games past cutoff")
+		}
+		return // No games need odds or all are past cutoff
+	}
 	
-	// Enrich with odds for all games that need them
+	log.Printf("BackgroundUpdater: Found %d games eligible for odds enrichment (before cutoff)", len(gamesNeedingOdds))
+	for _, game := range gamesNeedingOdds {
+		log.Printf("  Week %d: Game %d (%s vs %s) - attempting odds fetch", 
+			game.Week, game.ID, game.Away, game.Home)
+	}
+	
+	// Enrich with odds for games that haven't passed cutoff
 	enrichedGames := bu.espnService.EnrichGamesWithOdds(gamesNeedingOdds)
 	
 	// Only update games that actually got odds
@@ -382,19 +448,53 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 			gamesToUpdate = append(gamesToUpdate, &game)
 			oddsAdded++
 			
-			// Log the newly added odds
-			log.Printf("BackgroundUpdater: Odds enrichment SUCCESS for Game %d (%s vs %s) - Spread: %.1f, O/U: %.1f", 
-				game.ID, game.Away, game.Home, game.Odds.Spread, game.Odds.OU)
+			// Log the detailed odds update with before/after values
+			log.Printf("BackgroundUpdater: ODDS UPDATE for Game %d (%s vs %s)", 
+				game.ID, game.Away, game.Home)
+			log.Printf("  BEFORE: Odds = nil (no odds available)")
+			log.Printf("  AFTER:  Odds = Spread: %.1f, O/U: %.1f", 
+				game.Odds.Spread, game.Odds.OU)
+			log.Printf("  STATUS: SUCCESS - Added new odds to database")
+		} else if i < len(gamesNeedingOdds) {
+			// Log failed odds fetch attempts
+			failedGame := gamesNeedingOdds[i]
+			log.Printf("BackgroundUpdater: ODDS FETCH FAILED for Game %d (%s vs %s) - ESPN API returned no odds", 
+				failedGame.ID, failedGame.Away, failedGame.Home)
 		}
 	}
 	
+	// SANITY CHECK: Double-check cutoff times before database update
+	// (Defense in depth - protects against future code changes)
 	if len(gamesToUpdate) > 0 {
-		err = bu.gameRepo.BulkUpsertGames(gamesToUpdate)
-		if err != nil {
-			log.Printf("BackgroundUpdater: Failed to update games with odds: %v", err)
-			return
+		var safeToUpdate []*models.Game
+		var blockedByPolicy []models.Game
+		
+		for _, game := range gamesToUpdate {
+			if bu.isAfterOddsCutoff(game.Week) {
+				// Block this odds update - past cutoff
+				blockedByPolicy = append(blockedByPolicy, *game)
+				log.Printf("BackgroundUpdater: 🚫 SANITY CHECK BLOCK - Game %d (%s vs %s) Week %d odds update blocked (past Wednesday 10 PM Pacific cutoff)", 
+					game.ID, game.Away, game.Home, game.Week)
+			} else {
+				// Safe to update - before cutoff
+				safeToUpdate = append(safeToUpdate, game)
+			}
 		}
-		log.Printf("BackgroundUpdater: Successfully added odds to %d games", oddsAdded)
+		
+		if len(blockedByPolicy) > 0 {
+			log.Printf("BackgroundUpdater: 🚫 SANITY CHECK blocked %d games from odds updates due to cutoff policy", len(blockedByPolicy))
+		}
+		
+		if len(safeToUpdate) > 0 {
+			err = bu.gameRepo.BulkUpsertGames(safeToUpdate)
+			if err != nil {
+				log.Printf("BackgroundUpdater: Failed to update games with odds: %v", err)
+				return
+			}
+			log.Printf("BackgroundUpdater: Successfully added odds to %d games", len(safeToUpdate))
+		} else {
+			log.Printf("BackgroundUpdater: No odds updates processed - all games blocked by sanity check")
+		}
 	}
 }
 

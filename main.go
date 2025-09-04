@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -416,6 +417,10 @@ func main() {
 		"add": func(a, b int) int {
 			return a + b
 		},
+		"toJSON": func(v interface{}) template.JS {
+			data, _ := json.Marshal(v)
+			return template.JS(data)
+		},
 		"sub": func(a, b float64) float64 {
 			return a - b
 		},
@@ -441,6 +446,16 @@ func main() {
 		"slice": func(items ...string) []string {
 			return items
 		},
+		// Add sequence function for range loops
+		"seq": func(start, end int) []int {
+			result := make([]int, end-start+1)
+			for i := range result {
+				result[i] = start + i
+			}
+			return result
+		},
+		// Add math functions
+		"mul": func(a, b float64) float64 { return a * b },
 		"projectFinalScore": func(homeScore, awayScore, quarter int, timeLeft string) float64 {
 			// Parse time left (e.g., "12:34")
 			var minutes, seconds int
@@ -824,6 +839,13 @@ func main() {
 	log.Printf("Setting up static file server for /static/ directory")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
 
+	// Create additional services for analytics
+	userService := services.NewDatabaseUserService(userRepo)
+	teamService := services.NewStaticTeamService()
+	
+	// Create analytics handler
+	analyticsHandler := handlers.NewAnalyticsHandler(templates, gameService, pickService, userService, teamService)
+
 	// Auth routes (public)
 	r.HandleFunc("/login", authHandler.LoginPage).Methods("GET")
 	r.HandleFunc("/login", authHandler.Login).Methods("POST")
@@ -844,6 +866,10 @@ func main() {
 	r.Handle("/events", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.SSEHandler))).Methods("GET")
 	r.Handle("/api/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGamesAPI))).Methods("GET")
 	r.Handle("/api/dashboard", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetDashboardDataAPI))).Methods("GET")
+
+	// Analytics routes
+	r.Handle("/analytics", authMiddleware.OptionalAuth(http.HandlerFunc(analyticsHandler.ShowAnalytics))).Methods("GET")
+	r.Handle("/api/analytics", authMiddleware.OptionalAuth(http.HandlerFunc(analyticsHandler.GetAnalyticsAPI))).Methods("GET")
 
 	// Pick picker routes (require authentication)
 	r.Handle("/pick-picker", authMiddleware.RequireAuth(http.HandlerFunc(gameHandler.ShowPickPicker))).Methods("GET")

@@ -61,9 +61,9 @@ func (s *DatabaseGameService) GetGamesBySeason(season int) ([]models.Game, error
 
 	
 	// Apply demo modifications to first 3 games for live simulation
-	demoGames := s.applyDemoEffects(games)
+	// demoGames := s.applyDemoEffects(games) // DISABLED for analytics
 	
-	return demoGames, nil
+	return games, nil
 }
 
 func (s *DatabaseGameService) GetGamesByWeek(week, season int) ([]*models.Game, error) {

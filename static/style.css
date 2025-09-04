@@ -1365,18 +1365,61 @@ fieldset legend {
 .mt-4 { margin-top: 16px; }
 .p-4 { padding: 16px; }
 
+/* Mobile navigation buttons */
+.mobile-stats-button,
+.mobile-return-button {
+    display: none;
+}
+
+.stats-button,
+.return-button {
+    display: block;
+    width: 100%;
+    max-width: 300px;
+    margin: 20px auto;
+    padding: 12px 24px;
+    background: var(--nav-bg);
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 500;
+    font-size: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    transition: background-color 0.2s;
+}
+
+.stats-button:hover,
+.return-button:hover {
+    background: var(--nav-hover);
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
+    /* Hide nav links on mobile */
+    .nav-links {
+        display: none;
+    }
+    
+    /* Show mobile navigation buttons */
+    .mobile-stats-button,
+    .mobile-return-button {
+        display: block;
+    }
+    
     .dashboard-content {
         flex-direction: column;
         padding: 8px;
     }
     
-    .pick-flex-item, #picks-container {
+    .pick-flex-item, #picks-container,
+    .game-flex-item,
+    .score-flex-item {
         overflow-y: visible;
         max-width: none;
         min-width: unset;
         flex: none;
+        width: 100%;
     }
     
     .week-selector-container {
@@ -1452,7 +1495,9 @@ fieldset legend {
     }
     
     .week-selector-container {
-        flex-direction: column;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: flex-end;
         gap: 8px;
     }
     
