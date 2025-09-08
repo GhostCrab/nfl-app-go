@@ -25,6 +25,7 @@ type Odds struct {
 // GameStatus represents live game status information
 type GameStatus struct {
 	DisplayClock            string `json:"displayClock" bson:"displayClock"`                       // Game clock (e.g., "12:34", "0:00")
+	StatusName              string `json:"statusName,omitempty" bson:"statusName,omitempty"`               // ESPN status name (e.g., "STATUS_HALFTIME")
 	Possession              string `json:"possession,omitempty" bson:"possession,omitempty"`               // Team abbreviation with ball
 	PossessionText          string `json:"possessionText,omitempty" bson:"possessionText,omitempty"`       // Field position (e.g., "NYG 25")
 	DownDistanceText        string `json:"downDistanceText,omitempty" bson:"downDistanceText,omitempty"`   // Full down/distance text
@@ -220,10 +221,11 @@ func (g *Game) HasStatus() bool {
 }
 
 // SetStatus sets the live game status
-func (g *Game) SetStatus(displayClock, possession, possessionText, downDistanceText, shortDownDistanceText string,
+func (g *Game) SetStatus(displayClock, statusName, possession, possessionText, downDistanceText, shortDownDistanceText string,
 	down, yardLine, distance, homeTimeouts, awayTimeouts int, isRedZone bool) {
 	g.Status = &GameStatus{
 		DisplayClock:          displayClock,
+		StatusName:            statusName,
 		Possession:            possession,
 		PossessionText:        possessionText,
 		DownDistanceText:      downDistanceText,
@@ -237,12 +239,26 @@ func (g *Game) SetStatus(displayClock, possession, possessionText, downDistanceT
 	}
 }
 
-// GetGameClock returns the display clock or empty string if not available
+// GetGameClock returns the display clock with special status handling
 func (g *Game) GetGameClock() string {
-	if g.HasStatus() {
-		return g.Status.DisplayClock
+	if !g.HasStatus() {
+		return ""
 	}
-	return ""
+	
+	// Check for special game states first
+	if strings.Contains(strings.ToUpper(g.Status.StatusName), "HALFTIME") {
+		return "Halftime"
+	} else if strings.Contains(strings.ToUpper(g.Status.StatusName), "DELAYED") {
+		return "Delayed"
+	}
+	
+	// Handle regular halftime logic as fallback
+	if g.Status.DisplayClock == "0:00" && g.Quarter == 2 {
+		return "Halftime"
+	}
+	
+	// Return regular clock display
+	return g.Status.DisplayClock
 }
 
 // GetPossessionString returns formatted possession information like "NYG 1st & 10 at NYG 25"
@@ -284,15 +300,22 @@ func (g *Game) GetLiveStatusString() string {
 		quarterStr = "Halftime"
 	}
 	
-	if g.HasStatus() && g.Status.DisplayClock != "" {
-		if g.Status.DisplayClock == "0:00" {
-			if g.Quarter == 2 {
-				quarterStr = "Halftime"
+	if g.HasStatus() {
+		// Check ESPN StatusName for special game states
+		if strings.Contains(strings.ToUpper(g.Status.StatusName), "HALFTIME") {
+			quarterStr = "Halftime"
+		} else if strings.Contains(strings.ToUpper(g.Status.StatusName), "DELAYED") {
+			quarterStr = "Delayed"
+		} else if g.Status.DisplayClock != "" {
+			if g.Status.DisplayClock == "0:00" {
+				if g.Quarter == 2 {
+					quarterStr = "Halftime"
+				} else {
+					quarterStr = fmt.Sprintf("End %s", quarterStr)
+				}
 			} else {
-				quarterStr = fmt.Sprintf("End %s", quarterStr)
+				quarterStr = fmt.Sprintf("%s %s", quarterStr, g.Status.DisplayClock)
 			}
-		} else {
-			quarterStr = fmt.Sprintf("%s %s", quarterStr, g.Status.DisplayClock)
 		}
 	}
 	parts = append(parts, quarterStr)

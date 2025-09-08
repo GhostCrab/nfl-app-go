@@ -252,6 +252,7 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 		situation := competition.Situation
 		game.SetStatus(
 			event.Status.DisplayClock,        // displayClock
+			event.Status.Type.Name,           // statusName (e.g., "STATUS_HALFTIME")
 			situation.Possession,             // possession
 			situation.PossessionText,         // possessionText  
 			situation.DownDistanceText,       // downDistanceText
@@ -264,14 +265,47 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 			situation.IsRedZone,              // isRedZone
 		)
 		
+		// Debug logging for halftime detection
+		if event.ID == "401772510" {
+			log.Printf("ESPN API: Game %s DEBUG - Period=%d, DisplayClock=%s, StatusName=%s, StatusDesc=%s", 
+				event.ID, event.Status.Period, event.Status.DisplayClock, 
+				event.Status.Type.Name, event.Status.Type.Description)
+		}
+
 		// Log possession data for debugging
+		// Convert ESPN team ID to team abbreviation for possession
 		if situation.Possession != "" {
+			teamAbbr := e.getTeamAbbrFromID(situation.Possession)
+			if teamAbbr != "" {
+				// Update the possession field with team abbreviation instead of ID
+				game.Status.Possession = teamAbbr
+			}
+			
 			log.Printf("ESPN API: Game %s live status - %s %s at %s", 
 				event.ID, situation.Possession, situation.ShortDownDistanceText, situation.PossessionText)
 		}
 	}
 	
 	return game
+}
+
+// getTeamAbbrFromID converts ESPN team ID to team abbreviation
+func (e *ESPNService) getTeamAbbrFromID(teamIDStr string) string {
+	// ESPN team ID mapping (reverse of getESPNTeamID)
+	teamIDMap := map[string]string{
+		"1": "ATL", "2": "BUF", "3": "CHI", "4": "CIN", "5": "CLE", "6": "DAL", "7": "DEN", "8": "DET",
+		"9": "GB", "10": "TEN", "11": "IND", "12": "KC", "13": "LV", "14": "LAR", "15": "MIA", "16": "MIN",
+		"17": "NE", "18": "NO", "19": "NYG", "20": "NYJ", "21": "PHI", "22": "ARI", "23": "PIT", "24": "LAC",
+		"25": "SF", "26": "SEA", "27": "TB", "28": "WSH", "29": "CAR", "30": "JAX", "33": "BAL", "34": "HOU",
+	}
+	
+	if abbr, exists := teamIDMap[teamIDStr]; exists {
+		return abbr
+	}
+	
+	// Fallback: return empty string if team not found
+	log.Printf("Warning: Unknown ESPN team ID '%s'", teamIDStr)
+	return ""
 }
 
 // convertGameState converts ESPN status to our GameState

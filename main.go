@@ -352,6 +352,54 @@ func main() {
 				}
 				return abbr // Fallback to abbreviation if not found
 			},
+			"calculateSpreadResult": func(homeScore, awayScore int, spread float64) string {
+				scoreDiff := float64(homeScore - awayScore)
+				spreadDiff := scoreDiff + spread
+				
+				if spreadDiff > 0 {
+					return "home-covered"
+				} else if spreadDiff < 0 {
+					return "away-covered"
+				} else {
+					return "push"
+				}
+			},
+			"sortPicksByGameTime": func(picks []models.Pick, games []models.Game) []models.Pick {
+				if len(picks) == 0 || len(games) == 0 {
+					return picks
+				}
+				
+				// Create a map of gameID to game for quick lookup
+				gameMap := make(map[int]models.Game)
+				for _, game := range games {
+					gameMap[game.ID] = game
+				}
+				
+				// Create a copy to avoid modifying original slice
+				sortedPicks := make([]models.Pick, len(picks))
+				copy(sortedPicks, picks)
+				
+				// Sort picks by their game's start time
+				sort.Slice(sortedPicks, func(i, j int) bool {
+					gameI, existsI := gameMap[sortedPicks[i].GameID]
+					gameJ, existsJ := gameMap[sortedPicks[j].GameID]
+					
+					// If either game doesn't exist, maintain original order
+					if !existsI || !existsJ {
+						return i < j
+					}
+					
+					// Primary sort: by game date/time
+					if gameI.Date.Unix() != gameJ.Date.Unix() {
+						return gameI.Date.Before(gameJ.Date)
+					}
+					
+					// Secondary sort: alphabetically by home team name for games at same time
+					return gameI.Home < gameJ.Home
+				})
+				
+				return sortedPicks
+			},
 		}
 
 		templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
@@ -680,6 +728,54 @@ func main() {
 			}
 			return abbr // Fallback to abbreviation if not found
 		},
+		"calculateSpreadResult": func(homeScore, awayScore int, spread float64) string {
+			scoreDiff := float64(homeScore - awayScore)
+			spreadDiff := scoreDiff + spread
+			
+			if spreadDiff > 0 {
+				return "home-covered"
+			} else if spreadDiff < 0 {
+				return "away-covered"
+			} else {
+				return "push"
+			}
+		},
+		"sortPicksByGameTime": func(picks []models.Pick, games []models.Game) []models.Pick {
+			if len(picks) == 0 || len(games) == 0 {
+				return picks
+			}
+			
+			// Create a map of gameID to game for quick lookup
+			gameMap := make(map[int]models.Game)
+			for _, game := range games {
+				gameMap[game.ID] = game
+			}
+			
+			// Create a copy to avoid modifying original slice
+			sortedPicks := make([]models.Pick, len(picks))
+			copy(sortedPicks, picks)
+			
+			// Sort picks by their game's start time
+			sort.Slice(sortedPicks, func(i, j int) bool {
+				gameI, existsI := gameMap[sortedPicks[i].GameID]
+				gameJ, existsJ := gameMap[sortedPicks[j].GameID]
+				
+				// If either game doesn't exist, maintain original order
+				if !existsI || !existsJ {
+					return i < j
+				}
+				
+				// Primary sort: by game date/time
+				if gameI.Date.Unix() != gameJ.Date.Unix() {
+					return gameI.Date.Before(gameJ.Date)
+				}
+				
+				// Secondary sort: alphabetically by home team name for games at same time
+				return gameI.Home < gameJ.Home
+			})
+			
+			return sortedPicks
+		},
 		"sortUsersByScore": func(userPicks []*models.UserPicks) []*models.UserPicks {
 			if len(userPicks) == 0 {
 				return userPicks
@@ -790,6 +886,9 @@ func main() {
 	gameHandler.SetPickService(pickService)
 	gameHandler.SetAuthService(authService)
 	gameHandler.SetVisibilityService(visibilityService)
+	
+	// Set up SSE broadcasting for pick service
+	pickService.SetBroadcaster(gameHandler)
 
 	// Start background ESPN API updater
 	backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, currentSeason)

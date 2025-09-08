@@ -2,11 +2,18 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"nfl-app-go/database"
 	"nfl-app-go/models"
 	"time"
 )
+
+// WeekCategory represents a specific parlay category within a week
+type WeekCategory struct {
+	Week     int
+	Category models.ParlayCategory
+}
 
 // BackgroundUpdater handles automatic ESPN API polling and game updates
 type BackgroundUpdater struct {
@@ -18,6 +25,7 @@ type BackgroundUpdater struct {
 	stopChan     chan bool
 	running      bool
 	lastUpdateType string // Track what type of update we last did
+	lastOddsUpdate time.Time // Track when we last fetched odds
 }
 
 // NewBackgroundUpdater creates a new background updater service
@@ -100,95 +108,88 @@ func (bu *BackgroundUpdater) updateGames() {
 		existingGameMap[game.ID] = *game
 	}
 	
-	// Track changes for logging and parlay scoring
-	var updatedGames []models.Game
-	var gamesToUpdate []*models.Game // Only games that actually changed
-	var completedWeeks []int // Weeks that became fully completed
+	// Always write all games to database - let MongoDB change streams detect actual changes
+	var gamesToUpdate []*models.Game
 	
-	// Check each game for changes and collect only those that need updating
+	// Track state changes and preserve existing odds data
+	var stateChanges []string
 	for i := range games {
-		gameChanged := false
-		
-		// Check if this game's data changed (excluding odds, since scoreboard API doesn't include odds)
 		if existing, exists := existingGameMap[games[i].ID]; exists {
-			if existing.State != games[i].State || 
-			   existing.AwayScore != games[i].AwayScore || 
-			   existing.HomeScore != games[i].HomeScore ||
-			   existing.Quarter != games[i].Quarter {
-				
-				gameChanged = true
-				updatedGames = append(updatedGames, games[i])
-				log.Printf("BackgroundUpdater: GAME UPDATE for Game %d (%s vs %s)", 
-					games[i].ID, games[i].Away, games[i].Home)
-				log.Printf("  BEFORE: State=%s, Score=%d-%d, Quarter=%d", 
-					existing.State, existing.AwayScore, existing.HomeScore, existing.Quarter)
-				log.Printf("  AFTER:  State=%s, Score=%d-%d, Quarter=%d", 
-					games[i].State, games[i].AwayScore, games[i].HomeScore, games[i].Quarter)
-				
-				// Log odds preservation
-				if existing.Odds != nil {
-					log.Printf("  ODDS: Preserved from database - Spread: %.1f, O/U: %.1f", 
-						existing.Odds.Spread, existing.Odds.OU)
-				} else {
-					log.Printf("  ODDS: None available (will attempt enrichment separately)")
-				}
-			}
-		} else {
-			// New game that doesn't exist in database
-			gameChanged = true
-			updatedGames = append(updatedGames, games[i])
-			log.Printf("BackgroundUpdater: NEW GAME detected - %d: %s vs %s", 
-				games[i].ID, games[i].Away, games[i].Home)
-			log.Printf("  State=%s, Score=%d-%d, Quarter=%d", 
-				games[i].State, games[i].AwayScore, games[i].HomeScore, games[i].Quarter)
-		}
-		
-		// Add to update list if changed, but preserve existing odds data
-		if gameChanged {
-			// Preserve odds data from database since scoreboard API doesn't include it
-			if existing, exists := existingGameMap[games[i].ID]; exists && existing.Odds != nil {
+			// Preserve odds data
+			if existing.Odds != nil {
 				games[i].Odds = existing.Odds
 			}
-			gamesToUpdate = append(gamesToUpdate, &games[i])
-		}
-	}
-	
-	// Only update games that actually changed
-	if len(gamesToUpdate) > 0 {
-		log.Printf("BackgroundUpdater: Updating %d changed games in database", len(gamesToUpdate))
-		err = bu.gameRepo.BulkUpsertGames(gamesToUpdate)
-		if err != nil {
-			log.Printf("BackgroundUpdater: Failed to update games in database: %v", err)
-			return
-		}
-	} else {
-		log.Printf("BackgroundUpdater: No games changed, skipping database update")
-	}
-	
-	// Check for newly completed weeks and trigger parlay scoring
-	if len(updatedGames) > 0 {
-		completedWeeks = bu.checkForCompletedWeeks(games)
-		
-		// Process parlay scoring for completed weeks
-		for _, week := range completedWeeks {
-			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering parlay scoring", bu.currentSeason, week)
-			if err := bu.pickService.ProcessWeekParlayScoring(ctx, bu.currentSeason, week); err != nil {
-				log.Printf("BackgroundUpdater: Failed to process parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
+			
+			// Track state transitions for debugging
+			if existing.State != games[i].State {
+				stateChanges = append(stateChanges, fmt.Sprintf("Game %d (%s vs %s): %s → %s", 
+					games[i].ID, games[i].Away, games[i].Home, existing.State, games[i].State))
 			}
+		}
+		
+		// Debug logging for live games to check status display
+		if games[i].State == models.GameStateInPlay && games[i].HasStatus() {
+			log.Printf("BackgroundUpdater: Live Game %d (%s vs %s) - Quarter=%d, State=%s", 
+				games[i].ID, games[i].Away, games[i].Home, games[i].Quarter, games[i].State)
+			log.Printf("  ESPN Status: Clock='%s', StatusName='%s', Possession=%s", 
+				games[i].Status.DisplayClock, games[i].Status.StatusName, games[i].Status.Possession)
+			log.Printf("  Display Logic: GetGameClock()='%s', GetLiveStatusString()='%s'", 
+				games[i].GetGameClock(), games[i].GetLiveStatusString())
+		}
+		
+		gamesToUpdate = append(gamesToUpdate, &games[i])
+	}
+	
+	// Log state changes to help debug game transitions
+	if len(stateChanges) > 0 {
+		log.Printf("BackgroundUpdater: Game state changes detected:")
+		for _, change := range stateChanges {
+			log.Printf("  %s", change)
+		}
+	}
+	
+	// Write all games to database - MongoDB change stream will detect actual document changes
+	log.Printf("BackgroundUpdater: Writing %d games to database", len(gamesToUpdate))
+	err = bu.gameRepo.BulkUpsertGames(gamesToUpdate)
+	if err != nil {
+		log.Printf("BackgroundUpdater: Failed to update games in database: %v", err)
+		return
+	}
+	
+	// Check for completed parlay categories and trigger immediate scoring
+	completedCategories := bu.checkForCompletedParlayCategories(games)
+	
+	// Process parlay scoring for completed categories (immediate scoring)
+	for weekCategory := range completedCategories {
+		log.Printf("BackgroundUpdater: Parlay category completed for Season %d Week %d Category %s, triggering immediate scoring", 
+			bu.currentSeason, weekCategory.Week, weekCategory.Category)
+		if err := bu.pickService.ProcessParlayCategory(ctx, bu.currentSeason, weekCategory.Week, weekCategory.Category); err != nil {
+			log.Printf("BackgroundUpdater: Failed to process parlay scoring for Season %d Week %d Category %s: %v", 
+				bu.currentSeason, weekCategory.Week, weekCategory.Category, err)
+		}
+	}
+	
+	// Also check for completed weeks for full week processing (legacy compatibility)
+	completedWeeks := bu.checkForCompletedWeeks(games)
+	
+	// Process parlay scoring for completed weeks (full week processing)
+	for _, week := range completedWeeks {
+		log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering full week parlay scoring", bu.currentSeason, week)
+		if err := bu.pickService.ProcessWeekParlayScoring(ctx, bu.currentSeason, week); err != nil {
+			log.Printf("BackgroundUpdater: Failed to process parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
 		}
 	}
 	
 	// Separate step: Enrich games with odds data (independent of scoreboard updates)
-	bu.enrichOddsForMissingGames()
+	// Only run odds enrichment every 30 minutes to avoid excessive API calls
+	if time.Since(bu.lastOddsUpdate) >= 30*time.Minute {
+		bu.enrichOddsForMissingGames()
+		bu.lastOddsUpdate = time.Now()
+	}
 	
 	duration := time.Since(startTime)
-	if len(updatedGames) > 0 || len(completedWeeks) > 0 {
-		log.Printf("BackgroundUpdater: Update completed in %v - %d games processed, %d updated, %d weeks completed", 
-			duration, len(games), len(updatedGames), len(completedWeeks))
-	} else {
-		log.Printf("BackgroundUpdater: Update completed in %v - %d games processed, no changes detected", 
-			duration, len(games))
-	}
+	log.Printf("BackgroundUpdater: Update completed in %v - %d games processed, %d weeks completed", 
+		duration, len(games), len(completedWeeks))
 }
 
 // checkForCompletedWeeks returns weeks that are now fully completed
@@ -220,6 +221,42 @@ func (bu *BackgroundUpdater) checkForCompletedWeeks(games []models.Game) []int {
 	}
 	
 	return completedWeeks
+}
+
+// checkForCompletedParlayCategories returns parlay categories that are now fully completed
+func (bu *BackgroundUpdater) checkForCompletedParlayCategories(games []models.Game) map[WeekCategory]bool {
+	// Group games by week and category
+	weekCategoryGames := make(map[WeekCategory][]models.Game)
+	
+	for _, game := range games {
+		// Determine parlay category based on game date
+		category := models.CategorizeGameByDate(game.Date, bu.currentSeason, game.Week)
+		weekCategory := WeekCategory{Week: game.Week, Category: category}
+		weekCategoryGames[weekCategory] = append(weekCategoryGames[weekCategory], game)
+	}
+	
+	completedCategories := make(map[WeekCategory]bool)
+	
+	for weekCategory, gamesInCategory := range weekCategoryGames {
+		if len(gamesInCategory) == 0 {
+			continue
+		}
+		
+		// Check if all games in this category are completed
+		allCompleted := true
+		for _, game := range gamesInCategory {
+			if !game.IsCompleted() {
+				allCompleted = false
+				break
+			}
+		}
+		
+		if allCompleted {
+			completedCategories[weekCategory] = true
+		}
+	}
+	
+	return completedCategories
 }
 
 // getUpdateInterval returns the appropriate update interval based on the time of year
@@ -260,12 +297,9 @@ func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, stri
 	games, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
 	if err != nil {
 		log.Printf("BackgroundUpdater: Error fetching games for intelligent scheduling: %v", err)
-		// Fallback to 30-minute intervals if we can't determine game states
-		return 30 * time.Minute, "fallback"
+		// Fallback to 2-minute intervals if we can't determine game states
+		return 2 * time.Minute, "fallback"
 	}
-	
-	now := time.Now()
-	currentWeek := bu.getCurrentNFLWeek(now)
 	
 	// Check for games in progress (highest priority - 5 seconds)
 	for _, game := range games {
@@ -274,34 +308,15 @@ func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, stri
 		}
 	}
 	
-	// Current week games (30 minutes) - but no need for frequent updates if games are starting soon
-	// since odds don't change during game day
-	hasCurrentWeekGames := false
-	for _, game := range games {
-		if game.Week == currentWeek {
-			hasCurrentWeekGames = true
-			break
-		}
-	}
-	if hasCurrentWeekGames {
-		return 30 * time.Minute, "current-week"
+	// During NFL season (September through February): poll every 2 minutes
+	now := time.Now()
+	month := now.Month()
+	if month >= 9 || month <= 2 {
+		return 2 * time.Minute, "nfl-season"
 	}
 	
-	// Next week games (6 hours)
-	hasNextWeekGames := false
-	nextWeek := currentWeek + 1
-	for _, game := range games {
-		if game.Week == nextWeek {
-			hasNextWeekGames = true
-			break
-		}
-	}
-	if hasNextWeekGames {
-		return 6 * time.Hour, "next-week"
-	}
-	
-	// Future weeks (24 hours)
-	return 24 * time.Hour, "future-weeks"
+	// Off-season: poll every 30 minutes
+	return 30 * time.Minute, "off-season"
 }
 
 // getCurrentNFLWeek determines current NFL week based on date
@@ -503,3 +518,4 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 func (bu *BackgroundUpdater) IsRunning() bool {
 	return bu.running
 }
+

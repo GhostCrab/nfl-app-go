@@ -213,6 +213,7 @@ func (s *DatabaseGameService) addLiveStatusData(game *models.Game) {
 	// Set the status data
 	game.SetStatus(
 		displayClock,
+		"", // statusName - not available in demo data
 		possessionTeam,
 		possessionText,
 		downDistanceText,

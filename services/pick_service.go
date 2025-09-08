@@ -14,11 +14,17 @@ import (
 )
 
 // PickService handles business logic for picks
+// SSEBroadcaster interface for sending SSE updates
+type SSEBroadcaster interface {
+	BroadcastStructuredUpdate(eventType, data string)
+}
+
 type PickService struct {
-	pickRepo   *database.MongoPickRepository
-	gameRepo   *database.MongoGameRepository
-	userRepo   *database.MongoUserRepository
-	parlayRepo *database.MongoParlayRepository
+	pickRepo    *database.MongoPickRepository
+	gameRepo    *database.MongoGameRepository
+	userRepo    *database.MongoUserRepository
+	parlayRepo  *database.MongoParlayRepository
+	broadcaster SSEBroadcaster
 }
 
 // NewPickService creates a new pick service
@@ -29,6 +35,11 @@ func NewPickService(pickRepo *database.MongoPickRepository, gameRepo *database.M
 		userRepo:   userRepo,
 		parlayRepo: parlayRepo,
 	}
+}
+
+// SetBroadcaster sets the SSE broadcaster for real-time updates
+func (s *PickService) SetBroadcaster(broadcaster SSEBroadcaster) {
+	s.broadcaster = broadcaster
 }
 
 // CreatePick creates a new pick with validation
@@ -650,6 +661,113 @@ func (s *PickService) ProcessWeekParlayScoring(ctx context.Context, season, week
 	return nil
 }
 
+// ProcessParlayCategory calculates and saves parlay scores for a specific category when completed
+func (s *PickService) ProcessParlayCategory(ctx context.Context, season, week int, category models.ParlayCategory) error {
+	log.Printf("Processing parlay scoring for Season %d, Week %d, Category %s", season, week, category)
+	
+	// Get all users
+	users, err := s.userRepo.GetAllUsers()
+	if err != nil {
+		return fmt.Errorf("failed to get users: %w", err)
+	}
+	
+	// Process each user
+	for _, user := range users {
+		// Calculate scores for this specific category
+		categoryScore, err := s.CalculateUserParlayCategoryScore(ctx, user.ID, season, week, category)
+		if err != nil {
+			log.Printf("Warning: failed to calculate parlay category score for user %d: %v", user.ID, err)
+			continue
+		}
+		
+		// Update user's parlay record for this category
+		if err := s.UpdateUserParlayCategoryRecord(ctx, user.ID, season, week, category, categoryScore); err != nil {
+			log.Printf("Warning: failed to save parlay category score for user %d: %v", user.ID, err)
+			continue
+		}
+		
+		log.Printf("User %d earned %d points in %s category for Week %d", user.ID, categoryScore, category, week)
+	}
+	
+	// Note: Club score updates will be visible on next page load/refresh
+	// Real-time score updates would need OOB template content to work properly
+	
+	log.Printf("Completed parlay category scoring for Season %d, Week %d, Category %s", season, week, category)
+	return nil
+}
+
+// CalculateUserParlayCategoryScore calculates points for a specific parlay category
+func (s *PickService) CalculateUserParlayCategoryScore(ctx context.Context, userID, season, week int, category models.ParlayCategory) (int, error) {
+	// Get all user's picks for the week
+	userPicks, err := s.GetUserPicksForWeek(ctx, userID, season, week)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get user picks: %w", err)
+	}
+	
+	// Get game information for categorization
+	gameInfoMap, err := s.getGameInfoForWeek(ctx, season, week)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get game info: %w", err)
+	}
+	
+	// Categorize picks by parlay type
+	categories := models.CategorizePicksByGame(userPicks.Picks, gameInfoMap)
+	
+	// Get picks for the specific category
+	categoryPicks, exists := categories[category]
+	if !exists || len(categoryPicks) == 0 {
+		return 0, nil // No picks in this category
+	}
+	
+	// Calculate points for this category
+	return models.CalculateParlayPoints(categoryPicks), nil
+}
+
+// UpdateUserParlayCategoryRecord updates a specific category score in the user's parlay record
+func (s *PickService) UpdateUserParlayCategoryRecord(ctx context.Context, userID, season, week int, category models.ParlayCategory, points int) error {
+	// Get existing parlay score or create new one
+	existingScore, err := s.parlayRepo.GetUserParlayScore(ctx, userID, season, week)
+	if err != nil && err.Error() != "parlay score not found" {
+		return fmt.Errorf("failed to get existing parlay score: %w", err)
+	}
+	
+	var parlayScore *models.ParlayScore
+	if existingScore != nil {
+		parlayScore = existingScore
+	} else {
+		// Create new parlay score entry
+		parlayScore = &models.ParlayScore{
+			UserID:  userID,
+			Season:  season,
+			Week:    week,
+			CreatedAt: time.Now(),
+		}
+	}
+	
+	// Update the specific category
+	switch category {
+	case models.ParlayRegular:
+		parlayScore.RegularPoints = points
+	case models.ParlayBonusThursday:
+		parlayScore.BonusThursdayPoints = points
+	case models.ParlayBonusFriday:
+		parlayScore.BonusFridayPoints = points
+	}
+	
+	// Recalculate total and update timestamp
+	parlayScore.CalculateTotal()
+	parlayScore.UpdatedAt = time.Now()
+	
+	// Save to database
+	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
+		return fmt.Errorf("failed to save parlay score: %w", err)
+	}
+	
+	// Don't broadcast here - let the caller broadcast once after all users are processed
+	
+	return nil
+}
+
 // ReplaceUserPicksForWeek clears existing picks and creates new ones for a user/week
 func (s *PickService) ReplaceUserPicksForWeek(ctx context.Context, userID, season, week int, picks []*models.Pick) error {
 	// First, delete all existing picks for this user/season/week
@@ -665,6 +783,59 @@ func (s *PickService) ReplaceUserPicksForWeek(ctx context.Context, userID, seaso
 	}
 	
 	log.Printf("Replaced picks for user %d, season %d, week %d: %d picks", userID, season, week, len(picks))
+	return nil
+}
+
+// UpdateUserPicksForScheduledGames updates picks only for scheduled games, preserving existing picks for completed games
+func (s *PickService) UpdateUserPicksForScheduledGames(ctx context.Context, userID, season, week int, newPicks []*models.Pick, gameMap map[int]models.Game) error {
+	// Get existing picks for this user/season/week
+	existingPicks, err := s.pickRepo.FindByUserAndWeek(ctx, userID, season, week)
+	if err != nil {
+		return fmt.Errorf("failed to get existing picks: %w", err)
+	}
+	
+	// Separate existing picks by game state
+	picksToKeep := make([]*models.Pick, 0)
+	gameIDsToUpdate := make(map[int]bool)
+	
+	for _, pick := range existingPicks {
+		if game, exists := gameMap[pick.GameID]; exists {
+			if game.State != models.GameStateScheduled {
+				// Keep existing picks for completed/in-progress games
+				picksToKeep = append(picksToKeep, pick)
+				log.Printf("Preserving existing pick for completed/in-progress game %d (state: %s)", pick.GameID, game.State)
+			} else {
+				// Mark scheduled games for update
+				gameIDsToUpdate[pick.GameID] = true
+			}
+		}
+	}
+	
+	// Mark new picks' games for update
+	for _, pick := range newPicks {
+		gameIDsToUpdate[pick.GameID] = true
+	}
+	
+	// Delete only picks for scheduled games that are being updated
+	for gameID := range gameIDsToUpdate {
+		if err := s.pickRepo.DeleteByUserGameAndWeek(ctx, userID, gameID, season, week); err != nil {
+			return fmt.Errorf("failed to delete picks for game %d: %w", gameID, err)
+		}
+	}
+	
+	// Create new picks for scheduled games
+	for _, pick := range newPicks {
+		if err := s.pickRepo.Create(ctx, pick); err != nil {
+			return fmt.Errorf("failed to create pick: %w", err)
+		}
+	}
+	
+	log.Printf("Updated picks for user %d, season %d, week %d: kept %d existing picks, created %d new picks", 
+		userID, season, week, len(picksToKeep), len(newPicks))
+	
+	// Trigger scoring for any categories that might now be complete due to pick updates
+	s.checkAndTriggerScoring(ctx, season, week, gameMap)
+	
 	return nil
 }
 
@@ -735,3 +906,43 @@ func convertPickPointers(picks []*models.Pick) []models.Pick {
 	}
 	return result
 }
+
+// checkAndTriggerScoring checks if any parlay categories are now complete and triggers scoring
+// Only triggers scoring for categories with completed games - not for pending games
+func (s *PickService) checkAndTriggerScoring(ctx context.Context, season, week int, gameMap map[int]models.Game) {
+	// Group games by category for this week
+	weekCategoryGames := make(map[models.ParlayCategory][]models.Game)
+	
+	for _, game := range gameMap {
+		if game.Week == week {
+			category := models.CategorizeGameByDate(game.Date, season, game.Week)
+			weekCategoryGames[category] = append(weekCategoryGames[category], game)
+		}
+	}
+	
+	// Check each category for completion
+	for category, games := range weekCategoryGames {
+		// Skip categories that have any pending games - no need to trigger scoring
+		hasCompletedGames := false
+		allCompleted := true
+		for _, game := range games {
+			if game.IsCompleted() {
+				hasCompletedGames = true
+			} else {
+				allCompleted = false
+			}
+		}
+		
+		// Only trigger scoring if:
+		// 1. Category has some completed games
+		// 2. ALL games in the category are completed (no pending games)
+		// 3. There are games in the category
+		if hasCompletedGames && allCompleted && len(games) > 0 {
+			log.Printf("PickService: Parlay category %s completed for Week %d, triggering scoring", category, week)
+			if err := s.ProcessParlayCategory(ctx, season, week, category); err != nil {
+				log.Printf("PickService: Failed to process parlay category %s for Week %d: %v", category, week, err)
+			}
+		}
+	}
+}
+

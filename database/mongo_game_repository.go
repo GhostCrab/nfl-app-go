@@ -91,6 +91,16 @@ func (r *MongoGameRepository) GetGamesBySeason(season int) ([]*models.Game, erro
 		return nil, fmt.Errorf("failed to decode games: %w", err)
 	}
 
+	// Debug logging to check what StatusName data is being loaded from DB
+	for _, game := range games {
+		if game.State == models.GameStateInPlay && game.HasStatus() {
+			log.Printf("MongoDB Load: Game %d (%s vs %s) Status: Clock='%s', StatusName='%s'", 
+				game.ID, game.Away, game.Home, game.Status.DisplayClock, game.Status.StatusName)
+			log.Printf("  GetGameClock()='%s', GetLiveStatusString()='%s'", 
+				game.GetGameClock(), game.GetLiveStatusString())
+		}
+	}
+
 	return games, nil
 }
 
@@ -149,17 +159,34 @@ func (r *MongoGameRepository) BulkUpsertGames(games []*models.Game) error {
 	log.Printf("Upserting %d games in MongoDB", len(games))
 	log.Printf("Collection name: %s, Database: %s", r.collection.Name(), r.collection.Database().Name())
 
-	// MongoDB bulk write operations
+	// MongoDB bulk write operations using $set to only update changed fields
 	var operations []mongo.WriteModel
 	
 	for _, game := range games {
 		// Use both ID and season for unique identification across seasons  
 		filter := bson.M{"id": game.ID, "season": game.Season}
-		replacement := game
 		
-		operation := mongo.NewReplaceOneModel().
+		// Use $set to only update fields (avoids unnecessary change events)
+		update := bson.M{
+			"$set": bson.M{
+				"id":        game.ID,
+				"season":    game.Season,
+				"date":      game.Date,
+				"week":      game.Week,
+				"away":      game.Away,
+				"home":      game.Home,
+				"state":     game.State,
+				"awayScore": game.AwayScore,
+				"homeScore": game.HomeScore,
+				"quarter":   game.Quarter,
+				"odds":      game.Odds,
+				"status":    game.Status,
+			},
+		}
+		
+		operation := mongo.NewUpdateOneModel().
 			SetFilter(filter).
-			SetReplacement(replacement).
+			SetUpdate(update).
 			SetUpsert(true)
 		
 		operations = append(operations, operation)

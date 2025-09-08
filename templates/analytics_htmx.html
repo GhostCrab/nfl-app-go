@@ -263,6 +263,73 @@
                 themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
             });
             
+            // Keyboard navigation for week/season traversal with animations
+            document.addEventListener('keydown', function(event) {
+                if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                    return; // Don't interfere with form inputs
+                }
+                
+                const weekSelect = document.getElementById('week-select');
+                const seasonSelect = document.getElementById('season-select');
+                
+                if (!weekSelect || !seasonSelect) return;
+                
+                const currentWeek = weekSelect.value ? parseInt(weekSelect.value) : 0;
+                const currentSeason = parseInt(seasonSelect.value);
+                let newWeek = currentWeek;
+                let newSeason = currentSeason;
+                
+                if (event.key === 'ArrowLeft') {
+                    // Left arrow: go to previous week
+                    if (currentWeek > 1) {
+                        newWeek = currentWeek - 1;
+                    } else if (currentWeek === 1) {
+                        // Go to "All Weeks" view of current season
+                        newWeek = 0;
+                    } else if (currentSeason > 2023) {
+                        // Wrap to previous season, week 18
+                        newWeek = 18;
+                        newSeason = currentSeason - 1;
+                    }
+                } else if (event.key === 'ArrowRight') {
+                    // Right arrow: go to next week
+                    if (currentWeek === 0) {
+                        // From "All Weeks" to Week 1
+                        newWeek = 1;
+                    } else if (currentWeek < 18) {
+                        newWeek = currentWeek + 1;
+                    } else if (currentSeason < 2025) {
+                        // Wrap to next season, "All Weeks"
+                        newWeek = 0;
+                        newSeason = currentSeason + 1;
+                    }
+                }
+                
+                if (newWeek !== currentWeek || newSeason !== currentSeason) {
+                    // Determine animation direction
+                    const goingForward = event.key === 'ArrowRight';
+                    const animationClass = goingForward ? 'slide-left' : 'slide-right';
+                    
+                    // Update the form values
+                    weekSelect.value = newWeek === 0 ? '' : newWeek;
+                    seasonSelect.value = newSeason;
+                    
+                    // Add animation class
+                    const analyticsContainer = document.querySelector('.analytics-container');
+                    if (analyticsContainer) {
+                        analyticsContainer.classList.add(animationClass);
+                        // Remove class after animation completes
+                        setTimeout(() => {
+                            analyticsContainer.classList.remove(animationClass);
+                        }, 300);
+                    }
+                    
+                    // Trigger the HTMX change event on the season select
+                    htmx.trigger(seasonSelect, 'change');
+                    event.preventDefault();
+                }
+            });
+            
             // Mobile swipe navigation for week/season traversal
             let touchStartX = 0;
             let touchStartY = 0;
@@ -324,9 +391,22 @@
                     }
                     
                     if (newWeek !== currentWeek || newSeason !== currentSeason) {
+                        // Determine animation direction (reverse of swipe direction for intuitive feel)
+                        const animationClass = deltaX > 0 ? 'slide-right' : 'slide-left';
+                        
                         // Update the form values
                         weekSelect.value = newWeek === 0 ? '' : newWeek;
                         seasonSelect.value = newSeason;
+                        
+                        // Add animation class
+                        const analyticsContainer = document.querySelector('.analytics-container');
+                        if (analyticsContainer) {
+                            analyticsContainer.classList.add(animationClass);
+                            // Remove class after animation completes
+                            setTimeout(() => {
+                                analyticsContainer.classList.remove(animationClass);
+                            }, 300);
+                        }
                         
                         // Trigger the HTMX change event on the season select (which includes week)
                         htmx.trigger(seasonSelect, 'change');

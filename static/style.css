@@ -297,7 +297,7 @@ body {
     box-shadow: 0 2px 4px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.12);
 }
 
-.game-card.in_play {
+.game-card.in-progress {
     background: rgba(231, 76, 60, 0.1);
 }
 
@@ -522,25 +522,54 @@ body {
     line-height: 1.2;
 }
 
-/* Keep game-time items horizontal by default */
-.game-row.completed .game-time {
+/* Grid layout for completed and in-progress games to align results vertically */
+.game-row.completed .game-time.completed-game-grid,
+.game-row.in-progress .game-time.completed-game-grid {
+    display: grid;
+    grid-template-columns: 65% 35%;
+    gap: 4px;
+    font-size: 0.85em;
+    align-items: center;
+}
+
+.game-row.completed .spread-result-column,
+.game-row.in-progress .spread-result-column {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.game-row.completed .ou-result-column,
+.game-row.in-progress .ou-result-column {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+/* Fallback for non-grid completed games */
+.game-row.completed .game-time:not(.completed-game-grid) {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     font-size: 0.85em;
 }
 
-.game-row.completed .game-time > * {
+.game-row.completed .game-time:not(.completed-game-grid) > * {
     margin-right: 8px;
 }
 
-.game-row.completed .game-time > *:last-child {
+.game-row.completed .game-time:not(.completed-game-grid) > *:last-child {
     margin-right: 0;
 }
 
-/* Single content layout for scheduled and in-progress games */
-.game-row.scheduled .game-time,
-.game-row.in_play .game-time {
+/* Single content layout for scheduled games only */
+.game-row.scheduled .game-time {
+    display: block;
+    text-align: left;
+}
+
+/* In-progress games with completed-game-grid use grid layout, others use block */
+.game-row.in-progress .game-time:not(.completed-game-grid) {
     display: block;
     text-align: left;
 }
@@ -619,6 +648,17 @@ body {
     .game-row.completed .game-time > * {
         margin-right: 4px;
     }
+    
+    /* Mobile covering picks - show icons and values only */
+    .covering-team-text,
+    .covering-ou-text {
+        display: none;
+    }
+    
+    .covering-team-mobile,
+    .covering-ou-mobile {
+        display: inline;
+    }
 }
 
 /* For very narrow screens */
@@ -692,8 +732,8 @@ body {
 }
 
 /* Unified in-progress styling for games and picks */
-.game-row.in_play,
-.pick-item.pick-class.in-progress {
+.game-row.in-progress,
+.pick-item.in-progress {
     background: 
         linear-gradient(
             135deg,
@@ -709,7 +749,8 @@ body {
     border-left-color: rgba(120, 140, 190, 0.8);
 }
 
-[data-theme="light"] .game-row.in_play {
+[data-theme="light"] .game-row.in-progress,
+[data-theme="light"] .pick-item.in-progress {
     background: 
         linear-gradient(
             135deg,
@@ -790,6 +831,38 @@ body {
     font-weight: bold;
     color: var(--card-text);
     font-size: 1em;
+}
+
+/* Covering picks styling for completed games */
+.covering-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 8px;
+}
+
+.covering-icon {
+    width: 24px; /* Increased to match proportional size with larger text */
+    height: 24px;
+    object-fit: contain;
+    flex-shrink: 0;
+    -webkit-filter: drop-shadow(1px 0 0 white) drop-shadow(-1px 0 0 white) drop-shadow(0 1px 0 white) drop-shadow(0 -1px 0 white) drop-shadow(2px 2px 1px rgba(0, 0, 0, 0.8)) !important;
+    filter: drop-shadow(1px 0 0 white) drop-shadow(-1px 0 0 white) drop-shadow(0 1px 0 white) drop-shadow(0 -1px 0 white) drop-shadow(2px 2px 1px rgba(0, 0, 0, 0.8)) !important;
+}
+
+.covering-team-text,
+.covering-ou-text {
+    font-weight: bold;
+    color: var(--card-text);
+    font-size: 1.0em; /* Further reduced to prevent wrapping */
+}
+
+.covering-team-mobile,
+.covering-ou-mobile {
+    display: none;
+    font-weight: bold;
+    color: var(--card-text);
+    font-size: 1.0em; /* Same as desktop to prevent wrapping */
 }
 
 .game-row .team-spread {
@@ -1365,6 +1438,106 @@ fieldset legend {
 .mt-4 { margin-top: 16px; }
 .p-4 { padding: 16px; }
 
+/* Live game indicators */
+.live-indicator {
+    background: #ff4444;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+    animation: pulse 2s infinite;
+    margin-right: 4px;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.game-row.in-progress {
+    border-left: 4px solid rgba(120, 140, 190, 0.8);
+    /* Background is handled by the unified in-progress animation rule above */
+}
+
+.game-row.in-progress .team-score {
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.live-game-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: center;
+    font-size: 12px;
+}
+
+.live-game-info .game-time {
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.possession-info {
+    color: var(--accent-color);
+    font-weight: 500;
+    font-size: 11px;
+}
+
+.field-position {
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-style: italic;
+}
+
+/* Week navigation animations */
+.dashboard-content {
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.dashboard-content.slide-left {
+    animation: slideLeft 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.dashboard-content.slide-right {
+    animation: slideRight 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes slideLeft {
+    0% {
+        transform: translateX(100%);
+        opacity: 0.7;
+    }
+    100% {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideRight {
+    0% {
+        transform: translateX(-100%);
+        opacity: 0.7;
+    }
+    100% {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Analytics content animations */
+.analytics-container {
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.analytics-container.slide-left {
+    animation: slideLeft 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.analytics-container.slide-right {
+    animation: slideRight 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
 /* Mobile navigation buttons */
 .mobile-stats-button,
 .mobile-return-button {
@@ -1747,6 +1920,53 @@ body.modal-open {
     display: contents;
 }
 
+/* Game status styling for started/completed games */
+.game-disabled {
+    opacity: 0.6;
+}
+
+.game-status-indicator {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+}
+
+.status-badge {
+    font-size: 0.7em;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: white;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-live {
+    background-color: var(--error-color);
+    animation: pulse 2s infinite;
+}
+
+.status-final {
+    background-color: var(--text-secondary);
+}
+
+.game-score {
+    font-weight: bold;
+    color: var(--card-text);
+    font-size: 0.9em;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
 .pick-team-option {
     display: flex;
     align-items: center;
@@ -1772,6 +1992,21 @@ body.modal-open {
 
 .pick-checkbox {
     margin: 0;
+}
+
+/* Disabled state for started/completed games */
+.pick-checkbox-label.disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.pick-checkbox-label.disabled .pick-checkbox {
+    cursor: not-allowed;
+}
+
+.pick-checkbox:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 
 .pick-team-img {

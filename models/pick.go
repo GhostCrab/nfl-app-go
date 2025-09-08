@@ -152,9 +152,18 @@ func CreatePickFromLegacyData(userID, gameID, teamID, season, week int) *Pick {
 }
 
 // CalculateParlayPoints calculates parlay club points for a set of picks
-// Returns 0 if any pick loses, otherwise returns count of winning picks (pushes excluded)
+// Rules: 
+// - Minimum 2 games required for a valid parlay
+// - Any loss = 0 points 
+// - Pushes don't count toward minimum but don't cause failure
+// - Points = number of winning picks (if 2+ games and no losses)
 func CalculateParlayPoints(picks []Pick) int {
+	if len(picks) == 0 {
+		return 0
+	}
+	
 	winningPicks := 0
+	pushPicks := 0
 	
 	for _, pick := range picks {
 		switch pick.Result {
@@ -163,6 +172,7 @@ func CalculateParlayPoints(picks []Pick) int {
 		case PickResultWin:
 			winningPicks++
 		case PickResultPush:
+			pushPicks++
 			// Pushes are excluded from count but don't cause failure
 			continue
 		case PickResultPending:
@@ -171,8 +181,16 @@ func CalculateParlayPoints(picks []Pick) int {
 		}
 	}
 	
+	// Parlay must have at least 2 games total (wins + pushes)
+	// This ensures single-game "parlays" are invalid
+	totalGames := winningPicks + pushPicks
+	if totalGames < 2 {
+		return 0 // Invalid parlay - need minimum 2 games
+	}
+	
 	// Return points equal to the number of winning picks
-	// Pushes are excluded, any loss = 0 points
+	// Example: 2 games (1 win, 1 push) = 1 point
+	// Example: 1 game (1 win) = 0 points (invalid parlay)
 	return winningPicks
 }
 

@@ -11,10 +11,24 @@ import (
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
 	"nfl-app-go/services"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// sortGamesByKickoffTime sorts games chronologically by kickoff time
+// Secondary sort: alphabetically by home team name for games at same time
+func sortGamesByKickoffTime(games []models.Game) {
+	sort.Slice(games, func(i, j int) bool {
+		// Primary sort: by game date/time
+		if games[i].Date.Unix() != games[j].Date.Unix() {
+			return games[i].Date.Before(games[j].Date)
+		}
+		// Secondary sort: alphabetically by home team name for same kickoff time
+		return games[i].Home < games[j].Home
+	})
+}
 
 // GameHandler handles game-related HTTP requests
 // SSEClient represents a connected SSE client with user context
@@ -133,6 +147,9 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	games = filteredGames
+	
+	// Sort games chronologically by kickoff time, then by home team name
+	sortGamesByKickoffTime(games)
 	
 	// Get current user from context (if authenticated)
 	user := middleware.GetUserFromContext(r)
@@ -488,35 +505,9 @@ func (h *GameHandler) HandleDatabaseChange(event services.ChangeEvent) {
 		return
 	}
 	
-	// For other collections (like games), send structured database change events
-	if event.Collection == "games" {
-		updateEvent := struct {
-			Type       string `json:"type"`
-			Collection string `json:"collection"`
-			Operation  string `json:"operation"`
-			Season     int    `json:"season"`
-			Week       int    `json:"week"`
-			GameID     string `json:"gameId,omitempty"`
-			Timestamp  int64  `json:"timestamp"`
-		}{
-			Type:       "databaseChange",
-			Collection: event.Collection,
-			Operation:  event.Operation,
-			Season:     event.Season,
-			Week:       event.Week,
-			GameID:     event.GameID,
-			Timestamp:  time.Now().UnixMilli(),
-		}
-
-		// Convert to JSON
-		updateJSON, err := json.Marshal(updateEvent)
-		if err != nil {
-			log.Printf("SSE: Error marshaling update event: %v", err)
-			return
-		}
-
-		// Send structured update to all connected clients
-		h.BroadcastStructuredUpdate("gameUpdate", string(updateJSON))
+	// For game collection changes, send targeted HTML updates (following picks pattern)
+	if event.Collection == "games" && event.GameID != "" {
+		h.broadcastGameUpdate(event.GameID, event.Season, event.Week)
 	}
 }
 
@@ -838,6 +829,9 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 	}
 	games = filteredGames
 	
+	// Sort games chronologically by kickoff time, then by home team name
+	sortGamesByKickoffTime(games)
+	
 	// Get current user from context (if authenticated)
 	user := middleware.GetUserFromContext(r)
 	
@@ -958,13 +952,16 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Filter games by week and season, and only show scheduled games (can't pick games that started)
+	// Filter games by week and season - show all games but will disable non-scheduled ones
 	var availableGames []models.Game
 	for _, game := range allGames {
-		if game.Week == week && game.Season == season && game.State == models.GameStateScheduled {
+		if game.Week == week && game.Season == season {
 			availableGames = append(availableGames, game)
 		}
 	}
+	
+	// Sort games chronologically by kickoff time, then by home team name
+	sortGamesByKickoffTime(availableGames)
 	
 	// Get current user picks for this week if user is authenticated
 	var userPicks *models.UserPicks
@@ -1142,6 +1139,13 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 					
+					// Skip picks for games that have already started or completed
+					// (preserve existing picks by not including them in the replacement)
+					if game.State != models.GameStateScheduled {
+						log.Printf("Skipping pick for Game %d - game state is %s (not scheduled), will preserve existing picks", gameID, game.State)
+						continue
+					}
+					
 					var teamName string
 					var teamID int
 					pickType := models.PickTypeSpread // Default to spread pick
@@ -1196,11 +1200,11 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 	
 	log.Printf("User %d submitting %d picks for week %d, season %d", user.ID, len(picks), week, season)
 	
-	// Replace picks via pick service (clear existing and create new ones atomically)
+	// Update picks via pick service (preserve existing picks for completed games)
 	if h.pickService != nil {
-		err := h.pickService.ReplaceUserPicksForWeek(context.Background(), user.ID, season, week, picks)
+		err := h.pickService.UpdateUserPicksForScheduledGames(context.Background(), user.ID, season, week, picks, gameMap)
 		if err != nil {
-			log.Printf("Error replacing user picks: %v", err)
+			log.Printf("Error updating user picks: %v", err)
 			http.Error(w, "Failed to submit picks", http.StatusInternalServerError)
 			return
 		}
@@ -1215,7 +1219,7 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "Picks submitted successfully!")
 }
 
-// broadcastPickUpdate sends personalized HTML updates to all connected SSE clients
+// broadcastPickUpdate sends targeted OOB updates for the specific user who updated picks
 func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 	// Get fresh data for the updated week
 	var games []models.Game
@@ -1323,34 +1327,34 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 			}
 		}
 		
-		// Render the complete picks section to maintain proper structure
+		// Render targeted OOB update for just the updated user's picks
 		var htmlContent strings.Builder
+		isCurrentUser := (client.UserID == userID)
 		
-		templateData := struct {
-			Games     []models.Game
-			UserPicks []*models.UserPicks
-			User      *models.User
-		}{
-			Games:     games,
-			UserPicks: allUserPicks,
-			User:      viewingUser,
+		templateData := map[string]interface{}{
+			"UserPicks":     updatedUserPicks,
+			"Games":         games,
+			"IsCurrentUser": isCurrentUser,
+			"IsFirst":       false, // Not needed for OOB updates
 		}
 		
-		if err := h.templates.ExecuteTemplate(&htmlContent, "picks-section", templateData); err != nil {
-			log.Printf("SSE: Template error for picks section: %v", err)
+		if err := h.templates.ExecuteTemplate(&htmlContent, "sse-user-picks-block", templateData); err != nil {
+			log.Printf("SSE: Template error for user picks block: %v", err)
 			continue
 		}
 		
-		// Get the rendered content without OOB wrapper - let client-side handle the swap
-		renderedContent := strings.TrimSpace(htmlContent.String())
-		// Send plain content and let HTMX SSE listener handle the target
-		finalContent := renderedContent
+		// Get the rendered OOB content with hx-swap-oob="true" already in template
+		finalContent := strings.TrimSpace(htmlContent.String())
 		
-		// Debug the rendered content
-		log.Printf("SSE: Rendered picks section content length: %d characters", len(finalContent))
-		log.Printf("SSE: Content preview: %s", finalContent[:min(200, len(finalContent))])
+		// Debug the rendered content (much smaller now!)
+		log.Printf("SSE: Rendered user %d OOB picks content length: %d characters", userID, len(finalContent))
+		if len(finalContent) > 0 && len(finalContent) <= 200 {
+			log.Printf("SSE: OOB Content preview: %s", finalContent)
+		} else if len(finalContent) > 200 {
+			log.Printf("SSE: OOB Content preview: %s...", finalContent[:200])
+		}
 		
-		// Send user-picks-updated event
+		// Send user-picks-updated event with OOB content
 		select {
 		case client.Channel <- fmt.Sprintf("user-picks-updated:%s", finalContent):
 		default:
@@ -1358,7 +1362,99 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		}
 	}
 	
-	log.Printf("SSE: Sent personalized pick updates to %d connected clients, triggered by user %d", len(h.sseClients), userID)
+	log.Printf("SSE: Sent targeted OOB pick updates for user %d to %d connected clients", userID, len(h.sseClients))
+}
+
+// broadcastGameUpdate sends targeted game HTML updates to all connected SSE clients
+func (h *GameHandler) broadcastGameUpdate(gameID string, season, week int) {
+	log.Printf("SSE: Broadcasting game update for gameID %s", gameID)
+	
+	// Get the updated game from database
+	if h.gameService == nil {
+		log.Printf("SSE: GameService not available")
+		return
+	}
+	
+	games, err := h.gameService.GetGames()
+	if err != nil {
+		log.Printf("SSE: Error fetching games for update: %v", err)
+		return
+	}
+	
+	// Find the specific game that changed
+	var updatedGame *models.Game
+	for _, game := range games {
+		if fmt.Sprintf("%d", game.ID) == gameID {
+			updatedGame = &game
+			break
+		}
+	}
+	
+	if updatedGame == nil {
+		log.Printf("SSE: Game %s not found", gameID)
+		return
+	}
+	
+	// Send targeted updates for live game elements
+	if updatedGame.State == models.GameStateInPlay {
+		h.broadcastGameStatusHTML(updatedGame)
+		h.broadcastGameScoresHTML(updatedGame)
+	}
+	
+	log.Printf("SSE: Sent targeted game updates for game %s to %d clients", gameID, len(h.sseClients))
+}
+
+// broadcastGameStatusHTML sends updated game status HTML via SSE using templates
+func (h *GameHandler) broadcastGameStatusHTML(game *models.Game) {
+	var statusHTML strings.Builder
+	
+	// Render game clock using template
+	if err := h.templates.ExecuteTemplate(&statusHTML, "sse-game-clock", game); err != nil {
+		log.Printf("SSE: Template error for game clock: %v", err)
+		return
+	}
+	
+	// Render possession info using template
+	var possessionHTML strings.Builder
+	if err := h.templates.ExecuteTemplate(&possessionHTML, "sse-possession-info", game); err != nil {
+		log.Printf("SSE: Template error for possession info: %v", err)
+	} else {
+		statusHTML.WriteString(possessionHTML.String())
+	}
+	
+	
+	// Broadcast to all connected clients
+	for client := range h.sseClients {
+		select {
+		case client.Channel <- fmt.Sprintf("gameStatus:%s", statusHTML.String()):
+		default:
+			// Client channel full, skip
+		}
+	}
+	
+	log.Printf("SSE: Sent game status update for game %d", game.ID)
+}
+
+// broadcastGameScoresHTML sends updated game scores HTML via SSE  
+func (h *GameHandler) broadcastGameScoresHTML(game *models.Game) {
+	// Create HTML for score updates with hx-swap-oob targeting
+	awayScoreHTML := fmt.Sprintf(`<span class="team-score" id="away-score-%d" hx-swap-oob="true">%d</span>`, 
+		game.ID, game.AwayScore)
+	homeScoreHTML := fmt.Sprintf(`<span class="team-score" id="home-score-%d" hx-swap-oob="true">%d</span>`, 
+		game.ID, game.HomeScore)
+	
+	scoresHTML := awayScoreHTML + homeScoreHTML
+	
+	// Broadcast to all connected clients
+	for client := range h.sseClients {
+		select {
+		case client.Channel <- fmt.Sprintf("gameScores:%s", scoresHTML):
+		default:
+			// Client channel full, skip
+		}
+	}
+	
+	log.Printf("SSE: Sent game scores update for game %d (%d-%d)", game.ID, game.AwayScore, game.HomeScore)
 }
 
 // personalizeUserPicksForViewer filters and modifies user picks based on what the viewing user should see

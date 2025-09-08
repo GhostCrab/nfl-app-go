@@ -89,6 +89,8 @@ $env:DB_PASSWORD="your_actual_password"; go run main.go
 ======== prompts
     REMINDER: Project Constraints
 
+    I noticed the conversation compacted, let me remind you of these very important guidelines for this project:
+
     - HTMX Best Practices: Follow https://htmx.org/docs/, https://htmx.org/extensions/sse/, https://htmx.org/attributes/hx-swap-oob/ as the bible
     - Minimal JavaScript: Server-side rendering, HTMX attributes over custom JS
     - Current Stack: Go, MongoDB, HTMX, SSE for real-time updates
