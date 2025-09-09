@@ -81,11 +81,14 @@ type UserPicks struct {
 	Picks        []Pick `json:"picks"`
 	SpreadPicks  []Pick `json:"spread_picks"`
 	OverUnderPicks []Pick `json:"over_under_picks"`
+	// LEGACY: 2023-2024 bonus day logic
 	BonusThursdayPicks []Pick `json:"bonus_thursday_picks"`
 	BonusFridayPicks   []Pick `json:"bonus_friday_picks"`
 	Record       UserRecord `json:"record"`
 	// Pick visibility metadata
 	HiddenPickCounts map[string]int `json:"hidden_pick_counts,omitempty"` // Counts of hidden picks by day
+	// MODERN: 2025+ daily grouping (populated for modern seasons)
+	DailyPickGroups map[string][]Pick `json:"daily_pick_groups"` // Picks grouped by Pacific date (YYYY-MM-DD)
 }
 
 // UserRecord represents a user's win-loss record
@@ -192,6 +195,95 @@ func CalculateParlayPoints(picks []Pick) int {
 	// Example: 2 games (1 win, 1 push) = 1 point
 	// Example: 1 game (1 win) = 0 points (invalid parlay)
 	return winningPicks
+}
+
+// GetPickGameDate returns the Pacific timezone date for a pick based on its associated game
+func (p *Pick) GetPickGameDate(games []Game) string {
+	for _, game := range games {
+		if game.ID == p.GameID {
+			return game.GetGameDateInPacific()
+		}
+	}
+	// Fallback: return empty string if game not found
+	return ""
+}
+
+// GroupPicksByDay groups picks by their associated game's Pacific timezone date
+func GroupPicksByDay(picks []Pick, games []Game) map[string][]Pick {
+	dayGroups := make(map[string][]Pick)
+	
+	for _, pick := range picks {
+		dayKey := pick.GetPickGameDate(games)
+		if dayKey != "" { // Only group if we found the game
+			dayGroups[dayKey] = append(dayGroups[dayKey], pick)
+		}
+	}
+	
+	return dayGroups
+}
+
+// GroupPicksByDayName groups picks by their associated game's Pacific timezone day name
+func GroupPicksByDayName(picks []Pick, games []Game) map[string][]Pick {
+	dayGroups := make(map[string][]Pick)
+	
+	for _, pick := range picks {
+		for _, game := range games {
+			if game.ID == pick.GameID {
+				dayName := game.GetGameDayName()
+				dayGroups[dayName] = append(dayGroups[dayName], pick)
+				break
+			}
+		}
+	}
+	
+	return dayGroups
+}
+
+// CalculateDailyParlayPoints calculates points for picks on a specific day (modern scoring)
+// Rules: minimum 2 picks per day, any loss = 0 points, pushes don't count but don't fail
+func CalculateDailyParlayPoints(picks []Pick) int {
+	if len(picks) == 0 {
+		return 0
+	}
+	
+	winningPicks := 0
+	pushPicks := 0
+	
+	for _, pick := range picks {
+		switch pick.Result {
+		case PickResultLoss:
+			return 0 // Any loss = 0 points for the day
+		case PickResultWin:
+			winningPicks++
+		case PickResultPush:
+			pushPicks++
+			// Pushes don't count toward points but don't cause failure
+			continue
+		case PickResultPending:
+			return 0 // Can't calculate points if any pick is pending
+		}
+	}
+	
+	// Daily parlay must have at least 2 games total (wins + pushes)
+	totalGames := winningPicks + pushPicks
+	if totalGames < 2 {
+		return 0 // Invalid daily parlay - need minimum 2 games
+	}
+	
+	// Return points equal to the number of winning picks
+	// Example: Thursday with 2 games (1 win, 1 push) = 1 point
+	// Example: Sunday with 5 games (3 wins, 1 push, 1 loss) = 0 points
+	return winningPicks
+}
+
+// PopulateDailyPickGroups fills the DailyPickGroups field for modern seasons (2025+)
+func (up *UserPicks) PopulateDailyPickGroups(games []Game, season int) {
+	if !IsModernSeason(season) {
+		return // Only populate for modern seasons
+	}
+	
+	// Group all picks by Pacific timezone date
+	up.DailyPickGroups = GroupPicksByDay(up.Picks, games)
 }
 
 // ParlayCategory represents different parlay scoring categories

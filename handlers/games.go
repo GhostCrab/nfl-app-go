@@ -1331,11 +1331,15 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		var htmlContent strings.Builder
 		isCurrentUser := (client.UserID == userID)
 		
+		// Populate DailyPickGroups for modern seasons (2025+)
+		updatedUserPicks.PopulateDailyPickGroups(games, season)
+		
 		templateData := map[string]interface{}{
 			"UserPicks":     updatedUserPicks,
 			"Games":         games,
 			"IsCurrentUser": isCurrentUser,
 			"IsFirst":       false, // Not needed for OOB updates
+			"Season":        season, // Add season for template logic
 		}
 		
 		if err := h.templates.ExecuteTemplate(&htmlContent, "sse-user-picks-block", templateData); err != nil {
@@ -1401,6 +1405,12 @@ func (h *GameHandler) broadcastGameUpdate(gameID string, season, week int) {
 		h.broadcastGameScoresHTML(updatedGame)
 	}
 	
+	// Only trigger pick updates when games complete (final scores determine outcomes)
+	if updatedGame.State == "completed" {
+		log.Printf("SSE: Game %s completed, triggering pick result updates", gameID)
+		h.broadcastPickUpdatesHTML(updatedGame)
+	}
+	
 	log.Printf("SSE: Sent targeted game updates for game %s to %d clients", gameID, len(h.sseClients))
 }
 
@@ -1455,6 +1465,82 @@ func (h *GameHandler) broadcastGameScoresHTML(game *models.Game) {
 	}
 	
 	log.Printf("SSE: Sent game scores update for game %d (%d-%d)", game.ID, game.AwayScore, game.HomeScore)
+}
+
+// broadcastPickUpdatesHTML sends updated pick item HTML via SSE for a specific game
+func (h *GameHandler) broadcastPickUpdatesHTML(game *models.Game) {
+	// Get current season (2025 for now, but should be dynamic)
+	season := 2025
+	
+	// Get all user picks for current week
+	gameWeek := game.Week
+	if gameWeek <= 0 {
+		log.Printf("SSE: Game %d has invalid week %d, skipping pick updates", game.ID, gameWeek)
+		return
+	}
+	
+	allUserPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, gameWeek)
+	if err != nil {
+		log.Printf("SSE: Error fetching user picks for week %d: %v", gameWeek, err)
+		return
+	}
+	
+	// Filter to only picks for this specific game
+	games := []models.Game{*game}
+	
+	var pickUpdates []string
+	
+	// Generate updated pick item HTML for each user who has a pick for this game
+	for _, userPicks := range allUserPicks {
+		for _, pick := range userPicks.Picks {
+			if pick.GameID == game.ID {
+				// Create template data for this specific pick
+				templateData := struct {
+					Pick         models.Pick
+					Games        []models.Game
+					IsCurrentUser bool
+				}{
+					Pick:         pick,
+					Games:        games,
+					IsCurrentUser: false, // SSE updates don't need current user context
+				}
+				
+				// Render the pick item using the unified-pick-item template
+				var pickHTML strings.Builder
+				if err := h.templates.ExecuteTemplate(&pickHTML, "unified-pick-item", templateData); err != nil {
+					log.Printf("SSE: Template error for pick item (Game %d, User %d): %v", pick.GameID, pick.UserID, err)
+					continue
+				}
+				
+				// Add hx-swap-oob attribute to the rendered HTML for HTMX out-of-band swapping
+				pickHTMLWithOOB := strings.Replace(pickHTML.String(), 
+					fmt.Sprintf(`id="pick-item-%d-%d"`, pick.GameID, pick.UserID),
+					fmt.Sprintf(`id="pick-item-%d-%d" hx-swap-oob="true"`, pick.GameID, pick.UserID), 1)
+				
+				pickUpdates = append(pickUpdates, pickHTMLWithOOB)
+			}
+		}
+	}
+	
+	if len(pickUpdates) == 0 {
+		log.Printf("SSE: No pick updates to send for game %d", game.ID)
+		return
+	}
+	
+	// Combine all pick updates into a single SSE event
+	combinedHTML := strings.Join(pickUpdates, "")
+	
+	// Broadcast to all connected clients
+	for client := range h.sseClients {
+		select {
+		case client.Channel <- fmt.Sprintf("pickUpdates:%s", combinedHTML):
+		default:
+			// Client channel full, skip
+		}
+	}
+	
+	log.Printf("SSE: Sent pick updates for game %d to %d clients (%d pick items updated)", 
+		game.ID, len(h.sseClients), len(pickUpdates))
 }
 
 // personalizeUserPicksForViewer filters and modifies user picks based on what the viewing user should see
@@ -1524,6 +1610,7 @@ func (h *GameHandler) applyDebugGameStates(debugTime time.Time) {
 	// Note: Actual game state modification would require a different game service implementation
 	// that can dynamically alter game states. For now, we just log what would happen.
 }
+
 
 
 

@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -796,6 +797,57 @@ func main() {
 		"debugLog": func(msg string) string {
 			log.Printf("TEMPLATE DEBUG: %s", msg)
 			return ""
+		},
+		"getDayNameFromDate": func(dateStr string) string {
+			// Parse date string in format "2025-09-07"
+			parsedTime, err := time.Parse("2006-01-02", dateStr)
+			if err != nil {
+				log.Printf("Error parsing date %s: %v", dateStr, err)
+				return "UNKNOWN"
+			}
+			// Convert to Pacific timezone and get day name
+			pacificLoc := models.GetPacificTimeLocation()
+			dayName := parsedTime.In(pacificLoc).Format("Monday")
+			return strings.ToUpper(dayName)
+		},
+		"formatAwaySpread": func(odds *models.Odds) string {
+			if odds == nil {
+				return ""
+			}
+			// Away team gets opposite of the spread
+			awaySpread := -odds.Spread
+			if awaySpread > 0 {
+				return fmt.Sprintf("+%.1f", awaySpread)
+			} else if awaySpread < 0 {
+				return fmt.Sprintf("%.1f", awaySpread)
+			} else {
+				return "PK" // Pick 'em
+			}
+		},
+		"formatHomeSpread": func(odds *models.Odds) string {
+			if odds == nil {
+				return ""
+			}
+			if odds.Spread > 0 {
+				return fmt.Sprintf("+%.1f", odds.Spread)
+			} else if odds.Spread < 0 {
+				return fmt.Sprintf("%.1f", odds.Spread)
+			} else {
+				return "PK" // Pick 'em
+			}
+		},
+		"hasDailyGroups": func(userPicks *models.UserPicks) bool {
+			if userPicks == nil {
+				log.Printf("TEMPLATE DEBUG: hasDailyGroups - userPicks is nil")
+				return false
+			}
+			if userPicks.DailyPickGroups == nil {
+				log.Printf("TEMPLATE DEBUG: hasDailyGroups - User %s DailyPickGroups is nil", userPicks.UserName)
+				return false
+			}
+			hasGroups := len(userPicks.DailyPickGroups) > 0
+			log.Printf("TEMPLATE DEBUG: hasDailyGroups - User %s has %d daily groups, returning %v", userPicks.UserName, len(userPicks.DailyPickGroups), hasGroups)
+			return hasGroups
 		},
 		"sortUsersWithCurrentFirst": func(userPicks []*models.UserPicks, currentUserName string) []*models.UserPicks {
 			log.Printf("TEMPLATE DEBUG: sortUsersWithCurrentFirst called - input count: %d, currentUser: %s", len(userPicks), currentUserName)

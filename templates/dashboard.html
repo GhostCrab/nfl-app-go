@@ -69,6 +69,10 @@
         <div sse-swap="gameScores"
              hx-swap="none"></div>
              
+        <!-- Pick updates listener - OOB approach -->
+        <div sse-swap="pickUpdates"
+             hx-swap="none"></div>
+             
         <!-- Individual game score updates listener -->
         <div sse-swap="gameScoreUpdate" 
              hx-swap="outerHTML"
@@ -241,12 +245,12 @@
         {{debugLog "sortUsersWithCurrentFirst returned, starting range"}}
         {{range $index, $userPicks := $sortedUserPicks}}
             {{$isCurrentUser := eq .UserName $.User.Name}}
-            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0)}}
+            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0) "Season" $.CurrentSeason}}
         {{end}}
     {{else}}
         {{debugLog "No User, using basic range"}}
         {{range $index, $userPicks := .UserPicks}}
-            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" false "IsFirst" (eq $index 0)}}
+            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" false "IsFirst" (eq $index 0) "Season" $.CurrentSeason}}
         {{end}}
     {{end}}
 {{else}}
@@ -261,59 +265,80 @@
 
     {{define "user-picks-block"}}
 {{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
+{{$season := .Season -}}
 <div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}" data-user-id="{{$userPicks.UserID}}">
 <div class="user-picks-header">
 {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
 </div>
 <div class="user-picks-content">
 
-{{if $userPicks.BonusThursdayPicks -}}
-<div class="regular-picks-section">
-<div class="picks-category-header">BONUS THURSDAY</div>
-<div class="picks-list">
-{{range sortPicksByGameTime $userPicks.BonusThursdayPicks $games -}}
-{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-{{end -}}
-</div>
-</div>
-{{end -}}
-{{if $userPicks.BonusFridayPicks -}}
-<div class="regular-picks-section">
-<div class="picks-category-header">BONUS FRIDAY</div>
-<div class="picks-list">
-{{range sortPicksByGameTime $userPicks.BonusFridayPicks $games -}}
-{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-{{end -}}
-</div>
-</div>
-{{end -}}
-{{if $userPicks.Picks -}}
-{{$hasAnyBonusPicks := or $userPicks.BonusThursdayPicks $userPicks.BonusFridayPicks -}}
-{{if $hasAnyBonusPicks -}}
-<div class="regular-picks-section">
-<div class="picks-category-header">REMAINING PICKS</div>
-<div class="picks-list">
-{{range sortPicksByGameTime $userPicks.Picks $games -}}
-{{$currentPick := . -}}
-{{$isBonus := false -}}
-{{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
-{{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
-{{if not $isBonus -}}
-{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-{{end -}}
-{{end -}}
-</div>
-</div>
-{{else -}}
-<div class="regular-picks-section">
-<div class="picks-list">
-{{range sortPicksByGameTime $userPicks.Picks $games -}}
-{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-{{end -}}
-</div>
-</div>
-{{end -}}
-{{end -}}
+{{/* Check if this is a modern season (2025+) for daily display */}}
+{{if ge $season 2025}}
+    {{/* MODERN: 2025+ Daily Grouping Display */}}
+    {{if hasDailyGroups $userPicks}}
+        {{template "modern-daily-picks" dict "DailyPickGroups" $userPicks.DailyPickGroups "Games" $games "IsCurrentUser" $isCurrentUser}}
+    {{else}}
+        {{/* Fallback: if DailyPickGroups not populated, show all picks in one section */}}
+        {{if $userPicks.Picks}}
+        <div class="regular-picks-section">
+        <div class="picks-list">
+        {{range sortPicksByGameTime $userPicks.Picks $games -}}
+        {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+        {{end -}}
+        </div>
+        </div>
+        {{end}}
+    {{end}}
+{{else}}
+    {{/* LEGACY: 2023-2024 Bonus Day Logic */}}
+    {{if $userPicks.BonusThursdayPicks -}}
+    <div class="regular-picks-section">
+    <div class="picks-category-header">BONUS THURSDAY</div>
+    <div class="picks-list">
+    {{range sortPicksByGameTime $userPicks.BonusThursdayPicks $games -}}
+    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+    {{end -}}
+    </div>
+    </div>
+    {{end -}}
+    {{if $userPicks.BonusFridayPicks -}}
+    <div class="regular-picks-section">
+    <div class="picks-category-header">BONUS FRIDAY</div>
+    <div class="picks-list">
+    {{range sortPicksByGameTime $userPicks.BonusFridayPicks $games -}}
+    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+    {{end -}}
+    </div>
+    </div>
+    {{end -}}
+    {{if $userPicks.Picks -}}
+    {{$hasAnyBonusPicks := or $userPicks.BonusThursdayPicks $userPicks.BonusFridayPicks -}}
+    {{if $hasAnyBonusPicks -}}
+    <div class="regular-picks-section">
+    <div class="picks-category-header">REMAINING PICKS</div>
+    <div class="picks-list">
+    {{range sortPicksByGameTime $userPicks.Picks $games -}}
+    {{$currentPick := . -}}
+    {{$isBonus := false -}}
+    {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
+    {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
+    {{if not $isBonus -}}
+    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+    {{end -}}
+    {{end -}}
+    </div>
+    </div>
+    {{else -}}
+    <div class="regular-picks-section">
+    <div class="picks-list">
+    {{range sortPicksByGameTime $userPicks.Picks $games -}}
+    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+    {{end -}}
+    </div>
+    </div>
+    {{end -}}
+    {{end -}}
+{{end}}
 
 {{/* Show hidden pick counts if user is not viewing their own picks */}}
 {{if and (not $isCurrentUser) $userPicks.HiddenPickCounts -}}
@@ -344,13 +369,174 @@
 </div>
     {{end}}
 
+    <!-- Modern Daily Picker Template (2025+) -->
+    {{define "modern-daily-picker"}}
+    {{$games := .Games}}{{$pickState := .PickState -}}
+    
+    {{/* Thursday Games */}}
+    {{$hasThursdayGames := false -}}
+    {{range $games -}}{{if eq (.GetGameDayName) "Thursday"}}{{$hasThursdayGames = true}}{{end}}{{end -}}
+    {{if $hasThursdayGames -}}
+    <div class="pick-day-section">
+        <div class="pick-day-header">THURSDAY GAMES</div>
+        <div class="pick-picker-grid">
+            {{range $games -}}
+                {{if eq (.GetGameDayName) "Thursday" -}}
+                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+                {{end -}}
+            {{end -}}
+        </div>
+    </div>
+    {{end -}}
+    
+    {{/* Friday Games */}}
+    {{$hasFridayGames := false -}}
+    {{range $games -}}{{if eq (.GetGameDayName) "Friday"}}{{$hasFridayGames = true}}{{end}}{{end -}}
+    {{if $hasFridayGames -}}
+    <div class="pick-day-section">
+        <div class="pick-day-header">FRIDAY GAMES</div>
+        <div class="pick-picker-grid">
+            {{range $games -}}
+                {{if eq (.GetGameDayName) "Friday" -}}
+                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+                {{end -}}
+            {{end -}}
+        </div>
+    </div>
+    {{end -}}
+    
+    {{/* Saturday Games */}}
+    {{$hasSaturdayGames := false -}}
+    {{range $games -}}{{if eq (.GetGameDayName) "Saturday"}}{{$hasSaturdayGames = true}}{{end}}{{end -}}
+    {{if $hasSaturdayGames -}}
+    <div class="pick-day-section">
+        <div class="pick-day-header">SATURDAY GAMES</div>
+        <div class="pick-picker-grid">
+            {{range $games -}}
+                {{if eq (.GetGameDayName) "Saturday" -}}
+                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+                {{end -}}
+            {{end -}}
+        </div>
+    </div>
+    {{end -}}
+    
+    {{/* Sunday Games */}}
+    {{$hasSundayGames := false -}}
+    {{range $games -}}{{if eq (.GetGameDayName) "Sunday"}}{{$hasSundayGames = true}}{{end}}{{end -}}
+    {{if $hasSundayGames -}}
+    <div class="pick-day-section">
+        <div class="pick-day-header">SUNDAY GAMES</div>
+        <div class="pick-picker-grid">
+            {{range $games -}}
+                {{if eq (.GetGameDayName) "Sunday" -}}
+                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+                {{end -}}
+            {{end -}}
+        </div>
+    </div>
+    {{end -}}
+    
+    {{/* Monday Games */}}
+    {{$hasMondayGames := false -}}
+    {{range $games -}}{{if eq (.GetGameDayName) "Monday"}}{{$hasMondayGames = true}}{{end}}{{end -}}
+    {{if $hasMondayGames -}}
+    <div class="pick-day-section">
+        <div class="pick-day-header">MONDAY GAMES</div>
+        <div class="pick-picker-grid">
+            {{range $games -}}
+                {{if eq (.GetGameDayName) "Monday" -}}
+                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+                {{end -}}
+            {{end -}}
+        </div>
+    </div>
+    {{end -}}
+    {{end}}
+
+    <!-- Pick Game Row Template (Reusable) -->
+    {{define "pick-game-row"}}
+    {{$game := .Game}}{{$pickState := .PickState -}}
+    <div class="pick-game-row {{if ne $game.State "scheduled"}}game-disabled{{end}}" data-game-id="{{$game.ID}}">
+        
+        <!-- Away Team Pick -->
+        <div class="pick-team-option">
+            <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+                <input type="checkbox" 
+                       name="pick-{{$game.ID}}-away" 
+                       value="1"
+                       class="pick-checkbox"
+                       {{if ne $game.State "scheduled"}}disabled{{end}}
+                       {{if index (index $pickState $game.ID) 1}}checked{{end}}>
+                <img class="pick-team-img" src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/{{$game.Away | lower}}.png" alt="{{$game.Away}}" onerror="this.style.display='none'">
+                <div class="pick-text-container">
+                    <span class="pick-team-name">{{$game.Away}}</span>
+                    {{if $game.Odds}}
+                        <span class="pick-spread">{{formatAwaySpread $game.Odds}}</span>
+                    {{end}}
+                </div>
+            </label>
+        </div>
+        
+        <!-- Home Team Pick -->
+        <div class="pick-team-option">
+            <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+                <input type="checkbox" 
+                       name="pick-{{$game.ID}}-home" 
+                       value="1"
+                       class="pick-checkbox"
+                       {{if ne $game.State "scheduled"}}disabled{{end}}
+                       {{if index (index $pickState $game.ID) 2}}checked{{end}}>
+                <img class="pick-team-img" src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/{{$game.Home | lower}}.png" alt="{{$game.Home}}" onerror="this.style.display='none'">
+                <div class="pick-text-container">
+                    <span class="pick-team-name">{{$game.Home}}</span>
+                    {{if $game.Odds}}
+                        <span class="pick-spread">{{formatHomeSpread $game.Odds}}</span>
+                    {{end}}
+                </div>
+            </label>
+        </div>
+        
+        <!-- O/U Display -->
+        <div class="pick-ou-display">
+            {{if $game.Odds}}+{{$game.Odds.OU}}{{else}}-{{end}}
+        </div>
+        
+        <!-- Under Pick -->
+        <div class="pick-team-option">
+            <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+                <input type="checkbox" 
+                       name="pick-{{$game.ID}}-98" 
+                       value="1"
+                       class="pick-checkbox"
+                       {{if ne $game.State "scheduled"}}disabled{{end}}
+                       {{if index (index $pickState $game.ID) 98}}checked{{end}}>
+                <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND">
+            </label>
+        </div>
+        
+        <!-- Over Pick -->
+        <div class="pick-team-option">
+            <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+                <input type="checkbox" 
+                       name="pick-{{$game.ID}}-99" 
+                       value="1"
+                       class="pick-checkbox"
+                       {{if ne $game.State "scheduled"}}disabled{{end}}
+                       {{if index (index $pickState $game.ID) 99}}checked{{end}}>
+                <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR">
+            </label>
+        </div>
+    </div>
+    {{end}}
+
     <!-- Unified Pick Item Template -->
     {{define "unified-pick-item"}}
         {{$pick := .Pick}}
         {{$games := .Games}}
         {{$isCurrentUser := .IsCurrentUser}}
         {{$game := findGameByID $games $pick.GameID}}
-        <div class="pick-item {{getResultClass $pick $game}}">
+        <div class="pick-item {{getResultClass $pick $game}}" id="pick-item-{{$pick.GameID}}-{{$pick.UserID}}">
             <div class="pick-matchup">
                 {{if $game}}
                     <!-- Away team -->
@@ -549,81 +735,18 @@
                     
                     <div class="pick-picker-content">
                         {{if .Games}}
-                            <div class="pick-picker-grid">
-                                {{range .Games}}
-                                    <div class="pick-game-row {{if ne .State "scheduled"}}game-disabled{{end}}" data-game-id="{{.ID}}">
-                                        
-                                        <!-- Away Team Pick -->
-                                        <div class="pick-team-option">
-                                            <label class="pick-checkbox-label {{if ne .State "scheduled"}}disabled{{end}}">
-                                                <input type="checkbox" 
-                                                       name="pick-{{.ID}}-away" 
-                                                       value="1"
-                                                       class="pick-checkbox"
-                                                       {{if ne .State "scheduled"}}disabled{{end}}
-                                                       {{if index (index $.PickState .ID) 1}}checked{{end}}>
-                                                <img class="pick-team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'">
-                                                <div class="pick-text-container">
-                                                    <span class="pick-team-name">{{.Away}}</span>
-                                                    {{if .HasOdds}}
-                                                        <span class="pick-spread">{{.FormatAwaySpread}}</span>
-                                                    {{end}}
-                                                </div>
-                                            </label>
-                                        </div>
-                                        
-                                        <!-- Home Team Pick -->
-                                        <div class="pick-team-option">
-                                            <label class="pick-checkbox-label {{if ne .State "scheduled"}}disabled{{end}}">
-                                                <input type="checkbox" 
-                                                       name="pick-{{.ID}}-home" 
-                                                       value="1"
-                                                       class="pick-checkbox"
-                                                       {{if ne .State "scheduled"}}disabled{{end}}
-                                                       {{if index (index $.PickState .ID) 2}}checked{{end}}>
-                                                <img class="pick-team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'">
-                                                <div class="pick-text-container">
-                                                    <span class="pick-team-name">{{.Home}}</span>
-                                                    {{if .HasOdds}}
-                                                        <span class="pick-spread">{{.FormatHomeSpread}}</span>
-                                                    {{end}}
-                                                </div>
-                                            </label>
-                                        </div>
-                                        
-                                        <!-- O/U Display -->
-                                        <div class="pick-ou-display">
-                                            {{if .HasOdds}}+{{.Odds.OU}}{{else}}-{{end}}
-                                        </div>
-                                        
-                                        <!-- Under Pick -->
-                                        <div class="pick-team-option">
-                                            <label class="pick-checkbox-label {{if ne .State "scheduled"}}disabled{{end}}">
-                                                <input type="checkbox" 
-                                                       name="pick-{{.ID}}-98" 
-                                                       value="1"
-                                                       class="pick-checkbox"
-                                                       {{if ne .State "scheduled"}}disabled{{end}}
-                                                       {{if index (index $.PickState .ID) 98}}checked{{end}}>
-                                                <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND">
-                                            </label>
-                                        </div>
-                                        
-                                        <!-- Over Pick -->
-                                        <div class="pick-team-option">
-                                            <label class="pick-checkbox-label {{if ne .State "scheduled"}}disabled{{end}}">
-                                                <input type="checkbox" 
-                                                       name="pick-{{.ID}}-99" 
-                                                       value="1"
-                                                       class="pick-checkbox"
-                                                       {{if ne .State "scheduled"}}disabled{{end}}
-                                                       {{if index (index $.PickState .ID) 99}}checked{{end}}>
-                                                <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR">
-                                            </label>
-                                        </div>
-                                    </div>
-                                {{end}}
-                            </div>
+                            {{/* Check if this is a modern season (2025+) for daily grouping */}}
+                            {{if ge .CurrentSeason 2025}}
+                                {{/* MODERN: 2025+ Daily Picker with Day Sections */}}
+                                {{template "modern-daily-picker" dict "Games" .Games "PickState" .PickState "CurrentSeason" .CurrentSeason}}
+                            {{else}}
+                                {{/* LEGACY: 2023-2024 All Games in One List */}}
+                                <div class="pick-picker-grid">
+                                    {{range .Games}}
+                                        {{template "pick-game-row" dict "Game" . "PickState" $.PickState}}
+                                    {{end}}
+                                </div>
+                            {{end}}
                         {{else}}
                             <p>No games available for picking this week.</p>
                         {{end}}
@@ -1076,59 +1199,80 @@
 
 {{define "sse-user-picks-block"}}
 {{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
+{{$season := .Season -}}
 <div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}" data-user-id="{{$userPicks.UserID}}" hx-swap-oob="true">
 <div class="user-picks-header">
 {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
 </div>
 <div class="user-picks-content">
 
-{{if $userPicks.BonusThursdayPicks -}}
-<div class="regular-picks-section">
-<div class="picks-category-header">BONUS THURSDAY</div>
-<div class="picks-list">
-{{range sortPicksByGameTime $userPicks.BonusThursdayPicks $games -}}
-{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-{{end -}}
-</div>
-</div>
-{{end -}}
-{{if $userPicks.BonusFridayPicks -}}
-<div class="regular-picks-section">
-<div class="picks-category-header">BONUS FRIDAY</div>
-<div class="picks-list">
-{{range sortPicksByGameTime $userPicks.BonusFridayPicks $games -}}
-{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-{{end -}}
-</div>
-</div>
-{{end -}}
-{{if $userPicks.Picks -}}
-{{$hasAnyBonusPicks := or $userPicks.BonusThursdayPicks $userPicks.BonusFridayPicks -}}
-{{if $hasAnyBonusPicks -}}
-<div class="regular-picks-section">
-<div class="picks-category-header">REMAINING PICKS</div>
-<div class="picks-list">
-{{range sortPicksByGameTime $userPicks.Picks $games -}}
-{{$currentPick := . -}}
-{{$isBonus := false -}}
-{{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
-{{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
-{{if not $isBonus -}}
-{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-{{end -}}
-{{end -}}
-</div>
-</div>
-{{else -}}
-<div class="regular-picks-section">
-<div class="picks-list">
-{{range sortPicksByGameTime $userPicks.Picks $games -}}
-{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-{{end -}}
-</div>
-</div>
-{{end -}}
-{{end -}}
+{{/* Check if this is a modern season (2025+) for daily display */}}
+{{if ge $season 2025}}
+    {{/* MODERN: 2025+ Daily Grouping Display */}}
+    {{if hasDailyGroups $userPicks}}
+        {{template "modern-daily-picks" dict "DailyPickGroups" $userPicks.DailyPickGroups "Games" $games "IsCurrentUser" $isCurrentUser}}
+    {{else}}
+        {{/* Fallback: if DailyPickGroups not populated, show all picks in one section */}}
+        {{if $userPicks.Picks}}
+        <div class="regular-picks-section">
+        <div class="picks-list">
+        {{range sortPicksByGameTime $userPicks.Picks $games -}}
+        {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+        {{end -}}
+        </div>
+        </div>
+        {{end}}
+    {{end}}
+{{else}}
+    {{/* LEGACY: 2023-2024 Bonus Day Logic */}}
+    {{if $userPicks.BonusThursdayPicks -}}
+    <div class="regular-picks-section">
+    <div class="picks-category-header">BONUS THURSDAY</div>
+    <div class="picks-list">
+    {{range sortPicksByGameTime $userPicks.BonusThursdayPicks $games -}}
+    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+    {{end -}}
+    </div>
+    </div>
+    {{end -}}
+    {{if $userPicks.BonusFridayPicks -}}
+    <div class="regular-picks-section">
+    <div class="picks-category-header">BONUS FRIDAY</div>
+    <div class="picks-list">
+    {{range sortPicksByGameTime $userPicks.BonusFridayPicks $games -}}
+    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+    {{end -}}
+    </div>
+    </div>
+    {{end -}}
+    {{if $userPicks.Picks -}}
+    {{$hasAnyBonusPicks := or $userPicks.BonusThursdayPicks $userPicks.BonusFridayPicks -}}
+    {{if $hasAnyBonusPicks -}}
+    <div class="regular-picks-section">
+    <div class="picks-category-header">REMAINING PICKS</div>
+    <div class="picks-list">
+    {{range sortPicksByGameTime $userPicks.Picks $games -}}
+    {{$currentPick := . -}}
+    {{$isBonus := false -}}
+    {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
+    {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
+    {{if not $isBonus -}}
+    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+    {{end -}}
+    {{end -}}
+    </div>
+    </div>
+    {{else -}}
+    <div class="regular-picks-section">
+    <div class="picks-list">
+    {{range sortPicksByGameTime $userPicks.Picks $games -}}
+    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
+    {{end -}}
+    </div>
+    </div>
+    {{end -}}
+    {{end -}}
+{{end}}
 
 {{/* Show hidden pick counts if user is not viewing their own picks */}}
 {{if and (not $isCurrentUser) $userPicks.HiddenPickCounts -}}
@@ -1238,3 +1382,25 @@
     </div>
 </div>
 {{end}}
+
+{{define "modern-daily-picks"}}
+{{$dailyPickGroups := .DailyPickGroups}}
+{{$games := .Games}}
+{{$isCurrentUser := .IsCurrentUser}}
+{{/* Iterate through each day's picks - they'll be ordered by game time within each day */}}
+{{range $date, $dayPicks := $dailyPickGroups}}
+{{if $dayPicks}}
+{{/* Convert date to day name for display */}}
+{{$dayName := getDayNameFromDate $date}}
+<div class="regular-picks-section">
+<div class="picks-category-header">{{$dayName}} GAMES</div>
+<div class="picks-list">
+{{range sortPicksByGameTime $dayPicks $games}}
+{{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
+{{end}}
+</div>
+</div>
+{{end}}
+{{end}}
+{{end}}
+

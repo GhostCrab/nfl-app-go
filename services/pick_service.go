@@ -152,6 +152,22 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 		}
 	}
 	
+	// MODERN: Populate daily pick groups for 2025+ seasons
+	if models.IsModernSeason(season) {
+		// Get games for this week to support daily grouping
+		games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
+		if err != nil {
+			log.Printf("Warning: failed to get games for daily grouping: %v", err)
+		} else {
+			// Convert to slice for model functions
+			gameSlice := make([]models.Game, len(games))
+			for i, game := range games {
+				gameSlice[i] = *game
+			}
+			userPicks.PopulateDailyPickGroups(gameSlice, season)
+		}
+	}
+	
 	return userPicks, nil
 }
 
@@ -260,6 +276,31 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 		}
 		
 		result = append(result, userPicksData)
+	}
+	
+	// MODERN: Populate daily pick groups for 2025+ seasons
+	if models.IsModernSeason(season) {
+		// Get games for this week to support daily grouping
+		games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
+		if err != nil {
+			log.Printf("Warning: failed to get games for daily grouping: %v", err)
+		} else {
+			// Convert to slice for model functions
+			gameSlice := make([]models.Game, len(games))
+			for i, game := range games {
+				gameSlice[i] = *game
+			}
+			
+			// Populate daily groups for each user
+			for _, userPicks := range result {
+				log.Printf("PickService: BEFORE PopulateDailyPickGroups - User %s has %d picks, DailyPickGroups: %v", userPicks.UserName, len(userPicks.Picks), userPicks.DailyPickGroups != nil)
+				userPicks.PopulateDailyPickGroups(gameSlice, season)
+				log.Printf("PickService: AFTER PopulateDailyPickGroups - User %s DailyPickGroups has %d groups", userPicks.UserName, len(userPicks.DailyPickGroups))
+				for date, picks := range userPicks.DailyPickGroups {
+					log.Printf("PickService: User %s - Date %s has %d picks", userPicks.UserName, date, len(picks))
+				}
+			}
+		}
 	}
 	
 	// Sort by user name
@@ -944,5 +985,113 @@ func (s *PickService) checkAndTriggerScoring(ctx context.Context, season, week i
 			}
 		}
 	}
+}
+
+// ===== MODERN SCORING: 2025+ Daily Parlay System =====
+
+// ProcessDailyParlayScoring calculates and saves daily parlay scores for modern seasons (2025+)
+func (s *PickService) ProcessDailyParlayScoring(ctx context.Context, season, week int) error {
+	if !models.IsModernSeason(season) {
+		return fmt.Errorf("daily parlay scoring only applies to modern seasons (2025+), got season %d", season)
+	}
+	
+	log.Printf("Processing daily parlay scoring for Season %d, Week %d", season, week)
+	
+	// Get all users
+	users, err := s.userRepo.GetAllUsers()
+	if err != nil {
+		return fmt.Errorf("failed to get users: %w", err)
+	}
+	
+	// Get all games for the week to support day grouping
+	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
+	if err != nil {
+		return fmt.Errorf("failed to get games for week: %w", err)
+	}
+	
+	// Convert to slice for model functions
+	gameSlice := make([]models.Game, len(games))
+	for i, game := range games {
+		gameSlice[i] = *game
+	}
+	
+	// Process each user
+	for _, user := range users {
+		dailyScores, err := s.CalculateUserDailyParlayScores(ctx, user.ID, season, week, gameSlice)
+		if err != nil {
+			log.Printf("Warning: failed to calculate daily parlay scores for user %d: %v", user.ID, err)
+			continue
+		}
+		
+		// Update user's record with daily scores
+		if err := s.UpdateUserDailyParlayRecord(ctx, user.ID, season, week, dailyScores); err != nil {
+			log.Printf("Warning: failed to save daily parlay scores for user %d: %v", user.ID, err)
+			continue
+		}
+		
+		totalPoints := 0
+		for _, points := range dailyScores {
+			totalPoints += points
+		}
+		log.Printf("User %d earned %d total points across %d days for Week %d", 
+			user.ID, totalPoints, len(dailyScores), week)
+	}
+	
+	log.Printf("Completed daily parlay scoring for Season %d, Week %d", season, week)
+	return nil
+}
+
+// CalculateUserDailyParlayScores calculates points for each day for a user in modern seasons
+func (s *PickService) CalculateUserDailyParlayScores(ctx context.Context, userID, season, week int, games []models.Game) (map[string]int, error) {
+	// Get user's picks for the week
+	userPicks, err := s.GetUserPicksForWeek(ctx, userID, season, week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user picks: %w", err)
+	}
+	
+	// Group picks by Pacific timezone date
+	dailyPickGroups := models.GroupPicksByDay(userPicks.Picks, games)
+	
+	// Calculate points for each day
+	dailyScores := make(map[string]int)
+	for date, picks := range dailyPickGroups {
+		points := models.CalculateDailyParlayPoints(picks)
+		if points > 0 {
+			dailyScores[date] = points
+		}
+		
+		log.Printf("User %d, Date %s: %d picks → %d points", userID, date, len(picks), points)
+	}
+	
+	return dailyScores, nil
+}
+
+// UpdateUserDailyParlayRecord updates a user's daily parlay record in the database
+func (s *PickService) UpdateUserDailyParlayRecord(ctx context.Context, userID, season, week int, dailyScores map[string]int) error {
+	// Calculate total points for the week
+	totalPoints := 0
+	for _, points := range dailyScores {
+		totalPoints += points
+	}
+	
+	// For now, store in the existing ParlayScore structure with total points
+	// Future enhancement: could add a DailyParlayScore model for more granular storage
+	parlayScore := &models.ParlayScore{
+		UserID:       userID,
+		Season:       season,
+		Week:         week,
+		TotalPoints:  totalPoints,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+		// MODERN: Store daily breakdown as JSON or separate table
+		// For now, just store total in existing structure
+	}
+	
+	// Save to database
+	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
+		return fmt.Errorf("failed to save daily parlay scores: %w", err)
+	}
+	
+	return nil
 }
 

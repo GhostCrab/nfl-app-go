@@ -328,3 +328,56 @@ func (g *Game) GetLiveStatusString() string {
 	
 	return strings.Join(parts, ": ")
 }
+
+// IsModernSeason returns true for seasons that use daily scoring (2025+)
+func IsModernSeason(season int) bool {
+	return season >= 2025
+}
+
+// GetPacificTimeLocation returns Pacific timezone location, with fallback
+func GetPacificTimeLocation() *time.Location {
+	// Try to load America/Los_Angeles timezone
+	if loc, err := time.LoadLocation("America/Los_Angeles"); err == nil {
+		return loc
+	}
+	
+	// Fallback: Create fixed offset for Pacific Standard Time (UTC-8)
+	// Note: This doesn't handle DST, but better than UTC for game grouping
+	return time.FixedZone("PST", -8*3600)
+}
+
+// GetGameDateInPacific returns the game's date in Pacific timezone (YYYY-MM-DD format)
+func (g *Game) GetGameDateInPacific() string {
+	pacificLoc := GetPacificTimeLocation()
+	return g.Date.In(pacificLoc).Format("2006-01-02")
+}
+
+// GetGameDayName returns the day name in Pacific timezone (e.g., "Thursday", "Sunday")
+func (g *Game) GetGameDayName() string {
+	pacificLoc := GetPacificTimeLocation()
+	return g.Date.In(pacificLoc).Format("Monday")
+}
+
+// GroupGamesByDay groups games by their Pacific timezone date
+func GroupGamesByDay(games []Game) map[string][]Game {
+	dayGroups := make(map[string][]Game)
+	
+	for _, game := range games {
+		dayKey := game.GetGameDateInPacific()
+		dayGroups[dayKey] = append(dayGroups[dayKey], game)
+	}
+	
+	return dayGroups
+}
+
+// GroupGamesByDayName groups games by day name (Thursday, Friday, etc.) in Pacific timezone
+func GroupGamesByDayName(games []Game) map[string][]Game {
+	dayGroups := make(map[string][]Game)
+	
+	for _, game := range games {
+		dayName := game.GetGameDayName()
+		dayGroups[dayName] = append(dayGroups[dayName], game)
+	}
+	
+	return dayGroups
+}

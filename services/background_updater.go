@@ -159,24 +159,36 @@ func (bu *BackgroundUpdater) updateGames() {
 	// Check for completed parlay categories and trigger immediate scoring
 	completedCategories := bu.checkForCompletedParlayCategories(games)
 	
-	// Process parlay scoring for completed categories (immediate scoring)
+	// Process parlay scoring for completed categories
 	for weekCategory := range completedCategories {
-		log.Printf("BackgroundUpdater: Parlay category completed for Season %d Week %d Category %s, triggering immediate scoring", 
-			bu.currentSeason, weekCategory.Week, weekCategory.Category)
-		if err := bu.pickService.ProcessParlayCategory(ctx, bu.currentSeason, weekCategory.Week, weekCategory.Category); err != nil {
-			log.Printf("BackgroundUpdater: Failed to process parlay scoring for Season %d Week %d Category %s: %v", 
-				bu.currentSeason, weekCategory.Week, weekCategory.Category, err)
+		// LEGACY: 2023-2024 use category-based scoring
+		if !models.IsModernSeason(bu.currentSeason) {
+			log.Printf("BackgroundUpdater: LEGACY parlay category completed for Season %d Week %d Category %s, triggering immediate scoring", 
+				bu.currentSeason, weekCategory.Week, weekCategory.Category)
+			if err := bu.pickService.ProcessParlayCategory(ctx, bu.currentSeason, weekCategory.Week, weekCategory.Category); err != nil {
+				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d Category %s: %v", 
+					bu.currentSeason, weekCategory.Week, weekCategory.Category, err)
+			}
 		}
 	}
 	
-	// Also check for completed weeks for full week processing (legacy compatibility)
+	// Check for completed weeks and trigger appropriate scoring system
 	completedWeeks := bu.checkForCompletedWeeks(games)
 	
-	// Process parlay scoring for completed weeks (full week processing)
+	// Process week completion with season-appropriate scoring
 	for _, week := range completedWeeks {
-		log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering full week parlay scoring", bu.currentSeason, week)
-		if err := bu.pickService.ProcessWeekParlayScoring(ctx, bu.currentSeason, week); err != nil {
-			log.Printf("BackgroundUpdater: Failed to process parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
+		if models.IsModernSeason(bu.currentSeason) {
+			// MODERN: 2025+ use daily parlay scoring
+			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering MODERN daily parlay scoring", bu.currentSeason, week)
+			if err := bu.pickService.ProcessDailyParlayScoring(ctx, bu.currentSeason, week); err != nil {
+				log.Printf("BackgroundUpdater: Failed to process MODERN daily parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
+			}
+		} else {
+			// LEGACY: 2023-2024 use traditional week-based scoring
+			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering LEGACY week parlay scoring", bu.currentSeason, week)
+			if err := bu.pickService.ProcessWeekParlayScoring(ctx, bu.currentSeason, week); err != nil {
+				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
+			}
 		}
 	}
 	
