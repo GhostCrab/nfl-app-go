@@ -26,17 +26,21 @@ type BackgroundUpdater struct {
 	running      bool
 	lastUpdateType string // Track what type of update we last did
 	lastOddsUpdate time.Time // Track when we last fetched odds
+	processedWeeks map[int]bool // Track which weeks have already been scored
+	processedCategories map[WeekCategory]bool // Track which categories have already been scored
 }
 
 // NewBackgroundUpdater creates a new background updater service
 func NewBackgroundUpdater(espnService *ESPNService, gameRepo *database.MongoGameRepository, pickService *PickService, currentSeason int) *BackgroundUpdater {
 	return &BackgroundUpdater{
-		espnService:   espnService,
-		gameRepo:      gameRepo,
-		pickService:   pickService,
-		currentSeason: currentSeason,
-		stopChan:      make(chan bool),
-		running:       false,
+		espnService:         espnService,
+		gameRepo:            gameRepo,
+		pickService:         pickService,
+		currentSeason:       currentSeason,
+		stopChan:            make(chan bool),
+		running:             false,
+		processedWeeks:      make(map[int]bool),
+		processedCategories: make(map[WeekCategory]bool),
 	}
 }
 
@@ -127,15 +131,7 @@ func (bu *BackgroundUpdater) updateGames() {
 			}
 		}
 		
-		// Debug logging for live games to check status display
-		if games[i].State == models.GameStateInPlay && games[i].HasStatus() {
-			log.Printf("BackgroundUpdater: Live Game %d (%s vs %s) - Quarter=%d, State=%s", 
-				games[i].ID, games[i].Away, games[i].Home, games[i].Quarter, games[i].State)
-			log.Printf("  ESPN Status: Clock='%s', StatusName='%s', Possession=%s", 
-				games[i].Status.DisplayClock, games[i].Status.StatusName, games[i].Status.Possession)
-			log.Printf("  Display Logic: GetGameClock()='%s', GetLiveStatusString()='%s'", 
-				games[i].GetGameClock(), games[i].GetLiveStatusString())
-		}
+		// Removed verbose live game logging for cleaner monitoring
 		
 		gamesToUpdate = append(gamesToUpdate, &games[i])
 	}
@@ -149,7 +145,7 @@ func (bu *BackgroundUpdater) updateGames() {
 	}
 	
 	// Write all games to database - MongoDB change stream will detect actual document changes
-	log.Printf("BackgroundUpdater: Writing %d games to database", len(gamesToUpdate))
+	// Removed verbose "Writing X games to database" log for cleaner monitoring
 	err = bu.gameRepo.BulkUpsertGames(gamesToUpdate)
 	if err != nil {
 		log.Printf("BackgroundUpdater: Failed to update games in database: %v", err)
@@ -161,6 +157,11 @@ func (bu *BackgroundUpdater) updateGames() {
 	
 	// Process parlay scoring for completed categories
 	for weekCategory := range completedCategories {
+		// Skip if this category has already been processed
+		if bu.processedCategories[weekCategory] {
+			continue
+		}
+		
 		// LEGACY: 2023-2024 use category-based scoring
 		if !models.IsModernSeason(bu.currentSeason) {
 			log.Printf("BackgroundUpdater: LEGACY parlay category completed for Season %d Week %d Category %s, triggering immediate scoring", 
@@ -168,6 +169,9 @@ func (bu *BackgroundUpdater) updateGames() {
 			if err := bu.pickService.ProcessParlayCategory(ctx, bu.currentSeason, weekCategory.Week, weekCategory.Category); err != nil {
 				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d Category %s: %v", 
 					bu.currentSeason, weekCategory.Week, weekCategory.Category, err)
+			} else {
+				// Mark category as processed
+				bu.processedCategories[weekCategory] = true
 			}
 		}
 	}
@@ -177,17 +181,41 @@ func (bu *BackgroundUpdater) updateGames() {
 	
 	// Process week completion with season-appropriate scoring
 	for _, week := range completedWeeks {
+		// Skip if this week has already been processed in this session
+		if bu.processedWeeks[week] {
+			continue
+		}
+		
+		// Check if parlay scores already exist in database for this week
+		// If scores exist, skip processing to avoid duplicate scoring
+		hasExistingScores, err := bu.pickService.CheckWeekHasParlayScores(ctx, bu.currentSeason, week)
+		if err != nil {
+			log.Printf("BackgroundUpdater: Error checking existing scores for Season %d Week %d: %v", bu.currentSeason, week, err)
+			continue
+		}
+		if hasExistingScores {
+			log.Printf("BackgroundUpdater: Season %d Week %d already has parlay scores, skipping automatic scoring", bu.currentSeason, week)
+			bu.processedWeeks[week] = true // Mark as processed to avoid repeated checks
+			continue
+		}
+		
 		if models.IsModernSeason(bu.currentSeason) {
 			// MODERN: 2025+ use daily parlay scoring
 			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering MODERN daily parlay scoring", bu.currentSeason, week)
 			if err := bu.pickService.ProcessDailyParlayScoring(ctx, bu.currentSeason, week); err != nil {
 				log.Printf("BackgroundUpdater: Failed to process MODERN daily parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
+			} else {
+				// Mark week as processed
+				bu.processedWeeks[week] = true
 			}
 		} else {
 			// LEGACY: 2023-2024 use traditional week-based scoring
 			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering LEGACY week parlay scoring", bu.currentSeason, week)
 			if err := bu.pickService.ProcessWeekParlayScoring(ctx, bu.currentSeason, week); err != nil {
 				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
+			} else {
+				// Mark week as processed
+				bu.processedWeeks[week] = true
 			}
 		}
 	}

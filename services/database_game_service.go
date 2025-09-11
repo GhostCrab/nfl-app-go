@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -64,6 +65,18 @@ func (s *DatabaseGameService) GetGamesBySeason(season int) ([]models.Game, error
 	// demoGames := s.applyDemoEffects(games) // DISABLED for analytics
 	
 	return games, nil
+}
+
+func (s *DatabaseGameService) GetGameByID(gameID int) (*models.Game, error) {
+	ctx := context.Background()
+	game, err := s.gameRepo.FindByESPNID(ctx, gameID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game %d: %w", gameID, err)
+	}
+	if game == nil {
+		return nil, fmt.Errorf("game with ID %d not found", gameID)
+	}
+	return game, nil
 }
 
 func (s *DatabaseGameService) GetGamesByWeek(week, season int) ([]*models.Game, error) {

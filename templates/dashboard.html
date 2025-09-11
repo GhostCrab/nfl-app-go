@@ -349,15 +349,35 @@
 <div class="picks-category-header">HIDDEN PICKS</div>
 <div class="hidden-picks-summary">
 {{/* Display hidden picks in chronological order */}}
-{{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday/Monday") -}}
-{{range $orderedDays -}}
-{{$count := index $userPicks.HiddenPickCounts . -}}
-{{if gt $count 0 -}}
-<div class="hidden-pick-count">
-<span class="day-name">{{.}}:</span>
-<span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
-</div>
-{{end -}}
+{{/* Check if this is a modern season (2025+) based on the presence of separate Sunday/Monday keys */}}
+{{$isModernSeason := false -}}
+{{if index $userPicks.HiddenPickCounts "Sunday"}}{{$isModernSeason = true}}{{end -}}
+{{if index $userPicks.HiddenPickCounts "Monday"}}{{$isModernSeason = true}}{{end -}}
+
+{{if $isModernSeason -}}
+    {{/* Modern seasons: separate Sunday and Monday */}}
+    {{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday" "Monday") -}}
+    {{range $orderedDays -}}
+    {{$count := index $userPicks.HiddenPickCounts . -}}
+    {{if gt $count 0 -}}
+    <div class="hidden-pick-count">
+    <span class="day-name">{{.}}:</span>
+    <span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
+    </div>
+    {{end -}}
+    {{end -}}
+{{else -}}
+    {{/* Legacy seasons: combined Sunday/Monday */}}
+    {{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday/Monday") -}}
+    {{range $orderedDays -}}
+    {{$count := index $userPicks.HiddenPickCounts . -}}
+    {{if gt $count 0 -}}
+    <div class="hidden-pick-count">
+    <span class="day-name">{{.}}:</span>
+    <span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
+    </div>
+    {{end -}}
+    {{end -}}
 {{end -}}
 <div class="hidden-picks-note">Picks will be revealed based on game schedule</div>
 </div>
@@ -563,10 +583,11 @@
                 {{end}}
             </div>
             <div class="pick-details">
+                <!-- DEBUG: TeamName='{{$pick.TeamName}}' PickType='{{$pick.PickType}}' TeamID={{$pick.TeamID}} -->
                 {{if $pick.TeamName}}
                     {{if eq $pick.PickType "over_under"}}
                         <!-- Over/Under pick display -->
-                        {{if eq $pick.TeamName "Over"}}
+                        {{if eq $pick.TeamID 99}}
                             <img class="team-img" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR"/>
                             {{if and $game $game.HasOdds}}
                                 <div class="pick-value">
@@ -876,23 +897,9 @@
             }
             
             if (newWeek !== currentWeek || newSeason !== currentSeason) {
-                // Determine animation direction
-                const goingForward = (newWeek > currentWeek) || (newWeek === 1 && currentWeek === 18) || (newSeason > currentSeason);
-                const animationClass = goingForward ? 'slide-left' : 'slide-right';
-                
                 // Update the form values
                 weekSelect.value = newWeek;
                 seasonInput.value = newSeason;
-                
-                // Add animation class
-                const dashboardContent = document.getElementById('dashboard-content');
-                if (dashboardContent) {
-                    dashboardContent.classList.add(animationClass);
-                    // Remove class after animation completes
-                    setTimeout(() => {
-                        dashboardContent.classList.remove(animationClass);
-                    }, 300);
-                }
                 
                 // Trigger the HTMX change event on the select element
                 htmx.trigger(weekSelect, 'change');
@@ -955,22 +962,9 @@
                 }
                 
                 if (newWeek !== currentWeek || newSeason !== currentSeason) {
-                    // Determine animation direction (reverse of swipe direction for intuitive feel)
-                    const animationClass = deltaX > 0 ? 'slide-right' : 'slide-left';
-                    
                     // Update the form values
                     weekSelect.value = newWeek;
                     seasonInput.value = newSeason;
-                    
-                    // Add animation class
-                    const dashboardContent = document.getElementById('dashboard-content');
-                    if (dashboardContent) {
-                        dashboardContent.classList.add(animationClass);
-                        // Remove class after animation completes
-                        setTimeout(() => {
-                            dashboardContent.classList.remove(animationClass);
-                        }, 300);
-                    }
                     
                     // Trigger the HTMX change event on the select element
                     htmx.trigger(weekSelect, 'change');
@@ -1283,15 +1277,35 @@
 <div class="picks-category-header">HIDDEN PICKS</div>
 <div class="hidden-picks-summary">
 {{/* Display hidden picks in chronological order */}}
-{{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday/Monday") -}}
-{{range $orderedDays -}}
-{{$count := index $userPicks.HiddenPickCounts . -}}
-{{if gt $count 0 -}}
-<div class="hidden-pick-count">
-<span class="day-name">{{.}}:</span>
-<span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
-</div>
-{{end -}}
+{{/* Check if this is a modern season (2025+) based on the presence of separate Sunday/Monday keys */}}
+{{$isModernSeason := false -}}
+{{if index $userPicks.HiddenPickCounts "Sunday"}}{{$isModernSeason = true}}{{end -}}
+{{if index $userPicks.HiddenPickCounts "Monday"}}{{$isModernSeason = true}}{{end -}}
+
+{{if $isModernSeason -}}
+    {{/* Modern seasons: separate Sunday and Monday */}}
+    {{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday" "Monday") -}}
+    {{range $orderedDays -}}
+    {{$count := index $userPicks.HiddenPickCounts . -}}
+    {{if gt $count 0 -}}
+    <div class="hidden-pick-count">
+    <span class="day-name">{{.}}:</span>
+    <span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
+    </div>
+    {{end -}}
+    {{end -}}
+{{else -}}
+    {{/* Legacy seasons: combined Sunday/Monday */}}
+    {{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday/Monday") -}}
+    {{range $orderedDays -}}
+    {{$count := index $userPicks.HiddenPickCounts . -}}
+    {{if gt $count 0 -}}
+    <div class="hidden-pick-count">
+    <span class="day-name">{{.}}:</span>
+    <span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
+    </div>
+    {{end -}}
+    {{end -}}
 {{end -}}
 <div class="hidden-picks-note">Picks will be revealed based on game schedule</div>
 </div>
@@ -1392,9 +1406,9 @@
 {{if $dayPicks}}
 {{/* Convert date to day name for display */}}
 {{$dayName := getDayNameFromDate $date}}
-<div class="regular-picks-section">
-<div class="picks-category-header">{{$dayName}} GAMES</div>
-<div class="picks-list">
+<div class="daily-pick-group">
+<div class="daily-pick-header">{{$dayName}}</div>
+<div class="daily-picks-list">
 {{range sortPicksByGameTime $dayPicks $games}}
 {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser}}
 {{end}}

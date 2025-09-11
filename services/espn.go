@@ -149,14 +149,12 @@ func (e *ESPNService) GetScoreboardForYear(year int) ([]models.Game, error) {
 	endDate := fmt.Sprintf("%d0131", year+1)     // January 31st next year
 	url := fmt.Sprintf("%s?dates=%s-%s&limit=1000", e.baseURL, startDate, endDate)
 	
-	log.Printf("ESPN API: Fetching scoreboard from %s", url)
 	resp, err := e.client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch ESPN data: %w", err)
 	}
 	defer resp.Body.Close()
 
-	log.Printf("ESPN API: Scoreboard response status %d", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ESPN API returned status %d", resp.StatusCode)
 	}
@@ -166,9 +164,7 @@ func (e *ESPNService) GetScoreboardForYear(year int) ([]models.Game, error) {
 		return nil, fmt.Errorf("failed to decode ESPN response: %w", err)
 	}
 
-	log.Printf("ESPN API: Received %d events", len(espnResp.Events))
 	games := e.convertToGames(espnResp.Events)
-	log.Printf("ESPN API: Converted to %d games", len(games))
 	return games, nil
 }
 

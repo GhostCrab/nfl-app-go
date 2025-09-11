@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"nfl-app-go/models"
 	"time"
@@ -43,13 +44,15 @@ func (s *PickVisibilityService) FilterVisibleUserPicks(ctx context.Context, user
 	// Get games for the week to determine visibility
 	var games []models.Game
 	var err error
-	
-	if gameServiceWithSeason, ok := s.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+
+	if gameServiceWithSeason, ok := s.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		games, err = gameServiceWithSeason.GetGamesBySeason(season)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Filter to this week's games
 		weekGames := make([]models.Game, 0)
 		for _, game := range games {
@@ -64,42 +67,67 @@ func (s *PickVisibilityService) FilterVisibleUserPicks(ctx context.Context, user
 			return nil, err
 		}
 	}
-	
+
 	// Filter picks for each user
 	filteredUserPicks := make([]*models.UserPicks, 0, len(userPicks))
-	
+
 	for _, userPicksEntry := range userPicks {
 		if userPicksEntry == nil {
 			continue
 		}
-		
+
 		// Create filtered copy
 		filteredEntry := &models.UserPicks{
 			UserID:   userPicksEntry.UserID,
 			UserName: userPicksEntry.UserName,
 			Record:   userPicksEntry.Record,
 		}
-		
+
 		// Filter each pick category
 		filteredEntry.Picks = s.visibilityModel.GetVisiblePicksForUser(userPicksEntry.Picks, games, viewingUserID)
 		filteredEntry.SpreadPicks = s.visibilityModel.GetVisiblePicksForUser(userPicksEntry.SpreadPicks, games, viewingUserID)
 		filteredEntry.OverUnderPicks = s.visibilityModel.GetVisiblePicksForUser(userPicksEntry.OverUnderPicks, games, viewingUserID)
 		filteredEntry.BonusThursdayPicks = s.visibilityModel.GetVisiblePicksForUser(userPicksEntry.BonusThursdayPicks, games, viewingUserID)
 		filteredEntry.BonusFridayPicks = s.visibilityModel.GetVisiblePicksForUser(userPicksEntry.BonusFridayPicks, games, viewingUserID)
+
+		// Get hidden pick counts for this user - collect ALL picks from all arrays
+		allPicks := make([]models.Pick, 0)
 		
-		// Get hidden pick counts for this user (use only the main Picks array to avoid duplicates)
-		hiddenCounts := s.visibilityModel.GetHiddenPickCounts(userPicksEntry.Picks, games, viewingUserID)
+		// Add picks from all arrays to get complete count
+		allPicks = append(allPicks, userPicksEntry.Picks...)
+		allPicks = append(allPicks, userPicksEntry.BonusThursdayPicks...)
+		allPicks = append(allPicks, userPicksEntry.BonusFridayPicks...)
 		
+		// For modern seasons, also check DailyPickGroups
+		if userPicksEntry.DailyPickGroups != nil {
+			for _, dayPicks := range userPicksEntry.DailyPickGroups {
+				allPicks = append(allPicks, dayPicks...)
+			}
+		}
+		
+		// Remove duplicates by GameID and UserID to avoid counting same pick multiple times
+		seenPicks := make(map[string]bool)
+		uniquePicks := make([]models.Pick, 0)
+		for _, pick := range allPicks {
+			key := fmt.Sprintf("%d-%d-%d", pick.UserID, pick.GameID, pick.TeamID)
+			if !seenPicks[key] {
+				seenPicks[key] = true
+				uniquePicks = append(uniquePicks, pick)
+			}
+		}
+		
+		hiddenCounts := s.visibilityModel.GetHiddenPickCounts(uniquePicks, games, viewingUserID)
+
 		// Add hidden count metadata (we'll extend UserPicks model for this)
 		if hasHiddenPicks(hiddenCounts) {
 			// Store hidden counts in a way the template can access
 			// For now, we'll add them as a special field extension
 			filteredEntry.HiddenPickCounts = hiddenCounts
 		}
-		
+
 		filteredUserPicks = append(filteredUserPicks, filteredEntry)
 	}
-	
+
 	return filteredUserPicks, nil
 }
 
@@ -108,13 +136,15 @@ func (s *PickVisibilityService) GetVisibilityStatus(ctx context.Context, season,
 	// Get games for the week
 	var games []models.Game
 	var err error
-	
-	if gameServiceWithSeason, ok := s.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+
+	if gameServiceWithSeason, ok := s.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		games, err = gameServiceWithSeason.GetGamesBySeason(season)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Filter to this week's games
 		weekGames := make([]models.Game, 0)
 		for _, game := range games {
@@ -129,14 +159,14 @@ func (s *PickVisibilityService) GetVisibilityStatus(ctx context.Context, season,
 			return nil, err
 		}
 	}
-	
+
 	// Calculate visibility for each game
 	visibilityMap := make(map[int]models.PickVisibility)
 	for _, game := range games {
 		visibility := s.visibilityModel.CalculateVisibility(game)
 		visibilityMap[game.ID] = visibility
 	}
-	
+
 	return visibilityMap, nil
 }
 
@@ -146,27 +176,27 @@ func (s *PickVisibilityService) GetNextVisibilityChange(ctx context.Context, sea
 	if err != nil {
 		return nil, err
 	}
-	
+
 	currentTime := s.GetCurrentTime()
 	var nextChange *time.Time
-	
+
 	for _, visibility := range visibilityMap {
 		// Skip games that are already visible
 		if visibility.IsVisible {
 			continue
 		}
-		
+
 		// Check if this visibility change is sooner than current next change
 		if nextChange == nil || visibility.VisibleAt.Before(*nextChange) {
 			nextChange = &visibility.VisibleAt
 		}
 	}
-	
+
 	// Only return future times
 	if nextChange != nil && nextChange.Before(currentTime) {
 		return nil, nil // No future visibility changes
 	}
-	
+
 	return nextChange, nil
 }
 
@@ -176,16 +206,16 @@ func (s *PickVisibilityService) ShouldTriggerVisibilityUpdate(ctx context.Contex
 	if err != nil {
 		return false, err
 	}
-	
+
 	currentTime := s.GetCurrentTime()
-	
+
 	// Check if any games became visible since last check
 	for _, visibility := range visibilityMap {
 		if visibility.VisibleAt.After(lastCheck) && visibility.VisibleAt.Before(currentTime) {
 			return true, nil
 		}
 	}
-	
+
 	return false, nil
 }
 

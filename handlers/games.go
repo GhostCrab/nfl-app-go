@@ -74,7 +74,7 @@ func (h *GameHandler) SetVisibilityService(visibilityService *services.PickVisib
 // GetGames handles GET / and /games - displays dashboard
 func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HTTP: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
-	
+
 	// Handle debug datetime parameter for testing visibility
 	debugDateTimeStr := r.URL.Query().Get("datetime")
 	if debugDateTimeStr != "" && h.visibilityService != nil {
@@ -86,7 +86,7 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			if debugTime, err := time.ParseInLocation("2006-01-02T15:04", debugDateTimeStr, pacific); err == nil {
 				h.visibilityService.SetDebugDateTime(debugTime)
 				log.Printf("DEBUG: Set debug datetime to %v (parsed as Pacific time)", debugTime.Format("2006-01-02 15:04:05 MST"))
-				
+
 				// Check if we should enable demo games for games within 60 minutes
 				h.applyDebugGameStates(debugTime)
 			} else {
@@ -97,7 +97,7 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		// Clear debug time if no parameter provided
 		h.visibilityService.ClearDebugDateTime()
 	}
-	
+
 	// Get week filter from query params
 	weekStr := r.URL.Query().Get("week")
 	var selectedWeek int
@@ -106,7 +106,7 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			selectedWeek = w
 		}
 	}
-	
+
 	// Get season from query params, default to 2025
 	seasonStr := r.URL.Query().Get("season")
 	season := 2025 // Default to current season
@@ -115,30 +115,32 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			season = s
 		}
 	}
-	
+
 	var games []models.Game
 	var err error
-	
+
 	// Use GameService interface method that supports seasons
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+	if gameServiceWithSeason, ok := h.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		games, err = gameServiceWithSeason.GetGamesBySeason(season)
 	} else {
 		games, err = h.gameService.GetGames()
 	}
-	
+
 	if err != nil {
 		log.Printf("GameHandler: Error fetching games for season %d: %v", season, err)
 		http.Error(w, "Unable to fetch games", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Determine current week (use selected or auto-detect current week)
 	currentWeek := selectedWeek
 	if currentWeek == 0 {
 		currentWeek = h.getCurrentWeek(games)
 		log.Printf("GameHandler: Auto-detected current week: %d", currentWeek)
 	}
-	
+
 	// Always filter games by the determined current week
 	filteredGames := make([]models.Game, 0)
 	for _, game := range games {
@@ -147,24 +149,23 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	games = filteredGames
-	
+
 	// Sort games chronologically by kickoff time, then by home team name
 	sortGamesByKickoffTime(games)
-	
+
 	// Get current user from context (if authenticated)
 	user := middleware.GetUserFromContext(r)
-	
+
 	// Generate week list (1-18 for regular season)
 	weeks := make([]int, 18)
 	for i := range weeks {
 		weeks[i] = i + 1
 	}
-	
-	
+
 	// Get all users from database instead of mock users
 	var users []*models.User
 	// For now, skip trying to get users from authService since we need to access private userRepo field
-	
+
 	// Fallback to database users if authService users failed
 	if len(users) == 0 {
 		// Use actual database users (matching the imported picks)
@@ -178,7 +179,7 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			{ID: 6, Name: "BRAD", Email: "bradvassar@gmail.com"},
 		}
 	}
-	
+
 	// Load pick data for the current week if pick service is available
 	var userPicks []*models.UserPicks
 	if h.pickService != nil {
@@ -188,14 +189,14 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			log.Printf("GameHandler: Warning - failed to load picks for week %d, season %d: %v", currentWeek, season, err)
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		}
-		
-		// Apply pick visibility filtering for security  
+
+		// Apply pick visibility filtering for security
 		if h.visibilityService != nil {
 			viewingUserID := -1 // Default for anonymous users
 			if user != nil {
 				viewingUserID = user.ID
 			}
-			
+
 			filteredUserPicks, err := h.visibilityService.FilterVisibleUserPicks(r.Context(), userPicks, season, currentWeek, viewingUserID)
 			if err != nil {
 				log.Printf("GameHandler: Warning - failed to filter pick visibility: %v", err)
@@ -204,43 +205,46 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 				log.Printf("GameHandler: Applied pick visibility filtering for user ID %d", viewingUserID)
 			}
 		}
-		
+
 		// Apply demo effects to picks for Week 1 games (but avoid "pending" string)
 		// userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks) // DISABLED for analytics
-		
+
 		// Ensure all users have a pick entry, even if empty
 		userPicksMap := make(map[int]*models.UserPicks)
 		for _, up := range userPicks {
 			userPicksMap[up.UserID] = up
 		}
-		
+
 		// Add empty pick entries for users who don't have picks this week
 		for _, user := range users {
 			if _, exists := userPicksMap[user.ID]; !exists {
 				userPicks = append(userPicks, &models.UserPicks{
-					UserID:               user.ID,
-					UserName:             user.Name,
-					Picks:                []models.Pick{},
-					BonusThursdayPicks:   []models.Pick{},
-					BonusFridayPicks:     []models.Pick{},
-					Record:               models.UserRecord{},
+					UserID:             user.ID,
+					UserName:           user.Name,
+					Picks:              []models.Pick{},
+					BonusThursdayPicks: []models.Pick{},
+					BonusFridayPicks:   []models.Pick{},
+					Record:             models.UserRecord{},
 				})
 			}
 		}
 	} else {
 		log.Printf("GameHandler: WARNING - No pick service available")
 	}
-	
-	
-	
+
+	// Populate DailyPickGroups for modern seasons (2025+) before rendering template
+	for _, userPicks := range userPicks {
+		userPicks.PopulateDailyPickGroups(games, season)
+	}
+
 	data := struct {
-		Games       []models.Game
-		Title       string
-		User        *models.User
-		Users       []*models.User
-		UserPicks   []*models.UserPicks
-		Weeks       []int
-		CurrentWeek int
+		Games         []models.Game
+		Title         string
+		User          *models.User
+		Users         []*models.User
+		UserPicks     []*models.UserPicks
+		Weeks         []int
+		CurrentWeek   int
 		CurrentSeason int
 	}{
 		Games:         games,
@@ -255,10 +259,10 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is an HTMX request
 	isHTMXRequest := r.Header.Get("HX-Request") == "true"
-	
+
 	var templateName string
 	var contentType string
-	
+
 	if isHTMXRequest {
 		// HTMX request - return only the dashboard content
 		templateName = "dashboard-content"
@@ -270,10 +274,10 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		contentType = "text/html; charset=utf-8"
 		log.Printf("HTTP: Serving full page for week %d, season %d", currentWeek, season)
 	}
-	
+
 	// Set content type
 	w.Header().Set("Content-Type", contentType)
-	
+
 	// Execute the appropriate template
 	err = h.templates.ExecuteTemplate(w, templateName, data)
 	if err != nil {
@@ -281,7 +285,7 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	log.Printf("HTTP: Successfully served %s %s", r.Method, r.URL.Path)
 	log.Printf("DEBUG: Template data - UserPicks count: %d, User: %v", len(userPicks), user)
 }
@@ -289,38 +293,40 @@ func (h *GameHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 // RefreshGames handles game refresh requests from SSE events
 func (h *GameHandler) RefreshGames(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HTTP: SSE Game refresh request from %s", r.RemoteAddr)
-	
+
 	// Extract season and week from query parameters
 	seasonStr := r.URL.Query().Get("season")
 	weekStr := r.URL.Query().Get("week")
-	
+
 	season := 2025 // Default season
 	week := 1      // Default week
-	
+
 	if seasonStr != "" {
 		if parsedSeason, err := strconv.Atoi(seasonStr); err == nil {
 			season = parsedSeason
 		}
 	}
-	
+
 	if weekStr != "" {
 		if parsedWeek, err := strconv.Atoi(weekStr); err == nil {
 			week = parsedWeek
 		}
 	}
-	
+
 	// Fetch games for the specific season/week
 	var games []models.Game
 	var err error
-	
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+
+	if gameServiceWithSeason, ok := h.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		allGames, err := gameServiceWithSeason.GetGamesBySeason(season)
 		if err != nil {
 			log.Printf("RefreshGames: Error fetching games: %v", err)
 			http.Error(w, "Error fetching games", http.StatusInternalServerError)
 			return
 		}
-		
+
 		// Filter to specific week
 		for _, game := range allGames {
 			if game.Week == week {
@@ -335,14 +341,14 @@ func (h *GameHandler) RefreshGames(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	// Create template data
 	data := struct {
 		Games []models.Game
 	}{
 		Games: games,
 	}
-	
+
 	// Return only the game-grid template (games container content)
 	err = h.templates.ExecuteTemplate(w, "game-grid", data)
 	if err != nil {
@@ -350,34 +356,34 @@ func (h *GameHandler) RefreshGames(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	log.Printf("HTTP: Successfully refreshed games for season %d, week %d (%d games)", season, week, len(games))
 }
 
 // TestGameUpdate simulates a game update for testing SSE functionality
 func (h *GameHandler) TestGameUpdate(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HTTP: Test game update request from %s", r.RemoteAddr)
-	
+
 	// Get test parameters
 	gameIDStr := r.URL.Query().Get("gameId")
 	testType := r.URL.Query().Get("type") // "score", "state", "live"
-	
+
 	if gameIDStr == "" {
 		http.Error(w, "gameId parameter required", http.StatusBadRequest)
 		return
 	}
-	
+
 	gameID, err := strconv.Atoi(gameIDStr)
 	if err != nil {
 		http.Error(w, "Invalid gameId", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Default test type
 	if testType == "" {
 		testType = "score"
 	}
-	
+
 	// Simulate different types of game updates
 	switch testType {
 	case "score":
@@ -396,10 +402,10 @@ func (h *GameHandler) TestGameUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid test type. Use: score, state, or live", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Trigger SSE update
 	h.BroadcastStructuredUpdate("gameUpdate", fmt.Sprintf(`{"type":"testUpdate","gameId":%d,"testType":"%s","timestamp":%d}`, gameID, testType, time.Now().UnixMilli()))
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(fmt.Sprintf(`{"success":true,"message":"Test %s update triggered for game %d","gameId":%d,"type":"%s"}`, testType, gameID, gameID, testType)))
@@ -433,7 +439,7 @@ func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	if user != nil {
 		userID = user.ID
 	}
-	
+
 	log.Printf("SSE: New client connected from %s (UserID: %d)", r.RemoteAddr, userID)
 
 	// Set SSE headers
@@ -469,12 +475,12 @@ func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 			parts := strings.SplitN(message, ":", 2)
 			eventType := "gameUpdate" // default
 			data := message
-			
+
 			if len(parts) == 2 {
 				eventType = parts[0]
 				data = parts[1]
 			}
-			
+
 			fmt.Fprintf(w, "event: %s\n", eventType)
 			// Split data into lines and prefix each with "data: "
 			lines := strings.Split(data, "\n")
@@ -496,16 +502,12 @@ func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 
 // HandleDatabaseChange processes database changes and sends appropriate updates to SSE clients
 func (h *GameHandler) HandleDatabaseChange(event services.ChangeEvent) {
-	log.Printf("SSE: Processing change event: Collection=%s, Operation=%s, Season=%d, Week=%d, UserID=%d", 
-		event.Collection, event.Operation, event.Season, event.Week, event.UserID)
-
 	// Skip pick changes - these are now handled directly by SubmitPicks handler
 	if event.Collection == "picks" {
-		log.Printf("SSE: Skipping pick change event (handled by SubmitPicks)")
 		return
 	}
-	
-	// For game collection changes, send targeted HTML updates (following picks pattern)
+
+	// For game collection changes, send targeted HTML updates
 	if event.Collection == "games" && event.GameID != "" {
 		h.broadcastGameUpdate(event.GameID, event.Season, event.Week)
 	}
@@ -536,12 +538,12 @@ func (h *GameHandler) BroadcastUpdate() {
 
 	htmlContent := htmlBuffer.String()
 	log.Printf("SSE: Generated HTML content length: %d", len(htmlContent))
-	
+
 	if len(htmlContent) == 0 {
 		log.Printf("SSE: Warning - HTML content is empty!")
 		return
 	}
-	
+
 	// Send HTML update to all connected clients
 	h.BroadcastStructuredUpdate("gameUpdate", htmlContent)
 }
@@ -555,7 +557,7 @@ func (h *GameHandler) BroadcastStructuredUpdate(eventType, data string) {
 			// Client channel is full, skip
 		}
 	}
-	
+
 	log.Printf("SSE: Broadcasted %s update to %d clients", eventType, len(h.sseClients))
 }
 
@@ -572,91 +574,128 @@ func (h *GameHandler) broadcastToUser(userID int, eventType, data string) {
 			}
 		}
 	}
-	
+
 	log.Printf("SSE: Broadcasted %s update to %d clients for user %d", eventType, count, userID)
 }
 
 // getCurrentWeek determines the current NFL week based on game dates and season state
 func (h *GameHandler) getCurrentWeek(games []models.Game) int {
-	now := time.Now()
+	// Use Pacific time for current time since NFL games are scheduled in Pacific time
+	// and users expect week transitions to happen based on Pacific time
+	pacificLoc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		// Fallback to UTC-8 offset if timezone loading fails
+		pacificLoc = time.FixedZone("PST", -8*3600)
+	}
+	now := time.Now().In(pacificLoc)
 	
+	log.Printf("getCurrentWeek DEBUG: Current Pacific time: %v", now.Format("Mon Jan 2, 2006 15:04:05 MST"))
+
 	if len(games) == 0 {
 		return 1
 	}
-	
-	// Find earliest and latest game dates across all weeks
+
+	// Find earliest and latest game dates across all weeks (using Pacific time)
 	var earliestGame, latestGame time.Time
 	weekGames := make(map[int][]models.Game)
-	
+
 	for _, game := range games {
-		if earliestGame.IsZero() || game.Date.Before(earliestGame) {
-			earliestGame = game.Date
+		// Use Pacific time for game date comparisons
+		gamePacificTime := game.PacificTime()
+		if earliestGame.IsZero() || gamePacificTime.Before(earliestGame) {
+			earliestGame = gamePacificTime
 		}
-		if latestGame.IsZero() || game.Date.After(latestGame) {
-			latestGame = game.Date
+		if latestGame.IsZero() || gamePacificTime.After(latestGame) {
+			latestGame = gamePacificTime
 		}
-		
+
 		weekGames[game.Week] = append(weekGames[game.Week], game)
 	}
-	
+
 	// If current time is before the season starts, show Week 1
 	if now.Before(earliestGame) {
 		log.Printf("getCurrentWeek: Season hasn't started yet (earliest: %v), showing Week 1", earliestGame.Format("Jan 2, 2006"))
 		return 1
 	}
-	
+
 	// If current time is after the season ends, show Week 18
 	if now.After(latestGame.Add(7 * 24 * time.Hour)) { // Add 7 days buffer after last game
 		log.Printf("getCurrentWeek: Season has ended (latest: %v), showing Week 18", latestGame.Format("Jan 2, 2006"))
 		return 18
 	}
-	
+
 	// Find the current week by checking which week we're in
 	// Look for the week where:
 	// 1. Current time is after the week's first game started, OR
 	// 2. Current time is within 3 days before the week's first game
-	
+
 	for week := 1; week <= 18; week++ {
 		weekGamesList, exists := weekGames[week]
 		if !exists || len(weekGamesList) == 0 {
 			continue
 		}
-		
-		// Find earliest game in this week
+
+		// Find earliest game in this week (using Pacific time)
 		var earliestInWeek time.Time
 		for _, game := range weekGamesList {
-			if earliestInWeek.IsZero() || game.Date.Before(earliestInWeek) {
-				earliestInWeek = game.Date
+			gamePacificTime := game.PacificTime()
+			if earliestInWeek.IsZero() || gamePacificTime.Before(earliestInWeek) {
+				earliestInWeek = gamePacificTime
+			}
+		}
+
+		// Check if we're within the relevant time window for this week:
+		// - 3 days before the first game: show this week for preparation
+		// - During the week (until 2 days after the last game): show this week  
+		// - After that: move to next week
+		threeDaysBefore := earliestInWeek.Add(-3 * 24 * time.Hour)
+		
+		// Find the latest game in this week to determine when the week "ends"
+		var latestInWeek time.Time
+		for _, game := range weekGamesList {
+			gamePacificTime := game.PacificTime()
+			if latestInWeek.IsZero() || gamePacificTime.After(latestInWeek) {
+				latestInWeek = gamePacificTime
 			}
 		}
 		
-		// If we're within 3 days before this week's first game, or after it started
-		threeDaysBefore := earliestInWeek.Add(-3 * 24 * time.Hour)
-		if now.After(threeDaysBefore) && now.Before(earliestInWeek.Add(7 * 24 * time.Hour)) {
-			log.Printf("getCurrentWeek: Current time within Week %d window (games start: %v), showing Week %d", 
-				week, earliestInWeek.Format("Jan 2, 2006 15:04"), week)
+		// Week window: 3 days before first game until 2 days after last game
+		weekEndTime := latestInWeek.Add(2 * 24 * time.Hour)
+		
+		log.Printf("getCurrentWeek DEBUG: Week %d - earliest: %v, latest: %v, current: %v", 
+			week, earliestInWeek.Format("Mon Jan 2 15:04 MST"), latestInWeek.Format("Mon Jan 2 15:04 MST"), now.Format("Mon Jan 2 15:04 MST"))
+		log.Printf("getCurrentWeek DEBUG: Week %d - 3daysBefore: %v, weekEnd: %v", 
+			week, threeDaysBefore.Format("Mon Jan 2 15:04 MST"), weekEndTime.Format("Mon Jan 2 15:04 MST"))
+		log.Printf("getCurrentWeek DEBUG: Week %d - inWindow: %v", 
+			week, now.After(threeDaysBefore) && now.Before(weekEndTime))
+		
+		if now.After(threeDaysBefore) && now.Before(weekEndTime) {
+			log.Printf("getCurrentWeek: Current time within Week %d window (games: %v to %v), showing Week %d",
+				week, earliestInWeek.Format("Jan 2 15:04"), latestInWeek.Format("Jan 2 15:04"), week)
 			return week
 		}
 	}
-	
+
 	// Fallback: find the week with games closest to current time
 	currentWeek := 1
 	minTimeDiff := time.Duration(999999999999999) // Very large duration
-	
+
 	for week, weekGamesList := range weekGames {
 		for _, game := range weekGamesList {
-			timeDiff := game.Date.Sub(now)
+			// Use Pacific time for game date comparison
+			gamePacificTime := game.PacificTime()
+			timeDiff := gamePacificTime.Sub(now)
 			if timeDiff < 0 {
 				timeDiff = -timeDiff
 			}
-			
+
 			if timeDiff < minTimeDiff {
 				minTimeDiff = timeDiff
 				currentWeek = week
 			}
 		}
 	}
-	
+
 	log.Printf("getCurrentWeek: Using fallback logic, closest week: %d", currentWeek)
 	return currentWeek
 }
@@ -673,20 +712,20 @@ func (h *GameHandler) applyDemoEffectsToPicksForWeek1(userPicks []*models.UserPi
 		if userPicksPtr == nil {
 			continue
 		}
-		
+
 		// Create a copy of the UserPicks struct
 		userPicksCopy := *userPicksPtr
-		
+
 		// Apply demo effects to all pick categories
 		userPicksCopy.Picks = h.applyDemoEffectsToPicks(userPicksCopy.Picks)
 		userPicksCopy.SpreadPicks = h.applyDemoEffectsToPicks(userPicksCopy.SpreadPicks)
 		userPicksCopy.OverUnderPicks = h.applyDemoEffectsToPicks(userPicksCopy.OverUnderPicks)
 		userPicksCopy.BonusThursdayPicks = h.applyDemoEffectsToPicks(userPicksCopy.BonusThursdayPicks)
 		userPicksCopy.BonusFridayPicks = h.applyDemoEffectsToPicks(userPicksCopy.BonusFridayPicks)
-		
+
 		demoUserPicks[i] = &userPicksCopy
 	}
-	
+
 	return demoUserPicks
 }
 
@@ -695,24 +734,24 @@ func (h *GameHandler) applyDemoEffectsToPicks(picks []models.Pick) []models.Pick
 	if len(picks) == 0 {
 		return picks
 	}
-	
+
 	demoPicks := make([]models.Pick, len(picks))
 	for i, pick := range picks {
 		// Copy the pick
 		demoPicks[i] = pick
-		
+
 		// For Week 1 picks, make them appear as in-progress (use empty string to avoid "pending")
 		if pick.Week == 1 && (pick.Result == models.PickResultWin || pick.Result == models.PickResultLoss || pick.Result == models.PickResultPush) {
 			demoPicks[i].Result = models.PickResult("") // Empty string instead of "pending"
 		}
 	}
-	
+
 	return demoPicks
 }
 
 // GetGamesAPI handles GET /api/games - returns just the games grid HTML for AJAX requests
 func (h *GameHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
-	
+
 	// Get week filter from query params
 	weekStr := r.URL.Query().Get("week")
 	var selectedWeek int
@@ -721,7 +760,7 @@ func (h *GameHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
 			selectedWeek = w
 		}
 	}
-	
+
 	// Get season from query params, default to 2025
 	seasonStr := r.URL.Query().Get("season")
 	season := 2025
@@ -730,23 +769,25 @@ func (h *GameHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
 			season = s
 		}
 	}
-	
+
 	var games []models.Game
 	var err error
-	
+
 	// Use GameService interface method that supports seasons
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+	if gameServiceWithSeason, ok := h.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		games, err = gameServiceWithSeason.GetGamesBySeason(season)
 	} else {
 		games, err = h.gameService.GetGames()
 	}
-	
+
 	if err != nil {
 		log.Printf("API: Error fetching games for season %d: %v", season, err)
 		http.Error(w, "Unable to fetch games", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Filter by week if specified
 	if selectedWeek > 0 {
 		filteredGames := make([]models.Game, 0)
@@ -757,9 +798,9 @@ func (h *GameHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		games = filteredGames
 	}
-	
+
 	log.Printf("API: Returning %d games for week %d, season %d", len(games), selectedWeek, season)
-	
+
 	// Return just the game grid template
 	data := struct {
 		Games []models.Game
@@ -778,7 +819,7 @@ func (h *GameHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
 
 // GetDashboardDataAPI handles GET /api/dashboard - returns complete dashboard data including games and picks
 func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request) {
-	
+
 	// Get week filter from query params
 	weekStr := r.URL.Query().Get("week")
 	var selectedWeek int
@@ -787,7 +828,7 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 			selectedWeek = w
 		}
 	}
-	
+
 	// Get season from query params, default to 2025
 	seasonStr := r.URL.Query().Get("season")
 	season := 2025
@@ -796,30 +837,32 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 			season = s
 		}
 	}
-	
+
 	var games []models.Game
 	var err error
-	
+
 	// Use GameService interface method that supports seasons
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+	if gameServiceWithSeason, ok := h.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		games, err = gameServiceWithSeason.GetGamesBySeason(season)
 	} else {
 		games, err = h.gameService.GetGames()
 	}
-	
+
 	if err != nil {
 		log.Printf("API: Error fetching games for season %d: %v", season, err)
 		http.Error(w, "Unable to fetch games", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Determine current week (use selected or auto-detect current week)
 	currentWeek := selectedWeek
 	if currentWeek == 0 {
 		currentWeek = h.getCurrentWeek(games)
 		log.Printf("API: Auto-detected current week: %d", currentWeek)
 	}
-	
+
 	// Always filter games by the determined current week
 	filteredGames := make([]models.Game, 0)
 	for _, game := range games {
@@ -828,19 +871,19 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 		}
 	}
 	games = filteredGames
-	
+
 	// Sort games chronologically by kickoff time, then by home team name
 	sortGamesByKickoffTime(games)
-	
+
 	// Get current user from context (if authenticated)
 	user := middleware.GetUserFromContext(r)
-	
+
 	// Generate week list (1-18 for regular season)
 	weeks := make([]int, 18)
 	for i := range weeks {
 		weeks[i] = i + 1
 	}
-	
+
 	// Get all users
 	users := []*models.User{
 		{ID: 0, Name: "ANDREW", Email: "ackilpatrick@gmail.com"},
@@ -851,7 +894,7 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 		{ID: 5, Name: "TJ", Email: "tyerke@yahoo.com"},
 		{ID: 6, Name: "BRAD", Email: "bradvassar@gmail.com"},
 	}
-	
+
 	// Load pick data for the current week if pick service is available
 	var userPicks []*models.UserPicks
 	if h.pickService != nil {
@@ -861,14 +904,14 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 			log.Printf("API: Warning - failed to load picks for week %d, season %d: %v", currentWeek, season, err)
 			userPicks = []*models.UserPicks{} // Empty picks on error
 		}
-		
+
 		// Apply pick visibility filtering for security
 		if h.visibilityService != nil {
 			viewingUserID := -1 // Default for anonymous users
 			if user != nil {
 				viewingUserID = user.ID
 			}
-			
+
 			filteredUserPicks, err := h.visibilityService.FilterVisibleUserPicks(r.Context(), userPicks, season, currentWeek, viewingUserID)
 			if err != nil {
 				log.Printf("API: Warning - failed to filter pick visibility: %v", err)
@@ -877,23 +920,23 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 				log.Printf("API: Applied pick visibility filtering for user ID %d", viewingUserID)
 			}
 		}
-		
+
 		// Apply demo effects to picks for Week 1 games (but avoid "pending" string)
 		// userPicks = h.applyDemoEffectsToPicksForWeek1(userPicks) // DISABLED for analytics
 	} else {
 		log.Printf("API: WARNING - No pick service available")
 	}
-	
+
 	// Create response data structure
 	data := struct {
-		Games       []models.Game         `json:"games"`
-		UserPicks   []*models.UserPicks   `json:"userPicks"`
-		Users       []*models.User        `json:"users"`
-		User        *models.User          `json:"user"`
-		CurrentWeek int                   `json:"currentWeek"`
-		Season      int                   `json:"season"`
-		Weeks       []int                 `json:"weeks"`
-		Title       string                `json:"title"`
+		Games       []models.Game       `json:"games"`
+		UserPicks   []*models.UserPicks `json:"userPicks"`
+		Users       []*models.User      `json:"users"`
+		User        *models.User        `json:"user"`
+		CurrentWeek int                 `json:"currentWeek"`
+		Season      int                 `json:"season"`
+		Weeks       []int               `json:"weeks"`
+		Title       string              `json:"title"`
 	}{
 		Games:       games,
 		UserPicks:   userPicks,
@@ -904,54 +947,56 @@ func (h *GameHandler) GetDashboardDataAPI(w http.ResponseWriter, r *http.Request
 		Weeks:       weeks,
 		Title:       fmt.Sprintf("PC '%d - Dashboard", season%100),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		log.Printf("API: JSON encoding error: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 }
 
 // ShowPickPicker displays the pick picker modal/overlay
 func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 	log.Printf("PICK-PICKER: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 	log.Printf("PICK-PICKER: Query params: %v", r.URL.RawQuery)
-	
+
 	// Get week from query parameters
 	weekParam := r.URL.Query().Get("week")
 	week, err := strconv.Atoi(weekParam)
 	if err != nil || week < 1 || week > 18 {
 		week = h.getCurrentWeek([]models.Game{}) // Default to current week
 	}
-	
+
 	// Get season from query parameters
 	seasonParam := r.URL.Query().Get("season")
 	season, err := strconv.Atoi(seasonParam)
 	if err != nil || season < 2020 || season > 2030 {
 		season = 2025 // Default to current season
 	}
-	
+
 	// Get user from context (set by auth middleware)
 	user := middleware.GetUserFromContext(r)
-	
+
 	// Get games for the season
 	var allGames []models.Game
-	
+
 	// Use GameService interface method that supports seasons
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+	if gameServiceWithSeason, ok := h.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		allGames, err = gameServiceWithSeason.GetGamesBySeason(season)
 	} else {
 		allGames, err = h.gameService.GetGames()
 	}
-	
+
 	if err != nil {
 		log.Printf("Error getting games for week %d, season %d: %v", week, season, err)
 		http.Error(w, "Failed to load games", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Filter games by week and season - show all games but will disable non-scheduled ones
 	var availableGames []models.Game
 	for _, game := range allGames {
@@ -959,10 +1004,10 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 			availableGames = append(availableGames, game)
 		}
 	}
-	
+
 	// Sort games chronologically by kickoff time, then by home team name
 	sortGamesByKickoffTime(availableGames)
-	
+
 	// Get current user picks for this week if user is authenticated
 	var userPicks *models.UserPicks
 	if user != nil && h.pickService != nil {
@@ -974,7 +1019,7 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 			userPicks = picks
 		}
 	}
-	
+
 	// Create pick state map for template
 	pickState := make(map[int]map[int]bool) // pickState[gameID][templateKey] = selected
 	if userPicks != nil {
@@ -983,18 +1028,18 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 		allPicks = append(allPicks, userPicks.OverUnderPicks...)
 		allPicks = append(allPicks, userPicks.BonusThursdayPicks...)
 		allPicks = append(allPicks, userPicks.BonusFridayPicks...)
-		
+
 		// Create game lookup for team mapping
 		gameMap := make(map[int]models.Game)
 		for _, game := range availableGames {
 			gameMap[game.ID] = game
 		}
-		
+
 		for _, pick := range allPicks {
 			if pickState[pick.GameID] == nil {
 				pickState[pick.GameID] = make(map[int]bool)
 			}
-			
+
 			// Map database TeamID to template key
 			var templateKey int
 			if pick.TeamID == 98 {
@@ -1005,7 +1050,7 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 				// For spread picks, determine if it's away (1) or home (2)
 				awayTeamID := h.getESPNTeamID(game.Away)
 				homeTeamID := h.getESPNTeamID(game.Home)
-				
+
 				if pick.TeamID == awayTeamID {
 					templateKey = 1 // Away
 				} else if pick.TeamID == homeTeamID {
@@ -1025,12 +1070,12 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 				log.Printf("PICK-PICKER: Warning - Game %d not found for pick TeamID %d", pick.GameID, pick.TeamID)
 				continue
 			}
-			
+
 			pickState[pick.GameID][templateKey] = true
 			log.Printf("PICK-PICKER: Mapped pick GameID=%d, TeamID=%d, TeamName=%s -> templateKey=%d", pick.GameID, pick.TeamID, pick.TeamName, templateKey)
 		}
 	}
-	
+
 	data := struct {
 		Games         []models.Game
 		Week          int
@@ -1048,12 +1093,12 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 		User:          user,
 		PickState:     pickState,
 	}
-	
+
 	// Set content type for HTML response
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	
+
 	log.Printf("PICK-PICKER: Rendering template with %d games for week %d, season %d", len(availableGames), week, season)
-	
+
 	// Render pick picker template
 	err = h.templates.ExecuteTemplate(w, "pick-picker", data)
 	if err != nil {
@@ -1061,26 +1106,26 @@ func (h *GameHandler) ShowPickPicker(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Template error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	log.Printf("PICK-PICKER: Template rendered successfully")
 }
 
 // SubmitPicks handles pick submissions via HTMX form
 func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HTTP: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
-	
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// Get user from context
 	user := middleware.GetUserFromContext(r)
 	if user == nil {
 		http.Error(w, "Authentication required", http.StatusUnauthorized)
 		return
 	}
-	
+
 	// Parse form data
 	err := r.ParseForm()
 	if err != nil {
@@ -1088,45 +1133,47 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Get week and season from form
 	week, _ := strconv.Atoi(r.FormValue("week"))
 	season, _ := strconv.Atoi(r.FormValue("season"))
-	
+
 	if week < 1 || week > 18 || season < 2020 || season > 2030 {
 		http.Error(w, "Invalid week or season", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Get games data to resolve team names
 	var games []models.Game
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+	if gameServiceWithSeason, ok := h.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		games, err = gameServiceWithSeason.GetGamesBySeason(season)
 	} else {
 		games, err = h.gameService.GetGames()
 	}
-	
+
 	if err != nil {
 		log.Printf("Error fetching games for pick submission: %v", err)
 		http.Error(w, "Failed to fetch games data", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Create game lookup map
 	gameMap := make(map[int]models.Game)
 	for _, game := range games {
 		gameMap[game.ID] = game
 	}
 
-	// Parse picks from form data  
+	// Parse picks from form data
 	// Checkbox form fields: "pick-{gameID}-{away/home/98/99}" = "1"
 	var picks []*models.Pick
-	
+
 	for fieldName, values := range r.Form {
 		if len(values) == 0 || values[0] != "1" {
 			continue // Skip unchecked checkboxes
 		}
-		
+
 		if strings.HasPrefix(fieldName, "pick-") {
 			// Parse pick-{gameID}-{team} from the field name
 			parts := strings.Split(fieldName, "-")
@@ -1138,24 +1185,24 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 						log.Printf("Game %d not found for pick submission", gameID)
 						continue
 					}
-					
+
 					// Skip picks for games that have already started or completed
 					// (preserve existing picks by not including them in the replacement)
 					if game.State != models.GameStateScheduled {
 						log.Printf("Skipping pick for Game %d - game state is %s (not scheduled), will preserve existing picks", gameID, game.State)
 						continue
 					}
-					
+
 					var teamName string
 					var teamID int
 					pickType := models.PickTypeSpread // Default to spread pick
-					
+
 					switch parts[2] {
 					case "away":
 						teamName = game.Away
 						teamID = h.getESPNTeamID(game.Away) // Use actual ESPN team ID
 					case "home":
-						teamName = game.Home  
+						teamName = game.Home
 						teamID = h.getESPNTeamID(game.Home) // Use actual ESPN team ID
 					case "98":
 						teamName = "Under"
@@ -1168,12 +1215,12 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 					default:
 						continue // Skip unknown team types
 					}
-					
+
 					// Create pick using model helper
 					pick := models.CreatePickFromLegacyData(user.ID, gameID, teamID, season, week)
 					pick.PickType = pickType
 					pick.TeamName = teamName // Set the team name directly
-					
+
 					// Set pick description for template display
 					if pickType == models.PickTypeOverUnder {
 						pick.PickDescription = fmt.Sprintf("%s @ %s - %s", game.Away, game.Home, teamName)
@@ -1191,15 +1238,15 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 							pick.PickDescription = fmt.Sprintf("%s @ %s - %s (spread)", game.Away, game.Home, teamName)
 						}
 					}
-					
+
 					picks = append(picks, pick)
 				}
 			}
 		}
 	}
-	
+
 	log.Printf("User %d submitting %d picks for week %d, season %d", user.ID, len(picks), week, season)
-	
+
 	// Update picks via pick service (preserve existing picks for completed games)
 	if h.pickService != nil {
 		err := h.pickService.UpdateUserPicksForScheduledGames(context.Background(), user.ID, season, week, picks, gameMap)
@@ -1208,11 +1255,11 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to submit picks", http.StatusInternalServerError)
 			return
 		}
-		
+
 		// Trigger single SSE update after all database operations complete
 		h.broadcastPickUpdate(user.ID, season, week)
 	}
-	
+
 	// Return success response for HTMX
 	w.Header().Set("HX-Trigger", "picks-updated")
 	w.WriteHeader(http.StatusOK)
@@ -1224,19 +1271,21 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 	// Get fresh data for the updated week
 	var games []models.Game
 	var err error
-	
+
 	// Use GameService interface method that supports seasons
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+	if gameServiceWithSeason, ok := h.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		games, err = gameServiceWithSeason.GetGamesBySeason(season)
 	} else {
 		games, err = h.gameService.GetGames()
 	}
-	
+
 	if err != nil {
 		log.Printf("SSE: Error fetching games for pick update broadcast: %v", err)
 		return
 	}
-	
+
 	// Filter games by week
 	filteredGames := make([]models.Game, 0)
 	for _, game := range games {
@@ -1245,7 +1294,7 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		}
 	}
 	games = filteredGames
-	
+
 	// Get picks for ONLY the user who updated their picks
 	var updatedUserPicks *models.UserPicks
 	if h.pickService != nil {
@@ -1256,13 +1305,13 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		}
 		updatedUserPicks = userPicks
 	}
-	
+
 	// Generate weeks list
 	weeks := make([]int, 18)
 	for i := range weeks {
 		weeks[i] = i + 1
 	}
-	
+
 	// Get user info for the updated user
 	users := []*models.User{
 		{ID: 0, Name: "ANDREW", Email: "ackilpatrick@gmail.com"},
@@ -1273,7 +1322,7 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		{ID: 5, Name: "TJ", Email: "tyerke@yahoo.com"},
 		{ID: 6, Name: "BRAD", Email: "bradvassar@gmail.com"},
 	}
-	
+
 	var updatedUser *models.User
 	for _, user := range users {
 		if user.ID == userID {
@@ -1281,12 +1330,12 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 			break
 		}
 	}
-	
+
 	if updatedUser == nil {
 		log.Printf("SSE: Could not find user info for updated user %d", userID)
 		return
 	}
-	
+
 	// Send targeted update to all connected clients
 	for client := range h.sseClients {
 		// Find viewing user info for this client
@@ -1297,25 +1346,25 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 				break
 			}
 		}
-		
+
 		if viewingUser == nil {
 			log.Printf("SSE: Could not find user info for client UserID %d", client.UserID)
 			continue
 		}
-		
+
 		// Debug logging
 		log.Printf("SSE: Broadcasting user %s picks update to client %d", updatedUser.Name, client.UserID)
 		if updatedUserPicks != nil {
 			log.Printf("SSE: Updated user %s has %d picks", updatedUserPicks.UserName, len(updatedUserPicks.Picks))
 		}
-		
+
 		// Get all user picks for this week to render complete picks section
 		allUserPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, week)
 		if err != nil {
 			log.Printf("SSE: Error fetching all user picks for complete section render: %v", err)
 			continue
 		}
-		
+
 		// Apply pick visibility filtering for security
 		if h.visibilityService != nil {
 			filteredUserPicks, err := h.visibilityService.FilterVisibleUserPicks(context.Background(), allUserPicks, season, week, client.UserID)
@@ -1326,30 +1375,44 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 				log.Printf("SSE: Applied pick visibility filtering for user ID %d", client.UserID)
 			}
 		}
-		
+
 		// Render targeted OOB update for just the updated user's picks
 		var htmlContent strings.Builder
 		isCurrentUser := (client.UserID == userID)
-		
+
+		// Enrich picks with display fields before template rendering (CRITICAL for SSE updates)
+		log.Printf("SSE: Enriching %d picks for user %s", len(updatedUserPicks.Picks), updatedUser.Name)
+		for i := range updatedUserPicks.Picks {
+			pick := &updatedUserPicks.Picks[i]
+			log.Printf("SSE: BEFORE enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
+			
+			if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
+				log.Printf("SSE: Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
+				continue
+			}
+			
+			log.Printf("SSE: AFTER enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
+		}
+
 		// Populate DailyPickGroups for modern seasons (2025+)
 		updatedUserPicks.PopulateDailyPickGroups(games, season)
-		
+
 		templateData := map[string]interface{}{
 			"UserPicks":     updatedUserPicks,
 			"Games":         games,
 			"IsCurrentUser": isCurrentUser,
-			"IsFirst":       false, // Not needed for OOB updates
+			"IsFirst":       false,  // Not needed for OOB updates
 			"Season":        season, // Add season for template logic
 		}
-		
+
 		if err := h.templates.ExecuteTemplate(&htmlContent, "sse-user-picks-block", templateData); err != nil {
 			log.Printf("SSE: Template error for user picks block: %v", err)
 			continue
 		}
-		
+
 		// Get the rendered OOB content with hx-swap-oob="true" already in template
 		finalContent := strings.TrimSpace(htmlContent.String())
-		
+
 		// Debug the rendered content (much smaller now!)
 		log.Printf("SSE: Rendered user %d OOB picks content length: %d characters", userID, len(finalContent))
 		if len(finalContent) > 0 && len(finalContent) <= 200 {
@@ -1357,7 +1420,7 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		} else if len(finalContent) > 200 {
 			log.Printf("SSE: OOB Content preview: %s...", finalContent[:200])
 		}
-		
+
 		// Send user-picks-updated event with OOB content
 		select {
 		case client.Channel <- fmt.Sprintf("user-picks-updated:%s", finalContent):
@@ -1365,65 +1428,58 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 			// Client channel is full, skip
 		}
 	}
-	
+
 	log.Printf("SSE: Sent targeted OOB pick updates for user %d to %d connected clients", userID, len(h.sseClients))
 }
 
 // broadcastGameUpdate sends targeted game HTML updates to all connected SSE clients
 func (h *GameHandler) broadcastGameUpdate(gameID string, season, week int) {
 	log.Printf("SSE: Broadcasting game update for gameID %s", gameID)
-	
+
 	// Get the updated game from database
 	if h.gameService == nil {
 		log.Printf("SSE: GameService not available")
 		return
 	}
-	
-	games, err := h.gameService.GetGames()
+
+	// Convert gameID string to int and fetch only the specific game
+	gameIDInt, err := strconv.Atoi(gameID)
 	if err != nil {
-		log.Printf("SSE: Error fetching games for update: %v", err)
+		log.Printf("SSE: Invalid game ID format %s: %v", gameID, err)
 		return
 	}
-	
-	// Find the specific game that changed
-	var updatedGame *models.Game
-	for _, game := range games {
-		if fmt.Sprintf("%d", game.ID) == gameID {
-			updatedGame = &game
-			break
-		}
-	}
-	
-	if updatedGame == nil {
-		log.Printf("SSE: Game %s not found", gameID)
+
+	updatedGame, err := h.gameService.GetGameByID(gameIDInt)
+	if err != nil {
+		log.Printf("SSE: Error fetching game %d: %v", gameIDInt, err)
 		return
 	}
-	
+
 	// Send targeted updates for live game elements
 	if updatedGame.State == models.GameStateInPlay {
 		h.broadcastGameStatusHTML(updatedGame)
 		h.broadcastGameScoresHTML(updatedGame)
-	}
-	
-	// Only trigger pick updates when games complete (final scores determine outcomes)
-	if updatedGame.State == "completed" {
-		log.Printf("SSE: Game %s completed, triggering pick result updates", gameID)
+		// Also update pick items to reflect current scores and spread results
 		h.broadcastPickUpdatesHTML(updatedGame)
 	}
-	
-	log.Printf("SSE: Sent targeted game updates for game %s to %d clients", gameID, len(h.sseClients))
+
+	// Also trigger pick updates when games complete (final results)
+	if updatedGame.State == models.GameStateCompleted {
+		h.broadcastGameStatusHTML(updatedGame)  // Update game status to remove live expansion
+		h.broadcastPickUpdatesHTML(updatedGame)
+	}
 }
 
 // broadcastGameStatusHTML sends updated game status HTML via SSE using templates
 func (h *GameHandler) broadcastGameStatusHTML(game *models.Game) {
 	var statusHTML strings.Builder
-	
+
 	// Render game clock using template
 	if err := h.templates.ExecuteTemplate(&statusHTML, "sse-game-clock", game); err != nil {
 		log.Printf("SSE: Template error for game clock: %v", err)
 		return
 	}
-	
+
 	// Render possession info using template
 	var possessionHTML strings.Builder
 	if err := h.templates.ExecuteTemplate(&possessionHTML, "sse-possession-info", game); err != nil {
@@ -1431,8 +1487,7 @@ func (h *GameHandler) broadcastGameStatusHTML(game *models.Game) {
 	} else {
 		statusHTML.WriteString(possessionHTML.String())
 	}
-	
-	
+
 	// Broadcast to all connected clients
 	for client := range h.sseClients {
 		select {
@@ -1441,20 +1496,19 @@ func (h *GameHandler) broadcastGameStatusHTML(game *models.Game) {
 			// Client channel full, skip
 		}
 	}
-	
-	log.Printf("SSE: Sent game status update for game %d", game.ID)
+
 }
 
-// broadcastGameScoresHTML sends updated game scores HTML via SSE  
+// broadcastGameScoresHTML sends updated game scores HTML via SSE
 func (h *GameHandler) broadcastGameScoresHTML(game *models.Game) {
 	// Create HTML for score updates with hx-swap-oob targeting
-	awayScoreHTML := fmt.Sprintf(`<span class="team-score" id="away-score-%d" hx-swap-oob="true">%d</span>`, 
+	awayScoreHTML := fmt.Sprintf(`<span class="team-score" id="away-score-%d" hx-swap-oob="true">%d</span>`,
 		game.ID, game.AwayScore)
-	homeScoreHTML := fmt.Sprintf(`<span class="team-score" id="home-score-%d" hx-swap-oob="true">%d</span>`, 
+	homeScoreHTML := fmt.Sprintf(`<span class="team-score" id="home-score-%d" hx-swap-oob="true">%d</span>`,
 		game.ID, game.HomeScore)
-	
+
 	scoresHTML := awayScoreHTML + homeScoreHTML
-	
+
 	// Broadcast to all connected clients
 	for client := range h.sseClients {
 		select {
@@ -1463,73 +1517,92 @@ func (h *GameHandler) broadcastGameScoresHTML(game *models.Game) {
 			// Client channel full, skip
 		}
 	}
-	
-	log.Printf("SSE: Sent game scores update for game %d (%d-%d)", game.ID, game.AwayScore, game.HomeScore)
+
 }
 
 // broadcastPickUpdatesHTML sends updated pick item HTML via SSE for a specific game
 func (h *GameHandler) broadcastPickUpdatesHTML(game *models.Game) {
 	// Get current season (2025 for now, but should be dynamic)
 	season := 2025
-	
+
 	// Get all user picks for current week
 	gameWeek := game.Week
 	if gameWeek <= 0 {
 		log.Printf("SSE: Game %d has invalid week %d, skipping pick updates", game.ID, gameWeek)
 		return
 	}
-	
+
 	allUserPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, gameWeek)
 	if err != nil {
 		log.Printf("SSE: Error fetching user picks for week %d: %v", gameWeek, err)
 		return
 	}
-	
+
 	// Filter to only picks for this specific game
 	games := []models.Game{*game}
-	
+
 	var pickUpdates []string
-	
+
 	// Generate updated pick item HTML for each user who has a pick for this game
 	for _, userPicks := range allUserPicks {
+		// Process only the main Picks slice - it contains all enriched picks
+		// The categorized slices (SpreadPicks, OverUnderPicks, etc.) are copies that may not be enriched
 		for _, pick := range userPicks.Picks {
 			if pick.GameID == game.ID {
+				// Log pick state before enrichment
+				log.Printf("SSE DEBUG: BEFORE enrichment - Game %d, User %d, TeamName='%s', PickType='%s', TeamID=%d, GameDescription='%s'", 
+					pick.GameID, pick.UserID, pick.TeamName, pick.PickType, pick.TeamID, pick.GameDescription)
+				
+				// Ensure pick is enriched with display fields before rendering
+				if err := h.pickService.EnrichPickWithGameData(&pick); err != nil {
+					log.Printf("SSE: Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
+					continue
+				}
+				
+				// Log pick state after enrichment
+				log.Printf("SSE DEBUG: AFTER enrichment - Game %d, User %d, TeamName='%s', PickType='%s', TeamID=%d, GameDescription='%s'", 
+					pick.GameID, pick.UserID, pick.TeamName, pick.PickType, pick.TeamID, pick.GameDescription)
+				
 				// Create template data for this specific pick
 				templateData := struct {
-					Pick         models.Pick
-					Games        []models.Game
+					Pick          models.Pick
+					Games         []models.Game
 					IsCurrentUser bool
 				}{
-					Pick:         pick,
-					Games:        games,
+					Pick:          pick,
+					Games:         games,
 					IsCurrentUser: false, // SSE updates don't need current user context
 				}
 				
+				// Log template data being passed
+				log.Printf("SSE DEBUG: Template data - Pick.TeamName='%s', Pick.PickType='%s', Pick.TeamID=%d", 
+					templateData.Pick.TeamName, templateData.Pick.PickType, templateData.Pick.TeamID)
+
 				// Render the pick item using the unified-pick-item template
 				var pickHTML strings.Builder
 				if err := h.templates.ExecuteTemplate(&pickHTML, "unified-pick-item", templateData); err != nil {
 					log.Printf("SSE: Template error for pick item (Game %d, User %d): %v", pick.GameID, pick.UserID, err)
 					continue
 				}
-				
+
 				// Add hx-swap-oob attribute to the rendered HTML for HTMX out-of-band swapping
-				pickHTMLWithOOB := strings.Replace(pickHTML.String(), 
+				pickHTMLWithOOB := strings.Replace(pickHTML.String(),
 					fmt.Sprintf(`id="pick-item-%d-%d"`, pick.GameID, pick.UserID),
 					fmt.Sprintf(`id="pick-item-%d-%d" hx-swap-oob="true"`, pick.GameID, pick.UserID), 1)
-				
+
 				pickUpdates = append(pickUpdates, pickHTMLWithOOB)
 			}
 		}
 	}
-	
+
 	if len(pickUpdates) == 0 {
 		log.Printf("SSE: No pick updates to send for game %d", game.ID)
 		return
 	}
-	
+
 	// Combine all pick updates into a single SSE event
 	combinedHTML := strings.Join(pickUpdates, "")
-	
+
 	// Broadcast to all connected clients
 	for client := range h.sseClients {
 		select {
@@ -1538,8 +1611,8 @@ func (h *GameHandler) broadcastPickUpdatesHTML(game *models.Game) {
 			// Client channel full, skip
 		}
 	}
-	
-	log.Printf("SSE: Sent pick updates for game %d to %d clients (%d pick items updated)", 
+
+	log.Printf("SSE: Sent pick updates for game %d to %d clients (%d pick items updated)",
 		game.ID, len(h.sseClients), len(pickUpdates))
 }
 
@@ -1559,11 +1632,11 @@ func (h *GameHandler) getESPNTeamID(teamAbbr string) int {
 		"NE": 17, "NO": 18, "NYG": 19, "NYJ": 20, "PHI": 21, "ARI": 22, "PIT": 23, "LAC": 24,
 		"SF": 25, "SEA": 26, "TB": 27, "WSH": 28, "CAR": 29, "JAX": 30, "BAL": 33, "HOU": 34,
 	}
-	
+
 	if id, exists := teamIDMap[teamAbbr]; exists {
 		return id
 	}
-	
+
 	// Fallback: return 0 if team not found
 	log.Printf("Warning: Unknown team abbreviation '%s', using teamID 0", teamAbbr)
 	return 0
@@ -1574,43 +1647,41 @@ func (h *GameHandler) applyDebugGameStates(debugTime time.Time) {
 	// Get games to check which ones should be modified
 	var games []models.Game
 	var err error
-	
-	if gameServiceWithSeason, ok := h.gameService.(interface{ GetGamesBySeason(int) ([]models.Game, error) }); ok {
+
+	if gameServiceWithSeason, ok := h.gameService.(interface {
+		GetGamesBySeason(int) ([]models.Game, error)
+	}); ok {
 		games, err = gameServiceWithSeason.GetGamesBySeason(2025)
 	} else {
 		games, err = h.gameService.GetGames()
 	}
-	
+
 	if err != nil {
 		log.Printf("DEBUG: Error fetching games for demo state application: %v", err)
 		return
 	}
-	
+
 	demoGamesCount := 0
 	completedGamesCount := 0
-	
+
 	for _, game := range games {
 		gameTime := game.PacificTime()
 		timeDiff := debugTime.Sub(gameTime)
-		
+
 		// Games within 60 minutes of debug time should be "in-progress"
 		if timeDiff > -60*time.Minute && timeDiff < 60*time.Minute {
 			demoGamesCount++
 		}
-		
+
 		// Games before debug time should be "completed"
 		if timeDiff > 60*time.Minute {
 			completedGamesCount++
 		}
 	}
-	
+
 	log.Printf("DEBUG: Demo time analysis - %d games would be in-progress, %d would be completed (debug time: %s)",
 		demoGamesCount, completedGamesCount, debugTime.Format("2006-01-02 15:04:05 MST"))
-	
+
 	// Note: Actual game state modification would require a different game service implementation
 	// that can dynamically alter game states. For now, we just log what would happen.
 }
-
-
-
-

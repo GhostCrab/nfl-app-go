@@ -154,10 +154,19 @@ func recalculateWeek(ctx context.Context, pickService *services.PickService, pic
 		return -1
 	}
 	
-	// Process parlay scoring
-	if err := pickService.ProcessWeekParlayScoring(ctx, season, week); err != nil {
-		log.Printf("Failed to process parlay scoring for S%d W%d: %v", season, week, err)
-		return -1
+	// Process parlay scoring - use modern or legacy based on season
+	if season >= 2025 {
+		fmt.Printf(" [MODERN DAILY SCORING]...")
+		if err := pickService.ProcessDailyParlayScoring(ctx, season, week); err != nil {
+			log.Printf("Failed to process DAILY parlay scoring for S%d W%d: %v", season, week, err)
+			return -1
+		}
+	} else {
+		fmt.Printf(" [LEGACY WEEKLY SCORING]...")
+		if err := pickService.ProcessWeekParlayScoring(ctx, season, week); err != nil {
+			log.Printf("Failed to process WEEKLY parlay scoring for S%d W%d: %v", season, week, err)
+			return -1
+		}
 	}
 	
 	// Get scores to show summary

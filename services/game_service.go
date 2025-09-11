@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"nfl-app-go/models"
@@ -11,6 +12,7 @@ import (
 type GameService interface {
 	GetGames() ([]models.Game, error)
 	GetGamesBySeason(season int) ([]models.Game, error)
+	GetGameByID(gameID int) (*models.Game, error)
 	HealthCheck() bool
 }
 
@@ -48,6 +50,22 @@ func (d *DemoGameService) GetGamesBySeason(season int) ([]models.Game, error) {
 	demoGames := d.makeDemoGames(enrichedGames)
 	log.Printf("DemoGameService: Returning %d demo games for %d", len(demoGames), season)
 	return demoGames, nil
+}
+
+// GetGameByID returns a specific game by ID for the current season (2025)
+func (d *DemoGameService) GetGameByID(gameID int) (*models.Game, error) {
+	games, err := d.GetGames()
+	if err != nil {
+		return nil, err
+	}
+	
+	for _, game := range games {
+		if game.ID == gameID {
+			return &game, nil
+		}
+	}
+	
+	return nil, fmt.Errorf("game with ID %d not found", gameID)
 }
 
 // HealthCheck verifies the underlying service is accessible

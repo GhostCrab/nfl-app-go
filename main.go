@@ -295,7 +295,14 @@ func main() {
 			},
 			"getPickTeamAbbr": func(pick models.Pick, game *models.Game, pickDesc string) string {
 				if pick.IsOverUnder() {
-					if strings.Contains(pickDesc, "Over") {
+					// Use TeamID directly for reliable over/under detection
+					if pick.TeamID == 99 {
+						return "OVR"
+					} else if pick.TeamID == 98 {
+						return "UND"
+					}
+					// Fallback: check TeamName if TeamID isn't set correctly
+					if strings.Contains(pick.TeamName, "Over") {
 						return "OVR"
 					} else {
 						return "UND"
@@ -799,15 +806,16 @@ func main() {
 			return ""
 		},
 		"getDayNameFromDate": func(dateStr string) string {
-			// Parse date string in format "2025-09-07"
-			parsedTime, err := time.Parse("2006-01-02", dateStr)
+			// Parse date string in format "2025-09-07" directly in Pacific timezone
+			// Since the date string already represents the Pacific timezone date
+			pacificLoc := models.GetPacificTimeLocation()
+			parsedTime, err := time.ParseInLocation("2006-01-02", dateStr, pacificLoc)
 			if err != nil {
 				log.Printf("Error parsing date %s: %v", dateStr, err)
 				return "UNKNOWN"
 			}
-			// Convert to Pacific timezone and get day name
-			pacificLoc := models.GetPacificTimeLocation()
-			dayName := parsedTime.In(pacificLoc).Format("Monday")
+			// Get day name (already in Pacific timezone)
+			dayName := parsedTime.Format("Monday")
 			return strings.ToUpper(dayName)
 		},
 		"formatAwaySpread": func(odds *models.Odds) string {

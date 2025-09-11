@@ -129,26 +129,14 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 				continue
 			}
 
-			log.Printf("ChangeStream: Detected %s operation on %s collection", operationType, collectionName)
 			
 			// Debug logging for games collection to identify noise
 			if collectionName == "games" {
 				if operationType == "update" {
 					if updateDesc, ok := event["updateDescription"].(bson.M); ok {
-						if updatedFields, ok := updateDesc["updatedFields"].(bson.M); ok {
-							log.Printf("ChangeStream: Updated fields: %+v", updatedFields)
+						if _, ok := updateDesc["updatedFields"].(bson.M); ok {
+							// Updated fields extracted for change event processing
 						}
-					}
-					
-					// Check if we have fullDocument for season/week extraction
-					if fullDoc, ok := event["fullDocument"].(bson.M); ok {
-						if season, ok := fullDoc["season"].(int32); ok {
-							if week, ok := fullDoc["week"].(int32); ok {
-								log.Printf("ChangeStream: Update has fullDocument with season=%d, week=%d", season, week)
-							}
-						}
-					} else {
-						log.Printf("ChangeStream: Update operation missing fullDocument - season/week extraction will fail")
 					}
 				} else if operationType == "replace" {
 					if fullDoc, ok := event["fullDocument"].(bson.M); ok {
@@ -176,6 +164,30 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 				}
 			}
 
+			// Log concise change summary for monitoring
+			if changeEvent.Collection == "games" && changeEvent.GameID != "" {
+				fieldNames := make([]string, 0)
+				if changeEvent.UpdatedFields != nil {
+					for field := range changeEvent.UpdatedFields {
+						fieldNames = append(fieldNames, field)
+					}
+				}
+				
+				// Get human-readable game description from the document
+				gameDesc := fmt.Sprintf("Game %s", changeEvent.GameID) // fallback
+				if fullDoc, ok := event["fullDocument"].(bson.M); ok {
+					if week, hasWeek := fullDoc["week"].(int32); hasWeek {
+						if away, hasAway := fullDoc["away"].(string); hasAway {
+							if home, hasHome := fullDoc["home"].(string); hasHome {
+								gameDesc = fmt.Sprintf("WEEK %d %s @ %s", week, away, home)
+							}
+						}
+					}
+				}
+				
+				log.Printf("ChangeStream: %s updated - fields: %v", gameDesc, fieldNames)
+			}
+			
 			// Trigger update callback
 			if w.onUpdate != nil {
 				w.onUpdate(changeEvent)

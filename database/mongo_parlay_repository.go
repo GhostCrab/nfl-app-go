@@ -48,7 +48,12 @@ func (r *MongoParlayRepository) UpsertParlayScore(ctx context.Context, score *mo
 	
 	// Update timestamp
 	score.UpdatedAt = time.Now()
-	score.CalculateTotal()
+	
+	// For modern seasons (2025+), don't recalculate total - use the provided TotalPoints
+	// For legacy seasons, calculate total from category breakdown
+	if score.Season < 2025 {
+		score.CalculateTotal()
+	}
 	
 	opts := options.Replace().SetUpsert(true)
 	_, err := r.collection.ReplaceOne(ctx, filter, score, opts)

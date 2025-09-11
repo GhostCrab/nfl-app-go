@@ -2245,6 +2245,38 @@ body.modal-open {
     padding: 0 4px;
 }
 
+/* Daily Pick Group Styling - 2025+ Modern Grouping */
+.daily-pick-group {
+    background: rgba(255, 255, 255, 0.03); /* Slightly lighter than background */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    margin-bottom: 12px;
+    padding: 4px;
+}
+
+[data-theme="light"] .daily-pick-group {
+    background: rgba(0, 0, 0, 0.02); /* Slightly darker than light background */
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.daily-pick-header {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 12px;
+    margin: 0 0 0 4px;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.daily-picks-list {
+    padding: 0;
+}
+
+.daily-pick-group:last-child {
+    margin-bottom: 6px;
+}
+
 /* Mobile responsive for daily picks */
 @media (max-width: 768px) {
     .picks-category-header {
@@ -2255,5 +2287,15 @@ body.modal-open {
     
     .regular-picks-section {
         margin-bottom: 8px;
+    }
+    
+    .daily-pick-group {
+        padding: 3px;
+        margin-bottom: 8px;
+    }
+    
+    .daily-pick-header {
+        font-size: 11px;
+        margin: 0 0 3px 3px;
     }
 }

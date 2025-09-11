@@ -216,7 +216,7 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 				enrichedPick := *pick
 				
 				// Enrich pick with game information
-				if err := s.enrichPickWithGameData(&enrichedPick); err != nil {
+				if err := s.EnrichPickWithGameData(&enrichedPick); err != nil {
 					log.Printf("Warning: failed to enrich pick for game %d: %v", pick.GameID, err)
 				}
 				
@@ -440,12 +440,17 @@ func (s *PickService) GetPickStats(ctx context.Context) (map[string]interface{},
 	return stats, nil
 }
 
-// enrichPickWithGameData populates the display fields of a pick with game information
-func (s *PickService) enrichPickWithGameData(pick *models.Pick) error {
+// EnrichPickWithGameData populates the display fields of a pick with game information
+func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
+		
 	// Get the game information
 	game, err := s.gameRepo.FindByESPNID(context.Background(), pick.GameID)
 	if err != nil {
 		return fmt.Errorf("failed to find game %d: %w", pick.GameID, err)
+	}
+	
+	if game == nil {
+		return fmt.Errorf("game %d not found", pick.GameID)
 	}
 	
 	// Set game description with status
@@ -453,6 +458,7 @@ func (s *PickService) enrichPickWithGameData(pick *models.Pick) error {
 	pick.GameDescription = fmt.Sprintf("%s @ %s (%s)", game.Away, game.Home, gameStatus)
 	
 	// Determine team name based on pick type and team ID
+	
 	switch pick.PickType {
 	case models.PickTypeOverUnder:
 		if pick.TeamID == 98 {
@@ -465,15 +471,23 @@ func (s *PickService) enrichPickWithGameData(pick *models.Pick) error {
 			if game.Odds != nil && game.Odds.OU > 0 {
 				pick.TeamName = fmt.Sprintf("Over %.1f", game.Odds.OU)
 			}
+		} else {
 		}
 	case models.PickTypeSpread:
 		// Get team abbreviation from ID mapping
 		teamAbbr := s.getTeamNameFromID(pick.TeamID, game)
 		
 		// Add spread information if available
-		if game.Odds != nil && game.Odds.Spread != 0 {
+		hasOdds := game.Odds != nil
+		hasSpread := hasOdds && game.Odds.Spread != 0
+		if hasOdds {
+		}
+		
+		if hasSpread {
 			// Determine if this team is home or away to show correct spread
-			if teamAbbr == game.Home {
+			isHome := teamAbbr == game.Home
+			
+			if isHome {
 				// Home team spread
 				if game.Odds.Spread > 0 {
 					pick.TeamName = fmt.Sprintf("%s +%.1f", teamAbbr, game.Odds.Spread)
@@ -492,6 +506,7 @@ func (s *PickService) enrichPickWithGameData(pick *models.Pick) error {
 		} else {
 			pick.TeamName = teamAbbr
 		}
+	default:
 	}
 	
 	// Update pick result based on game status
@@ -544,6 +559,7 @@ func (s *PickService) getTeamNameFromID(teamID int, game *models.Game) string {
 		if abbr == "WAS" && (game.Away == "WSH" || game.Home == "WSH") {
 			return "WSH"
 		}
+	} else {
 	}
 	
 	// Debug logging for unmatched teams
@@ -552,7 +568,8 @@ func (s *PickService) getTeamNameFromID(teamID int, game *models.Game) string {
 	}
 	
 	// Fallback: return the team ID as string
-	return fmt.Sprintf("Team%d", teamID)
+	fallback := fmt.Sprintf("Team%d", teamID)
+	return fallback
 }
 
 // getGameStatusDescription returns a human-readable game status
@@ -1070,9 +1087,12 @@ func (s *PickService) CalculateUserDailyParlayScores(ctx context.Context, userID
 func (s *PickService) UpdateUserDailyParlayRecord(ctx context.Context, userID, season, week int, dailyScores map[string]int) error {
 	// Calculate total points for the week
 	totalPoints := 0
-	for _, points := range dailyScores {
+	log.Printf("DEBUG: User %d daily scores before save: %+v", userID, dailyScores)
+	for date, points := range dailyScores {
+		log.Printf("DEBUG: User %d adding %d points from date %s", userID, points, date)
 		totalPoints += points
 	}
+	log.Printf("DEBUG: User %d calculated total points: %d", userID, totalPoints)
 	
 	// For now, store in the existing ParlayScore structure with total points
 	// Future enhancement: could add a DailyParlayScore model for more granular storage
@@ -1093,5 +1113,16 @@ func (s *PickService) UpdateUserDailyParlayRecord(ctx context.Context, userID, s
 	}
 	
 	return nil
+}
+
+// CheckWeekHasParlayScores checks if parlay scores already exist for a given week
+func (s *PickService) CheckWeekHasParlayScores(ctx context.Context, season, week int) (bool, error) {
+	scores, err := s.parlayRepo.GetWeekScores(ctx, season, week)
+	if err != nil {
+		return false, fmt.Errorf("failed to check week scores: %w", err)
+	}
+	
+	// Return true if any scores exist for this week
+	return len(scores) > 0, nil
 }
 

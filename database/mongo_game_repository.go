@@ -91,16 +91,6 @@ func (r *MongoGameRepository) GetGamesBySeason(season int) ([]*models.Game, erro
 		return nil, fmt.Errorf("failed to decode games: %w", err)
 	}
 
-	// Debug logging to check what StatusName data is being loaded from DB
-	for _, game := range games {
-		if game.State == models.GameStateInPlay && game.HasStatus() {
-			log.Printf("MongoDB Load: Game %d (%s vs %s) Status: Clock='%s', StatusName='%s'", 
-				game.ID, game.Away, game.Home, game.Status.DisplayClock, game.Status.StatusName)
-			log.Printf("  GetGameClock()='%s', GetLiveStatusString()='%s'", 
-				game.GetGameClock(), game.GetLiveStatusString())
-		}
-	}
-
 	return games, nil
 }
 
