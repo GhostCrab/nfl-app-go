@@ -86,13 +86,13 @@ func GetTemplateFuncs() template.FuncMap {
 		"calculateSpreadResult": calculateSpreadResult,
 
 		// Pick functions
-		"isOverUnder":           func(pick models.Pick) bool { return pick.IsOverUnder() },
-		"isSpreadPick":          func(pick models.Pick) bool { return pick.IsSpreadPick() },
-		"getResultClass":        getResultClass,
-		"getPickTeamAbbr":       getPickTeamAbbr,
-		"getPickTeamIcon":       getPickTeamIcon,
-		"getPickValue":          getPickValue,
-		"sortPicksByGameTime":   sortPicksByGameTime,
+		"isOverUnder":         func(pick models.Pick) bool { return pick.IsOverUnder() },
+		"isSpreadPick":        func(pick models.Pick) bool { return pick.IsSpreadPick() },
+		"getResultClass":      getResultClass,
+		"getPickTeamAbbr":     getPickTeamAbbr,
+		"getPickTeamIcon":     getPickTeamIcon,
+		"getPickValue":        getPickValue,
+		"sortPicksByGameTime": sortPicksByGameTime,
 
 		// Team functions
 		"getTeamMascotName": getTeamMascotName,
@@ -400,19 +400,12 @@ func sortUsersByScore(userPicks []*models.UserPicks) []*models.UserPicks {
 
 // sortUsersWithCurrentFirst sorts users with current user first, others alphabetically
 func sortUsersWithCurrentFirst(userPicks []*models.UserPicks, currentUserName string) []*models.UserPicks {
-	log.Printf("TEMPLATE DEBUG: sortUsersWithCurrentFirst called - input count: %d, currentUser: %s", len(userPicks), currentUserName)
-
 	if len(userPicks) == 0 || currentUserName == "" {
 		return userPicks
 	}
 	// Create a copy to avoid modifying original slice
 	sorted := make([]*models.UserPicks, len(userPicks))
 	copy(sorted, userPicks)
-
-	// Debug input data
-	for i, up := range userPicks {
-		log.Printf("TEMPLATE DEBUG: Input user %d: %s (picks: %d)", i, up.UserName, len(up.Picks))
-	}
 
 	// Sort so current user appears first
 	sort.Slice(sorted, func(i, j int) bool {
@@ -430,11 +423,6 @@ func sortUsersWithCurrentFirst(userPicks []*models.UserPicks, currentUserName st
 		// For non-current users, maintain alphabetical order
 		return sorted[i].UserName < sorted[j].UserName
 	})
-
-	// Debug output data
-	for i, up := range sorted {
-		log.Printf("TEMPLATE DEBUG: Output user %d: %s (picks: %d)", i, up.UserName, len(up.Picks))
-	}
 
 	return sorted
 }
@@ -487,14 +475,11 @@ func formatHomeSpread(odds *models.Odds) string {
 // hasDailyGroups checks if user has daily pick groups (modern seasons)
 func hasDailyGroups(userPicks *models.UserPicks) bool {
 	if userPicks == nil {
-		log.Printf("TEMPLATE DEBUG: hasDailyGroups - userPicks is nil")
 		return false
 	}
 	if userPicks.DailyPickGroups == nil {
-		log.Printf("TEMPLATE DEBUG: hasDailyGroups - User %s DailyPickGroups is nil", userPicks.UserName)
 		return false
 	}
 	hasGroups := len(userPicks.DailyPickGroups) > 0
-	log.Printf("TEMPLATE DEBUG: hasDailyGroups - User %s has %d daily groups, returning %v", userPicks.UserName, len(userPicks.DailyPickGroups), hasGroups)
 	return hasGroups
 }

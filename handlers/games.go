@@ -558,24 +558,7 @@ func (h *GameHandler) BroadcastStructuredUpdate(eventType, data string) {
 		}
 	}
 
-	log.Printf("SSE: Broadcasted %s update to %d clients", eventType, len(h.sseClients))
-}
-
-// broadcastToUser sends a structured update to a specific user
-func (h *GameHandler) broadcastToUser(userID int, eventType, data string) {
-	count := 0
-	for client := range h.sseClients {
-		if client.UserID == userID {
-			select {
-			case client.Channel <- fmt.Sprintf("%s:%s", eventType, data):
-				count++
-			default:
-				// Client channel is full, skip
-			}
-		}
-	}
-
-	log.Printf("SSE: Broadcasted %s update to %d clients for user %d", eventType, count, userID)
+	// log.Printf("SSE: Broadcasted %s update to %d clients", eventType, len(h.sseClients))
 }
 
 // getCurrentWeek determines the current NFL week based on game dates and season state
@@ -588,7 +571,7 @@ func (h *GameHandler) getCurrentWeek(games []models.Game) int {
 		pacificLoc = time.FixedZone("PST", -8*3600)
 	}
 	now := time.Now().In(pacificLoc)
-	
+
 	log.Printf("getCurrentWeek DEBUG: Current Pacific time: %v", now.Format("Mon Jan 2, 2006 15:04:05 MST"))
 
 	if len(games) == 0 {
@@ -646,10 +629,10 @@ func (h *GameHandler) getCurrentWeek(games []models.Game) int {
 
 		// Check if we're within the relevant time window for this week:
 		// - 3 days before the first game: show this week for preparation
-		// - During the week (until 2 days after the last game): show this week  
+		// - During the week (until 2 days after the last game): show this week
 		// - After that: move to next week
 		threeDaysBefore := earliestInWeek.Add(-3 * 24 * time.Hour)
-		
+
 		// Find the latest game in this week to determine when the week "ends"
 		var latestInWeek time.Time
 		for _, game := range weekGamesList {
@@ -658,17 +641,17 @@ func (h *GameHandler) getCurrentWeek(games []models.Game) int {
 				latestInWeek = gamePacificTime
 			}
 		}
-		
+
 		// Week window: 3 days before first game until 2 days after last game
 		weekEndTime := latestInWeek.Add(2 * 24 * time.Hour)
-		
-		log.Printf("getCurrentWeek DEBUG: Week %d - earliest: %v, latest: %v, current: %v", 
+
+		log.Printf("getCurrentWeek DEBUG: Week %d - earliest: %v, latest: %v, current: %v",
 			week, earliestInWeek.Format("Mon Jan 2 15:04 MST"), latestInWeek.Format("Mon Jan 2 15:04 MST"), now.Format("Mon Jan 2 15:04 MST"))
-		log.Printf("getCurrentWeek DEBUG: Week %d - 3daysBefore: %v, weekEnd: %v", 
+		log.Printf("getCurrentWeek DEBUG: Week %d - 3daysBefore: %v, weekEnd: %v",
 			week, threeDaysBefore.Format("Mon Jan 2 15:04 MST"), weekEndTime.Format("Mon Jan 2 15:04 MST"))
-		log.Printf("getCurrentWeek DEBUG: Week %d - inWindow: %v", 
+		log.Printf("getCurrentWeek DEBUG: Week %d - inWindow: %v",
 			week, now.After(threeDaysBefore) && now.Before(weekEndTime))
-		
+
 		if now.After(threeDaysBefore) && now.Before(weekEndTime) {
 			log.Printf("getCurrentWeek: Current time within Week %d window (games: %v to %v), showing Week %d",
 				week, earliestInWeek.Format("Jan 2 15:04"), latestInWeek.Format("Jan 2 15:04"), week)
@@ -1385,12 +1368,12 @@ func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
 		for i := range updatedUserPicks.Picks {
 			pick := &updatedUserPicks.Picks[i]
 			log.Printf("SSE: BEFORE enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
-			
+
 			if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
 				log.Printf("SSE: Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
 				continue
 			}
-			
+
 			log.Printf("SSE: AFTER enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
 		}
 
@@ -1465,7 +1448,7 @@ func (h *GameHandler) broadcastGameUpdate(gameID string, season, week int) {
 
 	// Also trigger pick updates when games complete (final results)
 	if updatedGame.State == models.GameStateCompleted {
-		h.broadcastGameStatusHTML(updatedGame)  // Update game status to remove live expansion
+		h.broadcastGameStatusHTML(updatedGame) // Update game status to remove live expansion
 		h.broadcastPickUpdatesHTML(updatedGame)
 	}
 }
@@ -1550,19 +1533,19 @@ func (h *GameHandler) broadcastPickUpdatesHTML(game *models.Game) {
 		for _, pick := range userPicks.Picks {
 			if pick.GameID == game.ID {
 				// Log pick state before enrichment
-				log.Printf("SSE DEBUG: BEFORE enrichment - Game %d, User %d, TeamName='%s', PickType='%s', TeamID=%d, GameDescription='%s'", 
+				log.Printf("SSE DEBUG: BEFORE enrichment - Game %d, User %d, TeamName='%s', PickType='%s', TeamID=%d, GameDescription='%s'",
 					pick.GameID, pick.UserID, pick.TeamName, pick.PickType, pick.TeamID, pick.GameDescription)
-				
+
 				// Ensure pick is enriched with display fields before rendering
 				if err := h.pickService.EnrichPickWithGameData(&pick); err != nil {
 					log.Printf("SSE: Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
 					continue
 				}
-				
+
 				// Log pick state after enrichment
-				log.Printf("SSE DEBUG: AFTER enrichment - Game %d, User %d, TeamName='%s', PickType='%s', TeamID=%d, GameDescription='%s'", 
+				log.Printf("SSE DEBUG: AFTER enrichment - Game %d, User %d, TeamName='%s', PickType='%s', TeamID=%d, GameDescription='%s'",
 					pick.GameID, pick.UserID, pick.TeamName, pick.PickType, pick.TeamID, pick.GameDescription)
-				
+
 				// Create template data for this specific pick
 				templateData := struct {
 					Pick          models.Pick
@@ -1573,9 +1556,9 @@ func (h *GameHandler) broadcastPickUpdatesHTML(game *models.Game) {
 					Games:         games,
 					IsCurrentUser: false, // SSE updates don't need current user context
 				}
-				
+
 				// Log template data being passed
-				log.Printf("SSE DEBUG: Template data - Pick.TeamName='%s', Pick.PickType='%s', Pick.TeamID=%d", 
+				log.Printf("SSE DEBUG: Template data - Pick.TeamName='%s', Pick.PickType='%s', Pick.TeamID=%d",
 					templateData.Pick.TeamName, templateData.Pick.PickType, templateData.Pick.TeamID)
 
 				// Render the pick item using the unified-pick-item template

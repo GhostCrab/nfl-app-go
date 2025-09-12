@@ -20,22 +20,24 @@ type BackgroundUpdater struct {
 	espnService  *ESPNService
 	gameRepo     *database.MongoGameRepository
 	pickService  *PickService
+	parlayService *ParlayService // New specialized service for parlay operations
 	currentSeason int
 	ticker       *time.Ticker
 	stopChan     chan bool
 	running      bool
-	lastUpdateType string // Track what type of update we last did
+	lastUpdateType string // Track what type of update we last do
 	lastOddsUpdate time.Time // Track when we last fetched odds
 	processedWeeks map[int]bool // Track which weeks have already been scored
 	processedCategories map[WeekCategory]bool // Track which categories have already been scored
 }
 
 // NewBackgroundUpdater creates a new background updater service
-func NewBackgroundUpdater(espnService *ESPNService, gameRepo *database.MongoGameRepository, pickService *PickService, currentSeason int) *BackgroundUpdater {
+func NewBackgroundUpdater(espnService *ESPNService, gameRepo *database.MongoGameRepository, pickService *PickService, parlayService *ParlayService, currentSeason int) *BackgroundUpdater {
 	return &BackgroundUpdater{
 		espnService:         espnService,
 		gameRepo:            gameRepo,
 		pickService:         pickService,
+		parlayService:       parlayService,
 		currentSeason:       currentSeason,
 		stopChan:            make(chan bool),
 		running:             false,
@@ -166,7 +168,7 @@ func (bu *BackgroundUpdater) updateGames() {
 		if !models.IsModernSeason(bu.currentSeason) {
 			log.Printf("BackgroundUpdater: LEGACY parlay category completed for Season %d Week %d Category %s, triggering immediate scoring", 
 				bu.currentSeason, weekCategory.Week, weekCategory.Category)
-			if err := bu.pickService.ProcessParlayCategory(ctx, bu.currentSeason, weekCategory.Week, weekCategory.Category); err != nil {
+			if err := bu.parlayService.ProcessParlayCategory(ctx, bu.currentSeason, weekCategory.Week, weekCategory.Category); err != nil {
 				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d Category %s: %v", 
 					bu.currentSeason, weekCategory.Week, weekCategory.Category, err)
 			} else {
@@ -188,7 +190,7 @@ func (bu *BackgroundUpdater) updateGames() {
 		
 		// Check if parlay scores already exist in database for this week
 		// If scores exist, skip processing to avoid duplicate scoring
-		hasExistingScores, err := bu.pickService.CheckWeekHasParlayScores(ctx, bu.currentSeason, week)
+		hasExistingScores, err := bu.parlayService.CheckWeekHasParlayScores(ctx, bu.currentSeason, week)
 		if err != nil {
 			log.Printf("BackgroundUpdater: Error checking existing scores for Season %d Week %d: %v", bu.currentSeason, week, err)
 			continue
@@ -202,7 +204,7 @@ func (bu *BackgroundUpdater) updateGames() {
 		if models.IsModernSeason(bu.currentSeason) {
 			// MODERN: 2025+ use daily parlay scoring
 			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering MODERN daily parlay scoring", bu.currentSeason, week)
-			if err := bu.pickService.ProcessDailyParlayScoring(ctx, bu.currentSeason, week); err != nil {
+			if err := bu.parlayService.ProcessDailyParlayScoring(ctx, bu.currentSeason, week); err != nil {
 				log.Printf("BackgroundUpdater: Failed to process MODERN daily parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
 			} else {
 				// Mark week as processed
@@ -211,7 +213,7 @@ func (bu *BackgroundUpdater) updateGames() {
 		} else {
 			// LEGACY: 2023-2024 use traditional week-based scoring
 			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering LEGACY week parlay scoring", bu.currentSeason, week)
-			if err := bu.pickService.ProcessWeekParlayScoring(ctx, bu.currentSeason, week); err != nil {
+			if err := bu.parlayService.ProcessWeekParlayScoring(ctx, bu.currentSeason, week); err != nil {
 				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
 			} else {
 				// Mark week as processed

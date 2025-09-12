@@ -256,3 +256,4 @@ func (r *MongoParlayRepository) GetAllUsersCumulativeScoresUpToWeek(ctx context.
 	
 	return totals, nil
 }
+

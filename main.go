@@ -59,15 +59,15 @@ func main() {
 
 		// Create demo service as fallback
 		gameService := services.NewDemoGameService()
-		gameHandler := handlers.NewGameHandler(templates, gameService)
+		gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService)
 		// Note: Demo mode doesn't support parlay scoring
 
 		// Setup routes without database
 		r := mux.NewRouter()
 		r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
-		r.HandleFunc("/", gameHandler.GetGames).Methods("GET")
-		r.HandleFunc("/games", gameHandler.GetGames).Methods("GET")
-		r.HandleFunc("/games/refresh", gameHandler.RefreshGames).Methods("GET")
+		r.HandleFunc("/", gameDisplayHandler.GetGames).Methods("GET")
+		r.HandleFunc("/games", gameDisplayHandler.GetGames).Methods("GET")
+		r.HandleFunc("/games/refresh", gameDisplayHandler.RefreshGames).Methods("GET")
 
 		// Start server
 		log.Println("Server starting on 0.0.0.0:8080 (available on LAN)")
@@ -148,30 +148,42 @@ func main() {
 	gameService := services.NewDatabaseGameService(gameRepo)
 	pickRepo := database.NewMongoPickRepository(db)
 	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
+	parlayService := services.NewParlayService(pickRepo, gameRepo, parlayRepo)
+	resultCalcService := services.NewResultCalculationService(pickRepo, gameRepo)
+	analyticsService := services.NewAnalyticsService(pickRepo, gameRepo, userRepo)
 	visibilityService := services.NewPickVisibilityService(gameService)
 
 	// Create middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
 
-	// Create handlers
-	gameHandler := handlers.NewGameHandler(templates, gameService)
+	// Create new specialized handlers
+	sseHandler := handlers.NewSSEHandler(templates, gameService)
+	sseHandler.SetServices(pickService, authService, visibilityService)
+	
+	gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService)
+	gameDisplayHandler.SetServices(pickService, authService, visibilityService, userRepo)
+	pickManagementHandler := handlers.NewPickManagementHandler(templates, gameService, pickService, authService, visibilityService, sseHandler)
+	dashboardHandler := handlers.NewDashboardHandler(templates, gameService, pickService, authService, visibilityService, nil, dataLoader)
+	demoTestingHandler := handlers.NewDemoTestingHandler(templates, gameService, sseHandler)
+	
+	// Legacy GameHandler removed - all functionality moved to specialized handlers
+	
+	// Create auth handler
 	authHandler := handlers.NewAuthHandler(templates, authService, emailService)
-
-	// Wire up services to game handler
-	gameHandler.SetPickService(pickService)
-	gameHandler.SetAuthService(authService)
-	gameHandler.SetVisibilityService(visibilityService)
 	
 	// Set up SSE broadcasting for pick service
-	pickService.SetBroadcaster(gameHandler)
+	pickService.SetBroadcaster(sseHandler)
+	
+	// Set up specialized services for delegation
+	pickService.SetSpecializedServices(parlayService, resultCalcService, analyticsService)
 
 	// Start background ESPN API updater
-	backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, currentSeason)
+	backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, parlayService, currentSeason)
 	backgroundUpdater.Start()
 	defer backgroundUpdater.Stop()
 
 	// Start change stream watcher for real-time updates
-	changeWatcher := services.NewChangeStreamWatcher(db, gameHandler.HandleDatabaseChange)
+	changeWatcher := services.NewChangeStreamWatcher(db, sseHandler.HandleDatabaseChange)
 	changeWatcher.StartWatching()
 
 	// Start visibility timer service for automatic pick visibility updates
@@ -179,7 +191,7 @@ func main() {
 		visibilityService, 
 		func(eventType, data string) {
 			// Broadcast visibility changes via SSE
-			gameHandler.BroadcastStructuredUpdate(eventType, data)
+			sseHandler.BroadcastStructuredUpdate(eventType, data)
 		}, 
 		currentSeason,
 	)
@@ -232,22 +244,28 @@ func main() {
 	r.HandleFunc("/reset-password", authHandler.ResetPasswordPage).Methods("GET")
 	r.HandleFunc("/reset-password", authHandler.ResetPassword).Methods("POST")
 
-	// Game routes (with optional auth to show user info)
-	r.Handle("/", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGames))).Methods("GET")
-	r.Handle("/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGames))).Methods("GET")
-	r.Handle("/games/refresh", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.RefreshGames))).Methods("GET")
-	r.Handle("/games/test-update", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.TestGameUpdate))).Methods("POST")
-	r.Handle("/events", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.SSEHandler))).Methods("GET")
-	r.Handle("/api/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetGamesAPI))).Methods("GET")
-	r.Handle("/api/dashboard", authMiddleware.OptionalAuth(http.HandlerFunc(gameHandler.GetDashboardDataAPI))).Methods("GET")
+	// Game display routes (with optional auth to show user info)
+	r.Handle("/", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.GetGames))).Methods("GET")
+	r.Handle("/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.GetGames))).Methods("GET")
+	r.Handle("/games/refresh", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.RefreshGames))).Methods("GET")
+	r.Handle("/api/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.GetGamesAPI))).Methods("GET")
+	
+	// SSE and real-time updates
+	r.Handle("/events", authMiddleware.OptionalAuth(http.HandlerFunc(sseHandler.Handle))).Methods("GET")
+	
+	// Demo and testing routes
+	r.Handle("/games/test-update", authMiddleware.OptionalAuth(http.HandlerFunc(demoTestingHandler.TestGameUpdate))).Methods("POST")
+	
+	// Dashboard API routes
+	r.Handle("/api/dashboard", authMiddleware.OptionalAuth(http.HandlerFunc(dashboardHandler.GetDashboardDataAPI))).Methods("GET")
 
 	// Analytics routes
 	r.Handle("/analytics", authMiddleware.OptionalAuth(http.HandlerFunc(analyticsHandler.ShowAnalytics))).Methods("GET")
 	r.Handle("/api/analytics", authMiddleware.OptionalAuth(http.HandlerFunc(analyticsHandler.GetAnalyticsAPI))).Methods("GET")
 
-	// Pick picker routes (require authentication)
-	r.Handle("/pick-picker", authMiddleware.RequireAuth(http.HandlerFunc(gameHandler.ShowPickPicker))).Methods("GET")
-	r.Handle("/submit-picks", authMiddleware.RequireAuth(http.HandlerFunc(gameHandler.SubmitPicks))).Methods("POST")
+	// Pick management routes (require authentication)
+	r.Handle("/pick-picker", authMiddleware.RequireAuth(http.HandlerFunc(pickManagementHandler.ShowPickPicker))).Methods("GET")
+	r.Handle("/submit-picks", authMiddleware.RequireAuth(http.HandlerFunc(pickManagementHandler.SubmitPicks))).Methods("POST")
 
 	// Protected API routes
 	apiRouter := r.PathPrefix("/api").Subrouter()

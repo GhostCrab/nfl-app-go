@@ -25,6 +25,11 @@ type PickService struct {
 	userRepo    *database.MongoUserRepository
 	parlayRepo  *database.MongoParlayRepository
 	broadcaster SSEBroadcaster
+	
+	// Specialized services for delegation
+	parlayService *ParlayService
+	resultCalcService *ResultCalculationService
+	analyticsService *AnalyticsService
 }
 
 // NewPickService creates a new pick service
@@ -40,6 +45,13 @@ func NewPickService(pickRepo *database.MongoPickRepository, gameRepo *database.M
 // SetBroadcaster sets the SSE broadcaster for real-time updates
 func (s *PickService) SetBroadcaster(broadcaster SSEBroadcaster) {
 	s.broadcaster = broadcaster
+}
+
+// SetSpecializedServices sets the specialized services for delegation
+func (s *PickService) SetSpecializedServices(parlayService *ParlayService, resultCalcService *ResultCalculationService, analyticsService *AnalyticsService) {
+	s.parlayService = parlayService
+	s.resultCalcService = resultCalcService
+	s.analyticsService = analyticsService
 }
 
 // CreatePick creates a new pick with validation
@@ -333,16 +345,8 @@ func (s *PickService) ProcessGameCompletion(ctx context.Context, game *models.Ga
 	for _, pick := range picks {
 		var result models.PickResult
 		
-		if pick.PickType == models.PickTypeSpread {
-			// Process spread pick
-			result = s.calculateSpreadResult(pick, game)
-		} else if pick.PickType == models.PickTypeOverUnder {
-			// Process over/under pick
-			result = s.calculateOverUnderResult(pick, game)
-		} else {
-			log.Printf("Unknown pick type %s for pick %s", pick.PickType, pick.ID.Hex())
-			continue
-		}
+		// Calculate pick result using specialized service
+		result = s.resultCalcService.CalculatePickResult(pick, game)
 		
 		// Update the pick result
 		if err := s.pickRepo.UpdateResult(ctx, pick.ID, result); err != nil {
@@ -356,67 +360,7 @@ func (s *PickService) ProcessGameCompletion(ctx context.Context, game *models.Ga
 	return nil
 }
 
-// calculateSpreadResult determines the result of a spread pick
-func (s *PickService) calculateSpreadResult(pick *models.Pick, game *models.Game) models.PickResult {
-	if game.Odds == nil || game.State != models.GameStateCompleted {
-		return models.PickResultPending
-	}
-	// Note: Spread of 0 is valid (pick 'em game), so we don't filter it out
-	
-	teamAbbr := s.getTeamNameFromID(pick.TeamID, game)
-	
-	// Calculate actual point difference (home - away)
-	pointDiff := float64(game.HomeScore - game.AwayScore)
-	
-	if teamAbbr == game.Home {
-		// Picked home team
-		adjustedDiff := pointDiff + game.Odds.Spread
-		if adjustedDiff > 0 {
-			return models.PickResultWin
-		} else if adjustedDiff == 0 {
-			return models.PickResultPush
-		} else {
-			return models.PickResultLoss
-		}
-	} else {
-		// Picked away team
-		adjustedDiff := -pointDiff - game.Odds.Spread
-		if adjustedDiff > 0 {
-			return models.PickResultWin
-		} else if adjustedDiff == 0 {
-			return models.PickResultPush
-		} else {
-			return models.PickResultLoss
-		}
-	}
-}
 
-// calculateOverUnderResult determines the result of an over/under pick
-func (s *PickService) calculateOverUnderResult(pick *models.Pick, game *models.Game) models.PickResult {
-	if game.Odds == nil || game.Odds.OU == 0 || game.State != models.GameStateCompleted {
-		return models.PickResultPending
-	}
-	
-	totalPoints := float64(game.HomeScore + game.AwayScore)
-	
-	if pick.TeamID == 99 { // Over
-		if totalPoints > game.Odds.OU {
-			return models.PickResultWin
-		} else if totalPoints == game.Odds.OU {
-			return models.PickResultPush
-		} else {
-			return models.PickResultLoss
-		}
-	} else { // Under
-		if totalPoints < game.Odds.OU {
-			return models.PickResultWin
-		} else if totalPoints == game.Odds.OU {
-			return models.PickResultPush
-		} else {
-			return models.PickResultLoss
-		}
-	}
-}
 
 // GetPickStats returns statistics about picks in the system
 func (s *PickService) GetPickStats(ctx context.Context) (map[string]interface{}, error) {
@@ -593,45 +537,15 @@ func (s *PickService) getGameStatusDescription(game *models.Game) string {
 
 // calculatePickResult determines if a pick won, lost, or pushed based on game outcome
 func (s *PickService) calculatePickResult(pick *models.Pick, game *models.Game) models.PickResult {
-	if game.State != models.GameStateCompleted {
-		return models.PickResultPending
-	}
-	
-	switch pick.PickType {
-	case models.PickTypeSpread:
-		return s.calculateSpreadResult(pick, game)
-	case models.PickTypeOverUnder:
-		return s.calculateOverUnderResult(pick, game)
-	default:
-		return models.PickResultPending
-	}
+	// Delegate to specialized ResultCalculationService
+	return s.resultCalcService.CalculatePickResult(pick, game)
 }
 
 // CalculateUserParlayScore calculates parlay club points for a user in a specific week
 // Handles bonus weeks separately from regular weekend picks
 func (s *PickService) CalculateUserParlayScore(ctx context.Context, userID, season, week int) (map[models.ParlayCategory]int, error) {
-	// Get all user's picks for the week
-	userPicks, err := s.GetUserPicksForWeek(ctx, userID, season, week)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user picks: %w", err)
-	}
-	
-	// Get game information for categorization
-	gameInfoMap, err := s.getGameInfoForWeek(ctx, season, week)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get game info: %w", err)
-	}
-	
-	// Categorize picks by parlay type
-	categories := models.CategorizePicksByGame(userPicks.Picks, gameInfoMap)
-	
-	// Calculate points for each category
-	scores := make(map[models.ParlayCategory]int)
-	for category, picks := range categories {
-		scores[category] = models.CalculateParlayPoints(picks)
-	}
-	
-	return scores, nil
+	// Delegate to specialized ParlayService
+	return s.parlayService.CalculateUserParlayScore(ctx, userID, season, week)
 }
 
 // CalculateAllUsersParlayScores calculates parlay scores for all users in a week
@@ -699,59 +613,14 @@ func (s *PickService) getGameInfoForWeek(ctx context.Context, season, week int) 
 
 // ProcessWeekParlayScoring calculates and saves parlay scores for all users when a week is complete
 func (s *PickService) ProcessWeekParlayScoring(ctx context.Context, season, week int) error {
-	log.Printf("Processing parlay scoring for Season %d, Week %d", season, week)
-	
-	// Calculate scores for all users
-	allScores, err := s.CalculateAllUsersParlayScores(ctx, season, week)
-	if err != nil {
-		return fmt.Errorf("failed to calculate parlay scores: %w", err)
-	}
-	
-	// Save each user's score
-	for userID, weeklyScores := range allScores {
-		if err := s.UpdateUserParlayRecord(ctx, userID, season, week, weeklyScores); err != nil {
-			log.Printf("Warning: failed to save parlay score for user %d: %v", userID, err)
-			continue
-		}
-	}
-	
-	log.Printf("Completed parlay scoring for Season %d, Week %d", season, week)
-	return nil
+	// Delegate to specialized ParlayService
+	return s.parlayService.ProcessWeekParlayScoring(ctx, season, week)
 }
 
 // ProcessParlayCategory calculates and saves parlay scores for a specific category when completed
 func (s *PickService) ProcessParlayCategory(ctx context.Context, season, week int, category models.ParlayCategory) error {
-	log.Printf("Processing parlay scoring for Season %d, Week %d, Category %s", season, week, category)
-	
-	// Get all users
-	users, err := s.userRepo.GetAllUsers()
-	if err != nil {
-		return fmt.Errorf("failed to get users: %w", err)
-	}
-	
-	// Process each user
-	for _, user := range users {
-		// Calculate scores for this specific category
-		categoryScore, err := s.CalculateUserParlayCategoryScore(ctx, user.ID, season, week, category)
-		if err != nil {
-			log.Printf("Warning: failed to calculate parlay category score for user %d: %v", user.ID, err)
-			continue
-		}
-		
-		// Update user's parlay record for this category
-		if err := s.UpdateUserParlayCategoryRecord(ctx, user.ID, season, week, category, categoryScore); err != nil {
-			log.Printf("Warning: failed to save parlay category score for user %d: %v", user.ID, err)
-			continue
-		}
-		
-		log.Printf("User %d earned %d points in %s category for Week %d", user.ID, categoryScore, category, week)
-	}
-	
-	// Note: Club score updates will be visible on next page load/refresh
-	// Real-time score updates would need OOB template content to work properly
-	
-	log.Printf("Completed parlay category scoring for Season %d, Week %d, Category %s", season, week, category)
-	return nil
+	// Delegate to specialized ParlayService
+	return s.parlayService.ProcessParlayCategory(ctx, season, week, category)
 }
 
 // CalculateUserParlayCategoryScore calculates points for a specific parlay category
@@ -1008,55 +877,10 @@ func (s *PickService) checkAndTriggerScoring(ctx context.Context, season, week i
 
 // ProcessDailyParlayScoring calculates and saves daily parlay scores for modern seasons (2025+)
 func (s *PickService) ProcessDailyParlayScoring(ctx context.Context, season, week int) error {
-	if !models.IsModernSeason(season) {
-		return fmt.Errorf("daily parlay scoring only applies to modern seasons (2025+), got season %d", season)
-	}
-	
-	log.Printf("Processing daily parlay scoring for Season %d, Week %d", season, week)
-	
-	// Get all users
-	users, err := s.userRepo.GetAllUsers()
-	if err != nil {
-		return fmt.Errorf("failed to get users: %w", err)
-	}
-	
-	// Get all games for the week to support day grouping
-	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
-	if err != nil {
-		return fmt.Errorf("failed to get games for week: %w", err)
-	}
-	
-	// Convert to slice for model functions
-	gameSlice := make([]models.Game, len(games))
-	for i, game := range games {
-		gameSlice[i] = *game
-	}
-	
-	// Process each user
-	for _, user := range users {
-		dailyScores, err := s.CalculateUserDailyParlayScores(ctx, user.ID, season, week, gameSlice)
-		if err != nil {
-			log.Printf("Warning: failed to calculate daily parlay scores for user %d: %v", user.ID, err)
-			continue
-		}
-		
-		// Update user's record with daily scores
-		if err := s.UpdateUserDailyParlayRecord(ctx, user.ID, season, week, dailyScores); err != nil {
-			log.Printf("Warning: failed to save daily parlay scores for user %d: %v", user.ID, err)
-			continue
-		}
-		
-		totalPoints := 0
-		for _, points := range dailyScores {
-			totalPoints += points
-		}
-		log.Printf("User %d earned %d total points across %d days for Week %d", 
-			user.ID, totalPoints, len(dailyScores), week)
-	}
-	
-	log.Printf("Completed daily parlay scoring for Season %d, Week %d", season, week)
-	return nil
+	// Delegate to specialized ParlayService
+	return s.parlayService.ProcessDailyParlayScoring(ctx, season, week)
 }
+
 
 // CalculateUserDailyParlayScores calculates points for each day for a user in modern seasons
 func (s *PickService) CalculateUserDailyParlayScores(ctx context.Context, userID, season, week int, games []models.Game) (map[string]int, error) {

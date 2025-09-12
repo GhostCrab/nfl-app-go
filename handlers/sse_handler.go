@@ -177,36 +177,6 @@ func (h *SSEHandler) BroadcastStructuredUpdate(eventType, data string) {
 	h.broadcastToAllClients(string(messageData))
 }
 
-// broadcastToUser sends a message to a specific user's SSE connections
-func (h *SSEHandler) broadcastToUser(userID int, eventType, data string) {
-	message := map[string]interface{}{
-		"type": eventType,
-		"data": data,
-	}
-
-	messageData, err := json.Marshal(message)
-	if err != nil {
-		log.Printf("SSE: Error marshaling user message: %v", err)
-		return
-	}
-
-	count := 0
-	for client := range h.sseClients {
-		if client.UserID == userID {
-			select {
-			case client.Channel <- string(messageData):
-				count++
-			default:
-				log.Printf("SSE: Client channel full for user %d, skipping message", userID)
-			}
-		}
-	}
-
-	if count > 0 {
-		log.Printf("SSE: Broadcasted %s to %d client(s) for user %d", eventType, count, userID)
-	}
-}
-
 // broadcastToAllClients sends a message to all connected SSE clients
 func (h *SSEHandler) broadcastToAllClients(messageData string) {
 	clientCount := len(h.sseClients)
@@ -224,7 +194,7 @@ func (h *SSEHandler) broadcastToAllClients(messageData string) {
 		}
 	}
 
-	log.Printf("SSE: Broadcasted to %d/%d clients", sentCount, clientCount)
+	// log.Printf("SSE: Broadcasted to %d/%d clients", sentCount, clientCount)
 }
 
 // broadcastPickUpdate broadcasts pick updates for a specific user
@@ -264,20 +234,24 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		userPicks = []*models.UserPicks{userPicksData}
 	}
 
-	// Render updated user picks HTML
-	data := struct {
-		UserPicks []*models.UserPicks
-		Games     []models.Game
-	}{
-		UserPicks: userPicks,
-		Games:     weekGames,
-	}
-
-	// Execute the user picks template
+	// Use the same data structure as the main page load for consistency
+	// Loop through userPicks and render each one using the same template as main page
 	htmlBuffer := &strings.Builder{}
-	if err := h.templates.ExecuteTemplate(htmlBuffer, "sse-user-picks-block", data); err != nil {
-		log.Printf("SSE: Error rendering user picks template: %v", err)
-		return
+
+	for _, up := range userPicks {
+		// Use same template and data structure as main page (user-picks-block)
+		templateData := map[string]interface{}{
+			"UserPicks":     up,
+			"Games":         weekGames,
+			"IsCurrentUser": false, // SSE updates are for other users viewing
+			"IsFirst":       false,
+			"Season":        season,
+		}
+
+		if err := h.templates.ExecuteTemplate(htmlBuffer, "user-picks-block", templateData); err != nil {
+			log.Printf("SSE: Error rendering user picks template: %v", err)
+			return
+		}
 	}
 
 	// Create SSE message for out-of-band swap
@@ -323,21 +297,38 @@ func (h *SSEHandler) broadcastGameStatusHTML(game *models.Game) {
 		return
 	}
 
-	// Render game status HTML
-	data := struct{ Game *models.Game }{Game: game}
-
+	// Create targeted game status update using HTMX hx-swap-oob pattern
 	htmlBuffer := &strings.Builder{}
-	if err := h.templates.ExecuteTemplate(htmlBuffer, "game-status", data); err != nil {
-		log.Printf("SSE: Error rendering game status template: %v", err)
-		return
+
+	// Create proper hx-swap-oob update for game status
+	fmt.Fprintf(htmlBuffer, `<div class="game-status" id="game-status-%d" hx-swap-oob="true">`, game.ID)
+
+	if game.State == "scheduled" {
+		fmt.Fprintf(htmlBuffer, `%s`, game.Date.Format("3:04 PM"))
+	} else if game.State == "in_play" {
+		fmt.Fprintf(htmlBuffer, `<span class="live-indicator">LIVE</span>`)
+		if game.Quarter > 0 {
+			if game.Quarter == 5 {
+				htmlBuffer.WriteString(`<br>OT`)
+			} else if game.Quarter == 6 {
+				htmlBuffer.WriteString(`<br>2OT`)
+			} else {
+				fmt.Fprintf(htmlBuffer, `<br>Q%d`, game.Quarter)
+			}
+		}
+	} else if game.State == "completed" {
+		htmlBuffer.WriteString(`FINAL`)
+	} else {
+		htmlBuffer.WriteString(`@`)
 	}
 
-	// Create SSE message for out-of-band swap
+	htmlBuffer.WriteString(`</div>`)
+
+	// Create SSE message with hx-swap-oob content
+	// Use dashboard-update type which is configured in frontend template
 	message := map[string]interface{}{
-		"type":     "game-status-update",
-		"game_id":  game.ID,
-		"html":     htmlBuffer.String(),
-		"selector": fmt.Sprintf("#game-status-%d", game.ID),
+		"type": "dashboard-update",
+		"html": htmlBuffer.String(),
 	}
 
 	messageData, err := json.Marshal(message)
@@ -347,6 +338,7 @@ func (h *SSEHandler) broadcastGameStatusHTML(game *models.Game) {
 	}
 
 	h.broadcastToAllClients(string(messageData))
+	log.Printf("SSE: Broadcasted game status update for game %d", game.ID)
 }
 
 // broadcastGameScoresHTML broadcasts game score updates
@@ -355,21 +347,18 @@ func (h *SSEHandler) broadcastGameScoresHTML(game *models.Game) {
 		return
 	}
 
-	// Render game scores HTML
-	data := struct{ Game *models.Game }{Game: game}
-
+	// Create targeted game scores update using HTMX hx-swap-oob pattern
 	htmlBuffer := &strings.Builder{}
-	if err := h.templates.ExecuteTemplate(htmlBuffer, "game-scores", data); err != nil {
-		log.Printf("SSE: Error rendering game scores template: %v", err)
-		return
-	}
 
-	// Create SSE message for out-of-band swap
+	// Create proper hx-swap-oob update for game scores
+	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="away-score-%d" hx-swap-oob="true">%d</span>`, game.ID, game.AwayScore)
+	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="home-score-%d" hx-swap-oob="true">%d</span>`, game.ID, game.HomeScore)
+
+	// Create SSE message with hx-swap-oob content
+	// Use dashboard-update type which is configured in frontend template
 	message := map[string]interface{}{
-		"type":     "game-scores-update",
-		"game_id":  game.ID,
-		"html":     htmlBuffer.String(),
-		"selector": fmt.Sprintf("#game-scores-%d", game.ID),
+		"type": "dashboard-update",
+		"html": htmlBuffer.String(),
 	}
 
 	messageData, err := json.Marshal(message)
@@ -379,6 +368,7 @@ func (h *SSEHandler) broadcastGameScoresHTML(game *models.Game) {
 	}
 
 	h.broadcastToAllClients(string(messageData))
+	log.Printf("SSE: Broadcasted game scores update for game %d (%d-%d)", game.ID, game.AwayScore, game.HomeScore)
 }
 
 // broadcastPickUpdatesHTML broadcasts pick-related updates for a game
@@ -391,7 +381,7 @@ func (h *SSEHandler) broadcastPickUpdatesHTML(game *models.Game) {
 	// would require getting all user picks which isn't directly supported
 	// by the current service interface. This is a simplification for the refactor.
 	affectedUsers := make(map[int]bool)
-	
+
 	// Get all connected users from SSE clients
 	for client := range h.sseClients {
 		if client.UserID > 0 {
