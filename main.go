@@ -146,7 +146,7 @@ func main() {
 	gameDisplayHandler.SetServices(pickService, authService, visibilityService, userRepo)
 	pickManagementHandler := handlers.NewPickManagementHandler(templates, gameService, pickService, authService, visibilityService, sseHandler)
 	dashboardHandler := handlers.NewDashboardHandler(templates, gameService, pickService, authService, visibilityService, nil, dataLoader)
-	demoTestingHandler := handlers.NewDemoTestingHandler(templates, gameService, sseHandler)
+	demoTestingHandler := handlers.NewDemoTestingHandler(templates, gameService, sseHandler, parlayService, parlayRepo)
 	
 	// Legacy GameHandler removed - all functionality moved to specialized handlers
 	
@@ -237,6 +237,8 @@ func main() {
 	
 	// Demo and testing routes
 	r.Handle("/games/test-update", authMiddleware.OptionalAuth(http.HandlerFunc(demoTestingHandler.TestGameUpdate))).Methods("POST")
+	r.Handle("/club-scores/test-update", authMiddleware.OptionalAuth(http.HandlerFunc(demoTestingHandler.TestClubScoreUpdate))).Methods("POST")
+	r.Handle("/parlay-scores/test-db-update", authMiddleware.OptionalAuth(http.HandlerFunc(demoTestingHandler.TestDatabaseParlayUpdate))).Methods("POST")
 	
 	// Dashboard API routes
 	r.Handle("/api/dashboard", authMiddleware.OptionalAuth(http.HandlerFunc(dashboardHandler.GetDashboardDataAPI))).Methods("GET")

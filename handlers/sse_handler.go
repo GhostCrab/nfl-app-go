@@ -12,7 +12,6 @@ import (
 	"nfl-app-go/services"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Note: SSEClient is already defined in games.go, but we'll use the same structure
@@ -498,10 +497,37 @@ func (h *SSEHandler) broadcastPickUpdatesHTML(game *models.Game) {
 func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
 	logger := logging.WithPrefix("SSE")
 	logger.Debugf("Broadcasting parlay score update for season %d, week %d", season, week)
-	
-	// Send a structured update event that the frontend can listen for
-	eventData := fmt.Sprintf(`{"type":"parlayScoreUpdate","season":%d,"week":%d,"timestamp":%d}`, 
-		season, week, time.Now().UnixMilli())
-	
-	h.BroadcastStructuredUpdate("parlay-scores-updated", eventData)
+
+	// Get updated user picks data to render club scores
+	if h.pickService != nil {
+		ctx := context.Background()
+		userPicks, err := h.pickService.GetAllUserPicksForWeek(ctx, season, week)
+		if err != nil {
+			logger.Errorf("Failed to get user picks for club score update: %v", err)
+			return
+		}
+
+		// Create template data
+		templateData := map[string]interface{}{
+			"UserPicks": userPicks,
+		}
+
+		// Render the club-scores-content template
+		htmlBuffer := &strings.Builder{}
+		if err := h.templates.ExecuteTemplate(htmlBuffer, "club-scores-content", templateData); err != nil {
+			logger.Errorf("Error rendering club-scores template: %v", err)
+			return
+		}
+
+		// Create hx-swap-oob update for club-scores div
+		oobHTML := fmt.Sprintf(`<div class="club-scores" id="club-scores" hx-swap-oob="true">%s</div>`, htmlBuffer.String())
+
+		// Send the HTML update via SSE
+		message := fmt.Sprintf("parlay-scores-updated:%s", oobHTML)
+		h.broadcastToAllClients(message)
+
+		logger.Infof("Broadcasted club scores HTML update to %d clients", len(h.sseClients))
+	} else {
+		logger.Warn("Pick service not available for parlay score HTML broadcast")
+	}
 }

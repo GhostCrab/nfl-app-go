@@ -78,12 +78,7 @@
              hx-swap="outerHTML"
              hx-target-404="#nonexistent"></div>
              
-        <!-- Parlay score updates listener -->
-        <div sse-swap="parlay-scores-updated" 
-             hx-swap="none"
-             hx-trigger="sse:parlay-scores-updated"
-             hx-get="/"
-             hx-target="#dashboard-content"></div>
+        <!-- Parlay score updates listener - removed full page refresh, using hx-swap-oob instead -->
              
     </div>
          
@@ -236,7 +231,7 @@
         <!-- Right Column: Club Scores - Material Design Structure -->
         <div class="score-flex-item">
             <div class="section-header">CLUB SCORE</div>
-            <div class="club-scores">
+            <div class="club-scores" id="club-scores">
                 {{template "club-scores-content" .}}
             </div>
         </div>
