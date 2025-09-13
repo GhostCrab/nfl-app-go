@@ -505,18 +505,29 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 			gamesToUpdate = append(gamesToUpdate, &game)
 			oddsAdded++
 			
-			// Log the detailed odds update with before/after values
-			log.Printf("BackgroundUpdater: ODDS UPDATE for Game %d (%s vs %s)", 
-				game.ID, game.Away, game.Home)
+			// Log the detailed odds update with before/after values and game timing
+			pacificTime, _ := time.LoadLocation("America/Los_Angeles")
+			gameTimePacific := game.Date.In(pacificTime)
+			
+			log.Printf("BackgroundUpdater: ODDS UPDATE for Game %d (Week %d: %s vs %s)", 
+				game.ID, game.Week, game.Away, game.Home)
+			log.Printf("  Game Time: %s Pacific", gameTimePacific.Format("Mon 1/2/2006 3:04 PM MST"))
 			log.Printf("  BEFORE: Odds = nil (no odds available)")
 			log.Printf("  AFTER:  Odds = Spread: %.1f, O/U: %.1f", 
 				game.Odds.Spread, game.Odds.OU)
 			log.Printf("  STATUS: SUCCESS - Added new odds to database")
 		} else if i < len(gamesNeedingOdds) {
-			// Log failed odds fetch attempts
+			// Log failed odds fetch attempts with enhanced details
 			failedGame := gamesNeedingOdds[i]
-			log.Printf("BackgroundUpdater: ODDS FETCH FAILED for Game %d (%s vs %s) - ESPN API returned no odds", 
-				failedGame.ID, failedGame.Away, failedGame.Home)
+			
+			// Convert to Pacific time for better readability
+			pacificTime, _ := time.LoadLocation("America/Los_Angeles")
+			gameTimePacific := failedGame.Date.In(pacificTime)
+			
+			log.Printf("BackgroundUpdater: ODDS FETCH FAILED for Game %d (Week %d: %s vs %s) - ESPN API returned no odds", 
+				failedGame.ID, failedGame.Week, failedGame.Away, failedGame.Home)
+			log.Printf("  Game Time: %s Pacific (%s)", 
+				gameTimePacific.Format("Mon 1/2/2006 3:04 PM MST"), gameTimePacific.Format("2006-01-02 15:04:05 MST"))
 		}
 	}
 	
@@ -551,6 +562,33 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 			log.Printf("BackgroundUpdater: Successfully added odds to %d games", len(safeToUpdate))
 		} else {
 			log.Printf("BackgroundUpdater: No odds updates processed - all games blocked by sanity check")
+		}
+	}
+	
+	// Enhanced summary logging for odds enrichment process
+	totalAttempted := len(gamesNeedingOdds)
+	totalSuccessful := oddsAdded
+	totalFailed := totalAttempted - totalSuccessful
+	
+	if totalAttempted > 0 {
+		log.Printf("BackgroundUpdater: ODDS ENRICHMENT SUMMARY:")
+		log.Printf("  Total games needing odds: %d", totalAttempted)
+		log.Printf("  Successful odds fetches: %d (%.1f%%)", totalSuccessful, float64(totalSuccessful)/float64(totalAttempted)*100)
+		log.Printf("  Failed odds fetches: %d (%.1f%%)", totalFailed, float64(totalFailed)/float64(totalAttempted)*100)
+		
+		// Group failed games by week for better analysis
+		failedByWeek := make(map[int]int)
+		for i := totalSuccessful; i < totalAttempted; i++ {
+			if i < len(gamesNeedingOdds) {
+				failedByWeek[gamesNeedingOdds[i].Week]++
+			}
+		}
+		
+		if len(failedByWeek) > 0 {
+			log.Printf("  Failed odds by week:")
+			for week, count := range failedByWeek {
+				log.Printf("    Week %d: %d failed", week, count)
+			}
 		}
 	}
 }
