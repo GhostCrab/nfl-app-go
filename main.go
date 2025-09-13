@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"html/template"
-	"log"
 	"net/http"
 	"nfl-app-go/database"
 	"nfl-app-go/handlers"
+	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
 	"nfl-app-go/services"
 	"nfl-app-go/templates"
@@ -24,12 +24,17 @@ func getEnv(key, defaultValue string) string {
 }
 
 func main() {
-	// Set log format with milliseconds for timing analysis
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	// Configure structured logging
+	logging.Configure(logging.Config{
+		Level:       getEnv("LOG_LEVEL", "info"),
+		Output:      os.Stdout,
+		Prefix:      "nfl-app",
+		EnableColor: getEnv("LOG_COLOR", "true") != "false",
+	})
 
 	// Load .env file
 	if err := godotenv.Load(); err != nil {
-		log.Printf("Warning: Could not load .env file: %v", err)
+		logging.Warnf("Could not load .env file: %v", err)
 	}
 
 	// Initialize MongoDB connection
@@ -41,20 +46,20 @@ func main() {
 		Database: getEnv("DB_NAME", "nfl_app"),
 	}
 
-	log.Printf("DB Config - Host: %s, Port: %s, Username: %s, Database: %s, Password set: %t",
+	logging.Infof("DB Config - Host: %s, Port: %s, Username: %s, Database: %s, Password set: %t",
 		dbConfig.Host, dbConfig.Port, dbConfig.Username, dbConfig.Database, dbConfig.Password != "")
 
 	db, err := database.NewMongoConnection(dbConfig)
 	if err != nil {
-		log.Printf("Database connection failed: %v", err)
-		log.Println("Continuing without database connection...")
+		logging.Errorf("Database connection failed: %v", err)
+		logging.Warn("Continuing without database connection...")
 
 		// Parse templates with custom functions
 		templateFuncs := templates.GetTemplateFuncs()
 
 		templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
 		if err != nil {
-			log.Fatal("Error parsing templates:", err)
+			logging.Fatal("Error parsing templates:", err)
 		}
 
 		// Create demo service as fallback
@@ -70,9 +75,9 @@ func main() {
 		r.HandleFunc("/games/refresh", gameDisplayHandler.RefreshGames).Methods("GET")
 
 		// Start server
-		log.Println("Server starting on 0.0.0.0:8080 (available on LAN)")
-		log.Println("Visit: http://localhost:8080 or http://[your-pi-ip]:8080")
-		log.Fatal(http.ListenAndServe("0.0.0.0:8080", r))
+		logging.Info("Server starting on 0.0.0.0:8080 (available on LAN)")
+		logging.Info("Visit: http://localhost:8080 or http://[your-pi-ip]:8080")
+		logging.Fatal(http.ListenAndServe("0.0.0.0:8080", r))
 		return
 	}
 
@@ -80,7 +85,7 @@ func main() {
 
 	// Test the connection
 	if err := db.TestConnection(); err != nil {
-		log.Printf("Database test failed: %v", err)
+		logging.Errorf("Database test failed: %v", err)
 	}
 
 	// Create database repositories
@@ -96,18 +101,18 @@ func main() {
 	currentSeason := 2025
 	existingGames, err := gameRepo.GetGamesBySeason(currentSeason)
 	if err != nil || len(existingGames) == 0 {
-		log.Printf("No games found for %d season, loading from ESPN API...", currentSeason)
+		logging.Infof("No games found for %d season, loading from ESPN API...", currentSeason)
 		if err := dataLoader.LoadGameData(currentSeason); err != nil {
-			log.Printf("Failed to load game data for %d: %v", currentSeason, err)
+			logging.Errorf("Failed to load game data for %d: %v", currentSeason, err)
 		}
 	} else {
-		log.Printf("Found %d existing games for %d season", len(existingGames), currentSeason)
+		logging.Infof("Found %d existing games for %d season", len(existingGames), currentSeason)
 	}
 
 	// Seed users if needed
 	userSeeder := services.NewUserSeeder(userRepo)
 	if err := userSeeder.SeedUsers(); err != nil {
-		log.Printf("Failed to seed users: %v", err)
+		logging.Errorf("Failed to seed users: %v", err)
 	}
 
 	// Parse templates with custom functions
@@ -115,7 +120,7 @@ func main() {
 
 	templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
 	if err != nil {
-		log.Fatal("Error parsing templates:", err)
+		logging.Fatal("Error parsing templates:", err)
 	}
 
 	// Create email service
@@ -131,15 +136,15 @@ func main() {
 
 	// Test email configuration if provided
 	if emailService.IsConfigured() {
-		log.Println("Email service configured, testing connection...")
+		logging.Info("Email service configured, testing connection...")
 		if err := emailService.TestConnection(); err != nil {
-			log.Printf("Email service test failed: %v", err)
-			log.Println("Password reset emails will use development mode (show link directly)")
+			logging.Errorf("Email service test failed: %v", err)
+			logging.Info("Password reset emails will use development mode (show link directly)")
 		} else {
-			log.Println("Email service test successful")
+			logging.Info("Email service test successful")
 		}
 	} else {
-		log.Println("Email service not configured - using development mode for password resets")
+		logging.Info("Email service not configured - using development mode for password resets")
 	}
 
 	// Create services
@@ -209,7 +214,7 @@ func main() {
 
 	// Add no-cache middleware for development only
 	isDevelopment := getEnv("ENVIRONMENT", "development") == "development"
-	log.Printf("Server starting in %s mode (isDevelopment: %t)", getEnv("ENVIRONMENT", "development"), isDevelopment)
+	logging.Infof("Server starting in %s mode (isDevelopment: %t)", getEnv("ENVIRONMENT", "development"), isDevelopment)
 	if isDevelopment {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +227,7 @@ func main() {
 	}
 
 	// Static files
-	log.Printf("Setting up static file server for /static/ directory")
+	logging.Debug("Setting up static file server for /static/ directory")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
 
 	// Create additional services for analytics
@@ -278,47 +283,47 @@ func main() {
 	behindProxy := getEnv("BEHIND_PROXY", "false") == "true"
 
 	if !emailService.IsConfigured() {
-		log.Println("")
-		log.Println("📧 EMAIL CONFIGURATION:")
-		log.Println("To enable real password reset emails, set these environment variables:")
-		log.Println("  SMTP_HOST=smtp.gmail.com (for Gmail)")
-		log.Println("  SMTP_USERNAME=your-email@gmail.com")
-		log.Println("  SMTP_PASSWORD=your-app-password")
-		log.Println("  FROM_EMAIL=your-email@gmail.com")
-		log.Println("  FROM_NAME=\"NFL Games\"")
-		log.Println("")
+		logging.Info("")
+		logging.Info("📧 EMAIL CONFIGURATION:")
+		logging.Info("To enable real password reset emails, set these environment variables:")
+		logging.Info("  SMTP_HOST=smtp.gmail.com (for Gmail)")
+		logging.Info("  SMTP_USERNAME=your-email@gmail.com")
+		logging.Info("  SMTP_PASSWORD=your-app-password")
+		logging.Info("  FROM_EMAIL=your-email@gmail.com")
+		logging.Info("  FROM_NAME=\"NFL Games\"")
+		logging.Info("")
 	}
 
 	// Start server
 	serverAddr := "0.0.0.0:" + serverPort
 
 	if behindProxy {
-		log.Printf("Server starting on %s (HTTP - behind proxy/tunnel)", serverAddr)
-		log.Println("⚡ Configured for Cloudflare Tunnel or reverse proxy")
-		log.Println("Default password for all users: password123")
-		log.Fatal(http.ListenAndServe(serverAddr, r))
+		logging.Infof("Server starting on %s (HTTP - behind proxy/tunnel)", serverAddr)
+		logging.Info("⚡ Configured for Cloudflare Tunnel or reverse proxy")
+		logging.Info("Default password for all users: password123")
+		logging.Fatal(http.ListenAndServe(serverAddr, r))
 	} else if useTLS {
-		log.Printf("Server starting on %s (HTTPS - available on LAN)", serverAddr)
-		log.Printf("Visit: https://localhost:%s or https://[your-pi-ip]:%s", serverPort, serverPort)
-		log.Printf("Login page: https://localhost:%s/login or https://[your-pi-ip]:%s/login", serverPort, serverPort)
-		log.Println("Default password for all users: password123")
-		log.Println("⚠️  Using self-signed certificate - browser will show security warning")
+		logging.Infof("Server starting on %s (HTTPS - available on LAN)", serverAddr)
+		logging.Infof("Visit: https://localhost:%s or https://[your-pi-ip]:%s", serverPort, serverPort)
+		logging.Infof("Login page: https://localhost:%s/login or https://[your-pi-ip]:%s/login", serverPort, serverPort)
+		logging.Info("Default password for all users: password123")
+		logging.Info("⚠️  Using self-signed certificate - browser will show security warning")
 
 		// Check if certificate files exist
 		if _, err := os.Stat("server.crt"); os.IsNotExist(err) {
-			log.Fatal("server.crt not found. Set USE_TLS=false or generate certificates.")
+			logging.Fatal("server.crt not found. Set USE_TLS=false or generate certificates.")
 		}
 		if _, err := os.Stat("server.key"); os.IsNotExist(err) {
-			log.Fatal("server.key not found. Set USE_TLS=false or generate certificates.")
+			logging.Fatal("server.key not found. Set USE_TLS=false or generate certificates.")
 		}
 
-		log.Fatal(http.ListenAndServeTLS(serverAddr, "server.crt", "server.key", r))
+		logging.Fatal(http.ListenAndServeTLS(serverAddr, "server.crt", "server.key", r))
 	} else {
-		log.Printf("Server starting on %s (HTTP - available on LAN)", serverAddr)
-		log.Printf("Visit: http://localhost:%s or http://[your-pi-ip]:%s", serverPort, serverPort)
-		log.Printf("Login page: http://localhost:%s/login or http://[your-pi-ip]:%s/login", serverPort, serverPort)
-		log.Println("Default password for all users: password123")
-		log.Println("⚠️  HTTP mode - use only behind HTTPS proxy/tunnel")
-		log.Fatal(http.ListenAndServe(serverAddr, r))
+		logging.Infof("Server starting on %s (HTTP - available on LAN)", serverAddr)
+		logging.Infof("Visit: http://localhost:%s or http://[your-pi-ip]:%s", serverPort, serverPort)
+		logging.Infof("Login page: http://localhost:%s/login or http://[your-pi-ip]:%s/login", serverPort, serverPort)
+		logging.Info("Default password for all users: password123")
+		logging.Info("⚠️  HTTP mode - use only behind HTTPS proxy/tunnel")
+		logging.Fatal(http.ListenAndServe(serverAddr, r))
 	}
 }

@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
 	"nfl-app-go/database"
+	"nfl-app-go/logging"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -43,23 +43,27 @@ func NewChangeStreamWatcher(db *database.MongoDB, onUpdate func(event ChangeEven
 func (w *ChangeStreamWatcher) ForceRestart() {
 	select {
 	case w.restart <- true:
-		log.Printf("ChangeStream: Force restart requested")
+		logger := logging.WithPrefix("ChangeStream")
+		logger.Info("Force restart requested")
 	default:
 		// Channel is full, restart already pending
 	}
 }
 
-// StartWatching begins watching for changes in games and picks collections
+// StartWatching begins watching for changes in games, picks, and parlay_scores collections
 func (w *ChangeStreamWatcher) StartWatching() {
 	// Start watching games collection
 	go w.watchCollection("games")
 	// Start watching picks collection  
 	go w.watchCollection("picks")
+	// Start watching parlay scores collection
+	go w.watchCollection("parlay_scores")
 }
 
 // watchCollection watches a specific collection for changes
 func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
-	log.Printf("ChangeStream: Starting to watch %s collection for changes", collectionName)
+	logger := logging.WithPrefix("ChangeStream")
+	logger.Infof("Starting to watch %s collection for changes", collectionName)
 	
 	collection := w.db.GetCollection(collectionName)
 	
@@ -89,11 +93,11 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 				}},
 			},
 		}
-		log.Printf("ChangeStream: Using filtered pipeline for games collection (meaningful changes only)")
+		logger.Debug("Using filtered pipeline for games collection (meaningful changes only)")
 	} else {
 		// For other collections, watch all changes
 		pipeline = mongo.Pipeline{}
-		log.Printf("ChangeStream: Using default pipeline for %s collection", collectionName)
+		logger.Debugf("Using default pipeline for %s collection", collectionName)
 	}
 	
 	// Watch for changes with error handling and auto-reconnect
@@ -108,18 +112,18 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 		
 		changeStream, err := collection.Watch(ctx, pipeline, opts)
 		if err != nil {
-			log.Printf("ChangeStream: Error creating change stream for %s: %v", collectionName, err)
+			logger.Errorf("Error creating change stream for %s: %v", collectionName, err)
 			time.Sleep(5 * time.Second) // Wait before retrying
 			continue
 		}
 
-		log.Printf("ChangeStream: Successfully connected to %s collection", collectionName)
+		logger.Infof("Successfully connected to %s collection", collectionName)
 
 		// Process change events
 		for changeStream.Next(ctx) {
 			var event bson.M
 			if err := changeStream.Decode(&event); err != nil {
-				log.Printf("ChangeStream: Error decoding change event from %s: %v", collectionName, err)
+				logger.Errorf("Error decoding change event from %s: %v", collectionName, err)
 				continue
 			}
 
@@ -142,7 +146,7 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 					if fullDoc, ok := event["fullDocument"].(bson.M); ok {
 						if gameState, ok := fullDoc["state"].(string); ok {
 							if gameID, ok := fullDoc["id"].(int32); ok {
-								log.Printf("ChangeStream: Game %d replace operation, state=%s", gameID, gameState)
+								logger.Debugf("Game %d replace operation, state=%s", gameID, gameState)
 							}
 						}
 					}
@@ -185,7 +189,7 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 					}
 				}
 				
-				log.Printf("ChangeStream: %s updated - fields: %v", gameDesc, fieldNames)
+				logger.Debugf("%s updated - fields: %v", gameDesc, fieldNames)
 			}
 			
 			// Trigger update callback
@@ -196,11 +200,11 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 
 		// Handle stream errors
 		if err := changeStream.Err(); err != nil {
-			log.Printf("ChangeStream: Change stream error for %s: %v", collectionName, err)
+			logger.Errorf("Change stream error for %s: %v", collectionName, err)
 		}
 
 		changeStream.Close(ctx)
-		log.Printf("ChangeStream: Connection to %s closed, attempting to reconnect in 5 seconds...", collectionName)
+		logger.Warnf("Connection to %s closed, attempting to reconnect in 5 seconds...", collectionName)
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -234,9 +238,11 @@ func (w *ChangeStreamWatcher) extractChangeInfo(event bson.M, collection, operat
 						err := gameCollection.FindOne(ctx, bson.M{"id": gameID}).Decode(&gameDoc)
 						if err == nil {
 							doc = gameDoc
-							log.Printf("ChangeStream: Fallback lookup for game %d successful", gameID)
+							fallbackLogger := logging.WithPrefix("ChangeStream")
+							fallbackLogger.Debugf("Fallback lookup for game %d successful", gameID)
 						} else {
-							log.Printf("ChangeStream: Fallback lookup for game %d failed: %v", gameID, err)
+							fallbackLogger := logging.WithPrefix("ChangeStream")
+							fallbackLogger.Warnf("Fallback lookup for game %d failed: %v", gameID, err)
 						}
 					}
 				}

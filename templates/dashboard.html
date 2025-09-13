@@ -78,6 +78,13 @@
              hx-swap="outerHTML"
              hx-target-404="#nonexistent"></div>
              
+        <!-- Parlay score updates listener -->
+        <div sse-swap="parlay-scores-updated" 
+             hx-swap="none"
+             hx-trigger="sse:parlay-scores-updated"
+             hx-get="/"
+             hx-target="#dashboard-content"></div>
+             
     </div>
          
     <div class="dashboard-container">        
@@ -106,9 +113,9 @@
                                 {{if .HasOdds}}<span class="team-spread">{{.FormatAwaySpread}}</span>{{end}}
                             </div>
                             {{if ne .State "scheduled"}}
-                                <span class="team-score" id="away-score-{{.ID}}">{{.AwayScore}}</span>
+                                <span class="team-score" id="away-score-{{.ID}}-{{.Season}}-{{.Week}}">{{.AwayScore}}</span>
                             {{else}}
-                                <span class="team-score" id="away-score-{{.ID}}"></span>
+                                <span class="team-score" id="away-score-{{.ID}}-{{.Season}}-{{.Week}}"></span>
                             {{end}}
                         </div>
                         <div class="matchup-team">
@@ -120,9 +127,9 @@
                                 {{if .HasOdds}}<span class="team-spread">{{.FormatHomeSpread}}</span>{{end}}
                             </div>
                             {{if ne .State "scheduled"}}
-                                <span class="team-score" id="home-score-{{.ID}}">{{.HomeScore}}</span>
+                                <span class="team-score" id="home-score-{{.ID}}-{{.Season}}-{{.Week}}">{{.HomeScore}}</span>
                             {{else}}
-                                <span class="team-score" id="home-score-{{.ID}}"></span>
+                                <span class="team-score" id="home-score-{{.ID}}-{{.Season}}-{{.Week}}"></span>
                             {{end}}
                         </div>
                     </div>
@@ -133,7 +140,7 @@
                             <span class="ou-value">-</span>
                         {{end}}
                     </div>
-                    <div class="game-status-section" id="game-status-{{.ID}}">
+                    <div class="game-status-section" id="game-status-{{.ID}}-{{.Season}}-{{.Week}}">
                         {{if eq .State "scheduled"}}
                             <div class="game-time">{{.FormatGameTime}}</div>
                         {{else if eq .State "in_play"}}
@@ -147,7 +154,7 @@
                     <!-- Always visible game expansion -->
                     <div class="live-game-expansion">
                         <!-- Game Clock and Quarter -->
-                        <span class="status-item game-clock" id="game-time-{{.ID}}">
+                        <span class="status-item game-clock" id="game-time-{{.ID}}-{{.Season}}-{{.Week}}">
                             {{if eq .Quarter 5}}OT{{else if eq .Quarter 6}}2OT{{else}}Q{{.Quarter}}{{end}}
                             {{if .HasStatus}}{{if ne .GetGameClock ""}} {{.GetGameClock}}{{end}}{{end}}
                         </span>
@@ -245,12 +252,12 @@
         {{debugLog "sortUsersWithCurrentFirst returned, starting range"}}
         {{range $index, $userPicks := $sortedUserPicks}}
             {{$isCurrentUser := eq .UserName $.User.Name}}
-            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0) "Season" $.CurrentSeason}}
+            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0) "Season" $.CurrentSeason "Week" $.CurrentWeek}}
         {{end}}
     {{else}}
         {{debugLog "No User, using basic range"}}
         {{range $index, $userPicks := .UserPicks}}
-            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" false "IsFirst" (eq $index 0) "Season" $.CurrentSeason}}
+            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" false "IsFirst" (eq $index 0) "Season" $.CurrentSeason "Week" $.CurrentWeek}}
         {{end}}
     {{end}}
 {{else}}
@@ -265,8 +272,8 @@
 
     {{define "user-picks-block"}}
 {{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
-{{$season := .Season -}}
-<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}" data-user-id="{{$userPicks.UserID}}">
+{{$season := .Season -}}{{$week := .Week -}}
+<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}">
 <div class="user-picks-header">
 {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
 </div>
@@ -564,9 +571,9 @@
                     <div class="team-info{{if and (or (contains $pick.TeamName $game.Away) (eq $pick.TeamName $game.Away)) (ne $pick.PickType "over_under")}} picked{{end}}">
                         <span class="team-abbr">{{$game.Away}}</span>
                         {{if ne $game.State "scheduled"}}
-                            <span class="team-score" id="away-score-{{$game.ID}}">{{$game.AwayScore}}</span>
+                            <span class="team-score" id="away-score-{{$game.ID}}-{{$game.Season}}-{{$game.Week}}">{{$game.AwayScore}}</span>
                         {{else}}
-                            <span class="team-score" id="away-score-{{$game.ID}}">-</span>
+                            <span class="team-score" id="away-score-{{$game.ID}}-{{$game.Season}}-{{$game.Week}}">-</span>
                         {{end}}
                     </div>
                     
@@ -575,9 +582,9 @@
                     <div class="team-info{{if and (or (contains $pick.TeamName $game.Home) (eq $pick.TeamName $game.Home)) (ne $pick.PickType "over_under")}} picked{{end}}">
                         <span class="team-abbr">{{$game.Home}}</span>
                         {{if ne $game.State "scheduled"}}
-                            <span class="team-score" id="home-score-{{$game.ID}}">{{$game.HomeScore}}</span>
+                            <span class="team-score" id="home-score-{{$game.ID}}-{{$game.Season}}-{{$game.Week}}">{{$game.HomeScore}}</span>
                         {{else}}
-                            <span class="team-score" id="home-score-{{$game.ID}}">-</span>
+                            <span class="team-score" id="home-score-{{$game.ID}}-{{$game.Season}}-{{$game.Week}}">-</span>
                         {{end}}
                     </div>
                 {{end}}
@@ -784,38 +791,7 @@
     {{end}}
 
     <script>
-        // SSE Week Filtering - Only act on events for the current week/season being viewed
-        document.addEventListener('htmx:sseBeforeMessage', function(e) {
-            // Only filter gameUpdate events
-            if (e.detail.type === 'gameUpdate') {
-                try {
-                    const eventData = JSON.parse(e.detail.data);
-                    const listener = document.querySelector('[sse-swap="gameUpdate"][data-filter-events="true"]');
-                    
-                    if (listener) {
-                        const currentSeason = parseInt(listener.getAttribute('data-current-season'));
-                        const currentWeek = parseInt(listener.getAttribute('data-current-week'));
-                        
-                        // Check if the event is for the current week/season
-                        if (eventData.season && eventData.week) {
-                            if (eventData.season !== currentSeason || eventData.week !== currentWeek) {
-                                console.log(`SSE: Filtering out gameUpdate for season ${eventData.season}, week ${eventData.week} (current: season ${currentSeason}, week ${currentWeek})`);
-                                e.preventDefault(); // Prevent this event from being processed
-                                return;
-                            }
-                        }
-                        
-                        console.log(`SSE: Processing gameUpdate for season ${eventData.season || 'unknown'}, week ${eventData.week || 'unknown'} (matches current view)`);
-                        
-                        // Append season/week params to the refresh URL
-                        const refreshUrl = `/games/refresh?season=${currentSeason}&week=${currentWeek}`;
-                        listener.setAttribute('hx-get', refreshUrl);
-                    }
-                } catch (err) {
-                    console.log('SSE: Could not parse gameUpdate event data:', err);
-                }
-            }
-        });
+        // SSE events now use week-specific IDs, so cross-week contamination is prevented automatically
 
         // Set up mutual exclusion for pick checkboxes
         function setupPickMutualExclusion(container) {
@@ -1283,8 +1259,8 @@
 
 {{define "sse-user-picks-block"}}
 {{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
-{{$season := .Season -}}
-<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}" data-user-id="{{$userPicks.UserID}}" hx-swap-oob="true">
+{{$season := .Season -}}{{$week := .Week -}}
+<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}" hx-swap-oob="true">
 <div class="user-picks-header">
 {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
 </div>

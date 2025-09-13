@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"log"
 	"net/http"
+	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
 	"nfl-app-go/services"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Note: SSEClient is already defined in games.go, but we'll use the same structure
@@ -56,7 +57,8 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		userID = user.ID
 	}
 
-	log.Printf("SSE: New client connected from %s (UserID: %d)", r.RemoteAddr, userID)
+	logger := logging.WithPrefix("SSE")
+	logger.Infof("New client connected from %s (UserID: %d)", r.RemoteAddr, userID)
 
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -76,7 +78,7 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		delete(h.sseClients, client)
 		close(client.Channel)
-		log.Printf("SSE: Client disconnected (UserID: %d)", userID)
+		logger.Infof("Client disconnected (UserID: %d)", userID)
 	}()
 
 	// Flusher for real-time streaming
@@ -117,7 +119,7 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 
 		case <-r.Context().Done():
-			log.Printf("SSE: Client context cancelled (UserID: %d)", userID)
+			logger.Debugf("Client context cancelled (UserID: %d)", userID)
 			return
 		}
 	}
@@ -125,7 +127,8 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 // HandleDatabaseChange processes database change events for SSE broadcasting
 func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
-	log.Printf("DATABASE CHANGE: %s collection, GameID: %s, Season: %d, Week: %d, Operation: %s",
+	logger := logging.WithPrefix("SSE:DBChange")
+	logger.Debugf("%s collection, GameID: %s, Season: %d, Week: %d, Operation: %s",
 		event.Collection, event.GameID, event.Season, event.Week, event.Operation)
 
 	// Handle game collection changes
@@ -137,13 +140,19 @@ func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
 	if event.Collection == "picks" && event.UserID > 0 {
 		h.BroadcastPickUpdate(event.UserID, event.Season, event.Week)
 	}
+
+	// Handle parlay score collection changes
+	if event.Collection == "parlay_scores" {
+		h.BroadcastParlayScoreUpdate(event.Season, event.Week)
+	}
 }
 
 // BroadcastUpdate sends game updates to all connected SSE clients (legacy method)
 func (h *SSEHandler) BroadcastUpdate() {
 	games, err := h.gameService.GetGames()
 	if err != nil {
-		log.Printf("SSE: Error fetching games for broadcast: %v", err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error fetching games for broadcast: %v", err)
 		return
 	}
 
@@ -157,7 +166,8 @@ func (h *SSEHandler) BroadcastUpdate() {
 	// Execute the template
 	htmlBuffer := &strings.Builder{}
 	if err := h.templates.ExecuteTemplate(htmlBuffer, "games-container", data); err != nil {
-		log.Printf("SSE: Error rendering games template: %v", err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error rendering games template: %v", err)
 		return
 	}
 
@@ -170,7 +180,8 @@ func (h *SSEHandler) BroadcastUpdate() {
 
 	messageData, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("SSE: Error marshaling message: %v", err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error marshaling message: %v", err)
 		return
 	}
 
@@ -187,7 +198,8 @@ func (h *SSEHandler) BroadcastStructuredUpdate(eventType, data string) {
 
 	messageData, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("SSE: Error marshaling structured message: %v", err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error marshaling structured message: %v", err)
 		return
 	}
 
@@ -207,7 +219,8 @@ func (h *SSEHandler) broadcastToAllClients(messageData string) {
 		case client.Channel <- messageData:
 			sentCount++
 		default:
-			log.Printf("SSE: Client channel full, skipping message")
+			logger := logging.WithPrefix("SSE")
+			logger.Warnf("Client channel full, skipping message")
 		}
 	}
 
@@ -217,14 +230,16 @@ func (h *SSEHandler) broadcastToAllClients(messageData string) {
 // broadcastPickUpdate broadcasts pick updates for a specific user
 func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	if h.pickService == nil {
-		log.Printf("SSE: Pick service not available for pick update broadcast")
+		logger := logging.WithPrefix("SSE")
+		logger.Warn("Pick service not available for pick update broadcast")
 		return
 	}
 
 	// Get current games for the season and week
 	games, err := h.gameService.GetGamesBySeason(season)
 	if err != nil {
-		log.Printf("SSE: Error fetching games for pick update: %v", err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error fetching games for pick update: %v", err)
 		return
 	}
 
@@ -241,7 +256,8 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	// For now, let's get picks for the specific user
 	userPicksData, err := h.pickService.GetUserPicksForWeek(context.Background(), userID, season, week)
 	if err != nil {
-		log.Printf("SSE: Error fetching user picks for broadcast: %v", err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error fetching user picks for broadcast: %v", err)
 		return
 	}
 
@@ -252,18 +268,19 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	}
 
 	// Enrich picks with display fields before rendering (CRITICAL for SSE updates)
+	logger := logging.WithPrefix("SSE:PickEnrich")
 	for _, up := range userPicks {
-		log.Printf("SSE: Enriching %d picks for user %s", len(up.Picks), up.UserName)
+		logger.Debugf("Enriching %d picks for user %s", len(up.Picks), up.UserName)
 		for i := range up.Picks {
 			pick := &up.Picks[i]
-			log.Printf("SSE: BEFORE enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
+			logger.Debugf("BEFORE enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
 			
 			if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
-				log.Printf("SSE: Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
+				logger.Errorf("Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
 				continue
 			}
 			
-			log.Printf("SSE: AFTER enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
+			logger.Debugf("AFTER enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
 		}
 
 		// Populate DailyPickGroups for modern seasons (2025+)
@@ -281,10 +298,12 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 			"IsCurrentUser": false, // SSE updates are for other users viewing
 			"IsFirst":       false,
 			"Season":        season,
+			"Week":          week,
 		}
 
 		if err := h.templates.ExecuteTemplate(htmlBuffer, "sse-user-picks-block", templateData); err != nil {
-			log.Printf("SSE: Error rendering user picks template: %v", err)
+			logger := logging.WithPrefix("SSE")
+			logger.Errorf("Error rendering user picks template: %v", err)
 			return
 		}
 	}
@@ -303,14 +322,16 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 func (h *SSEHandler) BroadcastGameUpdate(gameIDStr string, season, week int) {
 	gameID, err := strconv.Atoi(gameIDStr)
 	if err != nil {
-		log.Printf("SSE: Invalid game ID: %s", gameIDStr)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Invalid game ID: %s", gameIDStr)
 		return
 	}
 
 	// Get the specific game
 	game, err := h.gameService.GetGameByID(gameID)
 	if err != nil {
-		log.Printf("SSE: Error fetching game %d: %v", gameID, err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error fetching game %d: %v", gameID, err)
 		return
 	}
 
@@ -330,7 +351,7 @@ func (h *SSEHandler) broadcastGameStatusHTML(game *models.Game) {
 	htmlBuffer := &strings.Builder{}
 
 	// Create proper hx-swap-oob update for game status
-	fmt.Fprintf(htmlBuffer, `<div class="game-status" id="game-status-%d" hx-swap-oob="true">`, game.ID)
+	fmt.Fprintf(htmlBuffer, `<div class="game-status-section" id="game-status-%d-%d-%d" hx-swap-oob="true">`, game.ID, game.Season, game.Week)
 
 	if game.State == "scheduled" {
 		fmt.Fprintf(htmlBuffer, `%s`, game.Date.Format("3:04 PM"))
@@ -362,12 +383,14 @@ func (h *SSEHandler) broadcastGameStatusHTML(game *models.Game) {
 
 	messageData, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("SSE: Error marshaling game status message: %v", err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error marshaling game status message: %v", err)
 		return
 	}
 
 	h.broadcastToAllClients(string(messageData))
-	log.Printf("SSE: Broadcasted game status update for game %d", game.ID)
+	logger := logging.WithPrefix("SSE")
+	logger.Debugf("Broadcasted game status update for game %d", game.ID)
 }
 
 // broadcastGameScoresHTML broadcasts game score updates
@@ -380,8 +403,8 @@ func (h *SSEHandler) broadcastGameScoresHTML(game *models.Game) {
 	htmlBuffer := &strings.Builder{}
 
 	// Create proper hx-swap-oob update for game scores
-	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="away-score-%d" hx-swap-oob="true">%d</span>`, game.ID, game.AwayScore)
-	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="home-score-%d" hx-swap-oob="true">%d</span>`, game.ID, game.HomeScore)
+	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="away-score-%d-%d-%d" hx-swap-oob="true">%d</span>`, game.ID, game.Season, game.Week, game.AwayScore)
+	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="home-score-%d-%d-%d" hx-swap-oob="true">%d</span>`, game.ID, game.Season, game.Week, game.HomeScore)
 
 	// Create SSE message with hx-swap-oob content
 	// Use dashboard-update type which is configured in frontend template
@@ -392,12 +415,14 @@ func (h *SSEHandler) broadcastGameScoresHTML(game *models.Game) {
 
 	messageData, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("SSE: Error marshaling game scores message: %v", err)
+		logger := logging.WithPrefix("SSE")
+		logger.Errorf("Error marshaling game scores message: %v", err)
 		return
 	}
 
 	h.broadcastToAllClients(string(messageData))
-	log.Printf("SSE: Broadcasted game scores update for game %d (%d-%d)", game.ID, game.AwayScore, game.HomeScore)
+	logger := logging.WithPrefix("SSE")
+	logger.Debugf("Broadcasted game scores update for game %d (%d-%d)", game.ID, game.AwayScore, game.HomeScore)
 }
 
 // broadcastPickUpdatesHTML broadcasts pick-related updates for a game
@@ -423,10 +448,23 @@ func (h *SSEHandler) broadcastPickUpdatesHTML(game *models.Game) {
 		return
 	}
 
-	log.Printf("SSE: Game %d update affects %d users, broadcasting pick updates", game.ID, len(affectedUsers))
+	logger := logging.WithPrefix("SSE")
+	logger.Debugf("Game %d update affects %d users, broadcasting pick updates", game.ID, len(affectedUsers))
 
 	// Broadcast pick update for each affected user
 	for userID := range affectedUsers {
 		h.BroadcastPickUpdate(userID, game.Season, game.Week)
 	}
+}
+
+// BroadcastParlayScoreUpdate broadcasts parlay score updates for a specific season/week
+func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
+	logger := logging.WithPrefix("SSE")
+	logger.Debugf("Broadcasting parlay score update for season %d, week %d", season, week)
+	
+	// Send a structured update event that the frontend can listen for
+	eventData := fmt.Sprintf(`{"type":"parlayScoreUpdate","season":%d,"week":%d,"timestamp":%d}`, 
+		season, week, time.Now().UnixMilli())
+	
+	h.BroadcastStructuredUpdate("parlay-scores-updated", eventData)
 }
