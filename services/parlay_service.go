@@ -31,8 +31,14 @@ func NewParlayService(
 }
 
 // CalculateUserParlayScore calculates parlay scores for a specific user and week
-// Returns map of parlay category to points earned
+// Uses legacy logic for pre-2025 seasons and daily logic for modern seasons (2025+)
 func (s *ParlayService) CalculateUserParlayScore(ctx context.Context, userID, season, week int) (map[models.ParlayCategory]int, error) {
+	// For modern seasons (2025+), convert daily scores to category format
+	if models.IsModernSeason(season) {
+		return s.calculateModernSeasonParlayScore(ctx, userID, season, week)
+	}
+
+	// Legacy seasons: use the original categorization logic
 	// Get user's picks for the week
 	userPicks, err := s.pickRepo.GetUserPicksForWeek(ctx, userID, season, week)
 	if err != nil {
@@ -44,112 +50,94 @@ func (s *ParlayService) CalculateUserParlayScore(ctx context.Context, userID, se
 		return map[models.ParlayCategory]int{}, nil
 	}
 
-	// Get games for the week to validate completion
-	games, err := s.gameRepo.GetGamesByWeekSeason(week, season) 
+	// Get game information for categorization using the original legacy logic
+	gameInfoMap, err := s.getGameInfoForWeek(ctx, season, week)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get games: %w", err)
+		return nil, fmt.Errorf("failed to get game info: %w", err)
 	}
 
-	// Create game map for quick lookup
-	gameMap := make(map[int]models.Game)
-	for _, game := range games {
-		gameMap[game.ID] = *game
-	}
+	// Categorize picks by parlay type using the ORIGINAL legacy logic
+	categories := models.CategorizePicksByGame(userPicks, gameInfoMap)
 
-	// Calculate scores for each parlay category
+	// Calculate points for each category using the ORIGINAL legacy logic
 	scores := make(map[models.ParlayCategory]int)
-	
-	// Calculate Thursday category
-	scores[models.ParlayBonusThursday] = s.calculateCategoryScore(userPicks, gameMap, models.ParlayBonusThursday)
-	
-	// Calculate Friday category  
-	scores[models.ParlayBonusFriday] = s.calculateCategoryScore(userPicks, gameMap, models.ParlayBonusFriday)
-	
-	// Calculate SundayMonday category
-	scores[models.ParlayRegular] = s.calculateCategoryScore(userPicks, gameMap, models.ParlayRegular)
+	for category, picks := range categories {
+		scores[category] = models.CalculateParlayPoints(picks)
+	}
 
 	return scores, nil
 }
 
-// calculateCategoryScore calculates the parlay score for a specific category
-func (s *ParlayService) calculateCategoryScore(picks []models.Pick, gameMap map[int]models.Game, category models.ParlayCategory) int {
-	categoryPicks := s.filterPicksByCategory(picks, gameMap, category)
+// calculateModernSeasonParlayScore calculates parlay scores for modern seasons (2025+)
+// Maps daily scores to category format for compatibility with existing interfaces
+func (s *ParlayService) calculateModernSeasonParlayScore(ctx context.Context, userID, season, week int) (map[models.ParlayCategory]int, error) {
+	// Get all games for the week
+	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get games: %w", err)
+	}
+
+	// Convert to slice of models.Game (not pointers)
+	gameSlice := make([]models.Game, len(games))
+	for i, game := range games {
+		gameSlice[i] = *game
+	}
+
+	// Calculate daily scores using modern logic
+	dailyScores, err := s.CalculateUserDailyParlayScores(ctx, userID, season, week, gameSlice)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate daily scores: %w", err)
+	}
+
+	// Map daily scores to parlay categories for compatibility
+	// In modern seasons, each day is its own "category"
+	scores := make(map[models.ParlayCategory]int)
 	
-	if len(categoryPicks) == 0 {
-		return 0
-	}
-
-	// All picks must be winners for parlay to pay out
-	allWinners := true
-	for _, pick := range categoryPicks {
-		if pick.Result != models.PickResultWin {
-			allWinners = false
-			break
-		}
-	}
-
-	if !allWinners {
-		return 0
-	}
-
-	// Calculate parlay payout based on number of picks
-	return s.calculateParlayPayout(len(categoryPicks))
-}
-
-// filterPicksByCategory filters picks based on the parlay category
-func (s *ParlayService) filterPicksByCategory(picks []models.Pick, gameMap map[int]models.Game, category models.ParlayCategory) []models.Pick {
-	var filtered []models.Pick
-	
-	for _, pick := range picks {
-		game, exists := gameMap[pick.GameID]
-		if !exists {
-			continue
-		}
-
-		dayName := game.GetGameDayName()
-		
-		switch category {
-		case models.ParlayBonusThursday:
-			if dayName == "Thursday" {
-				filtered = append(filtered, pick)
-			}
-		case models.ParlayBonusFriday:
-			if dayName == "Friday" {
-				filtered = append(filtered, pick)
-			}
-		case models.ParlayRegular:
-			if dayName == "Sunday" || dayName == "Monday" {
-				filtered = append(filtered, pick)
-			}
-		}
+	// Thursday maps to bonus Thursday category
+	if thursdayPoints, exists := dailyScores["Thursday"]; exists {
+		scores[models.ParlayBonusThursday] = thursdayPoints
 	}
 	
-	return filtered
+	// Friday maps to bonus Friday category  
+	if fridayPoints, exists := dailyScores["Friday"]; exists {
+		scores[models.ParlayBonusFriday] = fridayPoints
+	}
+	
+	// Weekend days (Saturday, Sunday, Monday) map to regular category
+	weekendTotal := 0
+	for _, day := range []string{"Saturday", "Sunday", "Monday"} {
+		if points, exists := dailyScores[day]; exists {
+			weekendTotal += points
+		}
+	}
+	scores[models.ParlayRegular] = weekendTotal
+
+	return scores, nil
 }
 
-// calculateParlayPayout calculates points based on number of picks in parlay
-func (s *ParlayService) calculateParlayPayout(numPicks int) int {
-	switch numPicks {
-	case 1:
-		return 1 // Single pick = 1 point
-	case 2:
-		return 3 // 2-pick parlay = 3 points  
-	case 3:
-		return 7 // 3-pick parlay = 7 points
-	case 4:
-		return 15 // 4-pick parlay = 15 points
-	case 5:
-		return 31 // 5-pick parlay = 31 points
-	default:
-		// For 6+ picks, continue exponential growth pattern
-		// Formula: (2^n) - 1 where n is number of picks
-		result := 1
-		for i := 0; i < numPicks; i++ {
-			result *= 2
-		}
-		return result - 1
+// getGameInfoForWeek retrieves game date information for categorizing picks using original legacy logic
+func (s *ParlayService) getGameInfoForWeek(ctx context.Context, season, week int) (map[int]models.GameDayInfo, error) {
+	// Get all games for the week
+	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get games for week: %w", err)
 	}
+
+	gameInfoMap := make(map[int]models.GameDayInfo)
+	for _, game := range games {
+		// Use the ORIGINAL legacy categorization logic
+		category := models.CategorizeGameByDate(game.Date, season, week)
+		gameInfoMap[game.ID] = models.GameDayInfo{
+			GameID:   game.ID,
+			GameDate: game.Date,
+			Weekday:  game.Date.Weekday(),
+			Category: category,
+		}
+	}
+
+	return gameInfoMap, nil
 }
+
 
 // ProcessWeekParlayScoring processes parlay scoring for all users in a week
 func (s *ParlayService) ProcessWeekParlayScoring(ctx context.Context, season, week int) error {
@@ -388,8 +376,8 @@ func (s *ParlayService) calculateDayParlayScore(picks []models.Pick) int {
 		}
 	}
 
-	// Calculate payout based on number of picks
-	return s.calculateParlayPayout(len(picks))
+	// Calculate payout using original legacy logic
+	return len(picks)
 }
 
 // UpdateUserDailyParlayRecord updates user's daily parlay scores

@@ -1,0 +1,83 @@
+{{define "modern-daily-picker"}}
+{{$games := .Games}}{{$pickState := .PickState -}}
+
+{{/* Thursday Games */}}
+{{$hasThursdayGames := false -}}
+{{range $games -}}{{if eq (.GetGameDayName) "Thursday"}}{{$hasThursdayGames = true}}{{end}}{{end -}}
+{{if $hasThursdayGames -}}
+<div class="pick-day-section">
+    <div class="pick-day-header">THURSDAY GAMES</div>
+    <div class="pick-picker-grid">
+        {{range $games -}}
+            {{if eq (.GetGameDayName) "Thursday" -}}
+                {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+            {{end -}}
+        {{end -}}
+    </div>
+</div>
+{{end -}}
+
+{{/* Friday Games */}}
+{{$hasFridayGames := false -}}
+{{range $games -}}{{if eq (.GetGameDayName) "Friday"}}{{$hasFridayGames = true}}{{end}}{{end -}}
+{{if $hasFridayGames -}}
+<div class="pick-day-section">
+    <div class="pick-day-header">FRIDAY GAMES</div>
+    <div class="pick-picker-grid">
+        {{range $games -}}
+            {{if eq (.GetGameDayName) "Friday" -}}
+                {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+            {{end -}}
+        {{end -}}
+    </div>
+</div>
+{{end -}}
+
+{{/* Saturday Games */}}
+{{$hasSaturdayGames := false -}}
+{{range $games -}}{{if eq (.GetGameDayName) "Saturday"}}{{$hasSaturdayGames = true}}{{end}}{{end -}}
+{{if $hasSaturdayGames -}}
+<div class="pick-day-section">
+    <div class="pick-day-header">SATURDAY GAMES</div>
+    <div class="pick-picker-grid">
+        {{range $games -}}
+            {{if eq (.GetGameDayName) "Saturday" -}}
+                {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+            {{end -}}
+        {{end -}}
+    </div>
+</div>
+{{end -}}
+
+{{/* Sunday Games */}}
+{{$hasSundayGames := false -}}
+{{range $games -}}{{if eq (.GetGameDayName) "Sunday"}}{{$hasSundayGames = true}}{{end}}{{end -}}
+{{if $hasSundayGames -}}
+<div class="pick-day-section">
+    <div class="pick-day-header">SUNDAY GAMES</div>
+    <div class="pick-picker-grid">
+        {{range $games -}}
+            {{if eq (.GetGameDayName) "Sunday" -}}
+                {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+            {{end -}}
+        {{end -}}
+    </div>
+</div>
+{{end -}}
+
+{{/* Monday Games */}}
+{{$hasMondayGames := false -}}
+{{range $games -}}{{if eq (.GetGameDayName) "Monday"}}{{$hasMondayGames = true}}{{end}}{{end -}}
+{{if $hasMondayGames -}}
+<div class="pick-day-section">
+    <div class="pick-day-header">MONDAY GAMES</div>
+    <div class="pick-picker-grid">
+        {{range $games -}}
+            {{if eq (.GetGameDayName) "Monday" -}}
+                {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
+            {{end -}}
+        {{end -}}
+    </div>
+</div>
+{{end -}}
+{{end}}

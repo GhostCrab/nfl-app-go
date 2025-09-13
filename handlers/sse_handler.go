@@ -97,7 +97,23 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", message)
+			// Parse message format: "eventType:data"
+			parts := strings.SplitN(message, ":", 2)
+			eventType := "gameUpdate" // default
+			data := message
+
+			if len(parts) == 2 {
+				eventType = parts[0]
+				data = parts[1]
+			}
+
+			fmt.Fprintf(w, "event: %s\n", eventType)
+			// Split data into lines and prefix each with "data: "
+			lines := strings.Split(data, "\n")
+			for _, line := range lines {
+				fmt.Fprintf(w, "data: %s\n", line)
+			}
+			fmt.Fprintf(w, "\n")
 			flusher.Flush()
 
 		case <-r.Context().Done():
@@ -112,13 +128,14 @@ func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
 	log.Printf("DATABASE CHANGE: %s collection, GameID: %s, Season: %d, Week: %d, Operation: %s",
 		event.Collection, event.GameID, event.Season, event.Week, event.Operation)
 
-	if event.Collection != "games" {
-		return
-	}
-
-	// For game collection changes, send targeted HTML updates
+	// Handle game collection changes
 	if event.Collection == "games" && event.GameID != "" {
 		h.BroadcastGameUpdate(event.GameID, event.Season, event.Week)
+	}
+
+	// Handle pick collection changes
+	if event.Collection == "picks" && event.UserID > 0 {
+		h.BroadcastPickUpdate(event.UserID, event.Season, event.Week)
 	}
 }
 
@@ -234,7 +251,25 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		userPicks = []*models.UserPicks{userPicksData}
 	}
 
-	// Use the same data structure as the main page load for consistency
+	// Enrich picks with display fields before rendering (CRITICAL for SSE updates)
+	for _, up := range userPicks {
+		log.Printf("SSE: Enriching %d picks for user %s", len(up.Picks), up.UserName)
+		for i := range up.Picks {
+			pick := &up.Picks[i]
+			log.Printf("SSE: BEFORE enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
+			
+			if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
+				log.Printf("SSE: Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
+				continue
+			}
+			
+			log.Printf("SSE: AFTER enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
+		}
+
+		// Populate DailyPickGroups for modern seasons (2025+)
+		up.PopulateDailyPickGroups(weekGames, season)
+	}
+
 	// Loop through userPicks and render each one using the same template as main page
 	htmlBuffer := &strings.Builder{}
 
@@ -248,26 +283,20 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 			"Season":        season,
 		}
 
-		if err := h.templates.ExecuteTemplate(htmlBuffer, "user-picks-block", templateData); err != nil {
+		if err := h.templates.ExecuteTemplate(htmlBuffer, "sse-user-picks-block", templateData); err != nil {
 			log.Printf("SSE: Error rendering user picks template: %v", err)
 			return
 		}
 	}
 
-	// Create SSE message for out-of-band swap
-	message := map[string]interface{}{
-		"type": "user-picks-update",
-		"html": htmlBuffer.String(),
-	}
-
-	messageData, err := json.Marshal(message)
-	if err != nil {
-		log.Printf("SSE: Error marshaling pick update message: %v", err)
-		return
-	}
+	// Send HTML content directly for OOB replacement (matching old working format)
+	htmlContent := htmlBuffer.String()
+	
+	// Use the eventType:data format that the old SSE system expected
+	message := fmt.Sprintf("user-picks-updated:%s", htmlContent)
 
 	// Broadcast to all clients (picks visibility is already filtered per user above)
-	h.broadcastToAllClients(string(messageData))
+	h.broadcastToAllClients(message)
 }
 
 // broadcastGameUpdate broadcasts game updates for a specific game

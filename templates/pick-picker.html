@@ -1,5 +1,42 @@
 {{define "pick-picker"}}
-<!-- TODO: Find and restore the original pick-picker template format with proper styling and logos -->
-<!-- The current template was made up and needs to be replaced with the actual existing picker format -->
-<div>PLACEHOLDER - Need to find original pick-picker template format</div>
+    <div id="pick-picker-overlay" class="pick-picker-overlay">
+        <div class="pick-picker-modal">
+            <div class="pick-picker-header">
+                <h2>Week {{.CurrentWeek}}</h2>
+                <button class="close-picker">×</button>
+            </div>
+            <form id="pick-form" 
+                  hx-post="/submit-picks" 
+                  hx-target="#pick-result" 
+                  hx-swap="innerHTML">
+                <input type="hidden" name="week" value="{{.CurrentWeek}}">
+                <input type="hidden" name="season" value="{{.CurrentSeason}}">
+                
+                <div class="pick-picker-content">
+                    {{if .Games}}
+                        {{/* Check if this is a modern season (2025+) for daily grouping */}}
+                        {{if ge .CurrentSeason 2025}}
+                            {{/* MODERN: 2025+ Daily Picker with Day Sections */}}
+                            {{template "modern-daily-picker" dict "Games" .Games "PickState" .PickState "CurrentSeason" .CurrentSeason}}
+                        {{else}}
+                            {{/* LEGACY: 2023-2024 All Games in One List */}}
+                            <div class="pick-picker-grid">
+                                {{range .Games}}
+                                    {{template "pick-game-row" dict "Game" . "PickState" $.PickState}}
+                                {{end}}
+                            </div>
+                        {{end}}
+                    {{else}}
+                        <p>No games available for picking this week.</p>
+                    {{end}}
+                </div>
+                
+                <div class="pick-picker-footer">
+                    <div id="pick-result"></div>
+                    <button type="submit" class="submit-picks-btn">Submit Picks</button>
+                    <button type="button" class="cancel-picks-btn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
 {{end}}

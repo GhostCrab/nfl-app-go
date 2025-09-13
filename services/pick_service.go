@@ -164,19 +164,35 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 		}
 	}
 	
-	// MODERN: Populate daily pick groups for 2025+ seasons
-	if models.IsModernSeason(season) {
-		// Get games for this week to support daily grouping
-		games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
-		if err != nil {
-			log.Printf("Warning: failed to get games for daily grouping: %v", err)
-		} else {
-			// Convert to slice for model functions
-			gameSlice := make([]models.Game, len(games))
-			for i, game := range games {
-				gameSlice[i] = *game
-			}
+	// Get games for this week to support daily grouping and sorting
+	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
+	if err != nil {
+		log.Printf("Warning: failed to get games for sorting: %v", err)
+	} else {
+		// Convert to slice and create game lookup map for sorting
+		gameSlice := make([]models.Game, len(games))
+		gameMap := make(map[int]models.Game)
+		for i, game := range games {
+			gameSlice[i] = *game
+			gameMap[game.ID] = *game
+		}
+		
+		// Sort all picks by game start time
+		s.sortPicksByGameTime(userPicks.Picks, gameMap)
+		s.sortPicksByGameTime(userPicks.SpreadPicks, gameMap)
+		s.sortPicksByGameTime(userPicks.OverUnderPicks, gameMap)
+		s.sortPicksByGameTime(userPicks.BonusThursdayPicks, gameMap)
+		s.sortPicksByGameTime(userPicks.BonusFridayPicks, gameMap)
+		
+		// MODERN: Populate daily pick groups for 2025+ seasons
+		if models.IsModernSeason(season) {
 			userPicks.PopulateDailyPickGroups(gameSlice, season)
+			
+			// Sort picks within each daily group by game start time
+			for date, dayPicks := range userPicks.DailyPickGroups {
+				s.sortPicksByGameTime(dayPicks, gameMap)
+				userPicks.DailyPickGroups[date] = dayPicks
+			}
 		}
 	}
 	
@@ -290,26 +306,39 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 		result = append(result, userPicksData)
 	}
 	
-	// MODERN: Populate daily pick groups for 2025+ seasons
-	if models.IsModernSeason(season) {
-		// Get games for this week to support daily grouping
-		games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
-		if err != nil {
-			log.Printf("Warning: failed to get games for daily grouping: %v", err)
-		} else {
-			// Convert to slice for model functions
-			gameSlice := make([]models.Game, len(games))
-			for i, game := range games {
-				gameSlice[i] = *game
-			}
-			
+	// Get games for this week to support daily grouping and sorting
+	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
+	if err != nil {
+		log.Printf("Warning: failed to get games for sorting: %v", err)
+	} else {
+		// Convert to slice and create game lookup map for sorting
+		gameSlice := make([]models.Game, len(games))
+		gameMap := make(map[int]models.Game)
+		for i, game := range games {
+			gameSlice[i] = *game
+			gameMap[game.ID] = *game
+		}
+		
+		// Sort all picks by game start time for each user
+		for _, userPicks := range result {
+			s.sortPicksByGameTime(userPicks.Picks, gameMap)
+			s.sortPicksByGameTime(userPicks.SpreadPicks, gameMap)
+			s.sortPicksByGameTime(userPicks.OverUnderPicks, gameMap)
+		}
+		
+		// MODERN: Populate daily pick groups for 2025+ seasons
+		if models.IsModernSeason(season) {
 			// Populate daily groups for each user
 			for _, userPicks := range result {
 				log.Printf("PickService: BEFORE PopulateDailyPickGroups - User %s has %d picks, DailyPickGroups: %v", userPicks.UserName, len(userPicks.Picks), userPicks.DailyPickGroups != nil)
 				userPicks.PopulateDailyPickGroups(gameSlice, season)
 				log.Printf("PickService: AFTER PopulateDailyPickGroups - User %s DailyPickGroups has %d groups", userPicks.UserName, len(userPicks.DailyPickGroups))
-				for date, picks := range userPicks.DailyPickGroups {
-					log.Printf("PickService: User %s - Date %s has %d picks", userPicks.UserName, date, len(picks))
+				
+				// Sort picks within each daily group by game start time
+				for date, dayPicks := range userPicks.DailyPickGroups {
+					s.sortPicksByGameTime(dayPicks, gameMap)
+					userPicks.DailyPickGroups[date] = dayPicks
+					log.Printf("PickService: User %s - Date %s has %d picks (sorted)", userPicks.UserName, date, len(dayPicks))
 				}
 			}
 		}
@@ -386,6 +415,8 @@ func (s *PickService) GetPickStats(ctx context.Context) (map[string]interface{},
 
 // EnrichPickWithGameData populates the display fields of a pick with game information
 func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
+	log.Printf("ENRICH DEBUG: Starting enrichment - GameID=%d, TeamID=%d, PickType='%s', CurrentTeamName='%s'", 
+		pick.GameID, pick.TeamID, pick.PickType, pick.TeamName)
 		
 	// Get the game information
 	game, err := s.gameRepo.FindByESPNID(context.Background(), pick.GameID)
@@ -396,6 +427,8 @@ func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
 	if game == nil {
 		return fmt.Errorf("game %d not found", pick.GameID)
 	}
+	
+	log.Printf("ENRICH DEBUG: Found game - Away='%s', Home='%s'", game.Away, game.Home)
 	
 	// Set game description with status
 	gameStatus := s.getGameStatusDescription(game)
@@ -420,6 +453,7 @@ func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
 	case models.PickTypeSpread:
 		// Get team abbreviation from ID mapping
 		teamAbbr := s.getTeamNameFromID(pick.TeamID, game)
+		log.Printf("ENRICH DEBUG: Spread pick - TeamID=%d mapped to teamAbbr='%s'", pick.TeamID, teamAbbr)
 		
 		// Add spread information if available
 		hasOdds := game.Odds != nil
@@ -473,6 +507,8 @@ func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
 	
 	// Set complete pick description
 	pick.PickDescription = fmt.Sprintf("%s - %s", pick.GameDescription, pick.TeamName)
+	
+	log.Printf("ENRICH DEBUG: Completed enrichment - TeamName='%s', PickDescription='%s'", pick.TeamName, pick.PickDescription)
 	
 	return nil
 }
@@ -948,5 +984,27 @@ func (s *PickService) CheckWeekHasParlayScores(ctx context.Context, season, week
 	
 	// Return true if any scores exist for this week
 	return len(scores) > 0, nil
+}
+
+// sortPicksByGameTime sorts picks by their corresponding game start times
+// Uses the same sorting logic as sortGamesByKickoffTime for consistency
+func (s *PickService) sortPicksByGameTime(picks []models.Pick, gameMap map[int]models.Game) {
+	sort.Slice(picks, func(i, j int) bool {
+		gameI, existsI := gameMap[picks[i].GameID]
+		gameJ, existsJ := gameMap[picks[j].GameID]
+		
+		// If either game doesn't exist, maintain original order
+		if !existsI || !existsJ {
+			return i < j
+		}
+		
+		// Primary sort: by game date/time
+		if gameI.Date.Unix() != gameJ.Date.Unix() {
+			return gameI.Date.Before(gameJ.Date)
+		}
+		
+		// Secondary sort: alphabetically by home team name for same kickoff time
+		return gameI.Home < gameJ.Home
+	})
 }
 

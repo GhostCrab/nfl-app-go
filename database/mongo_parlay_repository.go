@@ -66,22 +66,39 @@ func (r *MongoParlayRepository) UpsertParlayScore(ctx context.Context, score *mo
 
 // GetUserParlayScore retrieves a user's parlay score for a specific week
 func (r *MongoParlayRepository) GetUserParlayScore(ctx context.Context, userID, season, week int) (*models.ParlayScore, error) {
+	// Find the user's season record
 	filter := bson.M{
 		"user_id": userID,
 		"season":  season,
-		"week":    week,
 	}
 	
-	var score models.ParlayScore
-	err := r.collection.FindOne(ctx, filter).Decode(&score)
+	var seasonRecord models.ParlaySeasonRecord
+	err := r.collection.FindOne(ctx, filter).Decode(&seasonRecord)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil, nil // No score found
+			return nil, nil // No score record found
 		}
-		return nil, fmt.Errorf("failed to get parlay score: %w", err)
+		return nil, fmt.Errorf("failed to get season record: %w", err)
 	}
 	
-	return &score, nil
+	// Get the specific week's score
+	weekScore, exists := seasonRecord.WeekScores[week]
+	if !exists {
+		return nil, nil // No score for this week
+	}
+	
+	// Convert to ParlayScore format for compatibility
+	score := &models.ParlayScore{
+		UserID:              userID,
+		Season:              season,
+		Week:                week,
+		RegularPoints:       weekScore.SundayMondayPoints,
+		BonusThursdayPoints: weekScore.ThursdayPoints,
+		BonusFridayPoints:   weekScore.FridayPoints,
+		TotalPoints:         weekScore.TotalPoints,
+	}
+	
+	return score, nil
 }
 
 // GetUserSeasonTotal calculates a user's total parlay points for a season
@@ -192,35 +209,30 @@ func (r *MongoParlayRepository) GetWeekScores(ctx context.Context, season, week 
 
 // GetUserCumulativeScoreUpToWeek calculates a user's cumulative parlay points up to and including a specific week
 func (r *MongoParlayRepository) GetUserCumulativeScoreUpToWeek(ctx context.Context, userID, season, week int) (int, error) {
-	pipeline := mongo.Pipeline{
-		{{"$match", bson.D{
-			{Key: "user_id", Value: userID},
-			{Key: "season", Value: season},
-			{Key: "week", Value: bson.D{{"$lte", week}}}, // Less than or equal to the target week
-		}}},
-		{{"$group", bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "total", Value: bson.D{{"$sum", "$total_points"}}},
-		}}},
+	// Find the user's season record
+	filter := bson.M{
+		"user_id": userID,
+		"season":  season,
 	}
 	
-	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	var seasonRecord models.ParlaySeasonRecord
+	err := r.collection.FindOne(ctx, filter).Decode(&seasonRecord)
 	if err != nil {
-		return 0, fmt.Errorf("failed to aggregate cumulative score: %w", err)
-	}
-	defer cursor.Close(ctx)
-	
-	if cursor.Next(ctx) {
-		var result struct {
-			Total int `bson:"total"`
+		if err == mongo.ErrNoDocuments {
+			return 0, nil // No score record found
 		}
-		if err := cursor.Decode(&result); err != nil {
-			return 0, fmt.Errorf("failed to decode cumulative score: %w", err)
-		}
-		return result.Total, nil
+		return 0, fmt.Errorf("failed to get season record: %w", err)
 	}
 	
-	return 0, nil // No scores found
+	// Sum up points through the specified week
+	total := 0
+	for w := 1; w <= week; w++ {
+		if weekScore, exists := seasonRecord.WeekScores[w]; exists {
+			total += weekScore.TotalPoints
+		}
+	}
+	
+	return total, nil
 }
 
 // GetAllUsersCumulativeScoresUpToWeek gets cumulative parlay totals for all users up to a specific week

@@ -1222,6 +1222,10 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 
+					// DEBUG: Log pick creation details
+					log.Printf("SUBMIT_PICKS DEBUG: Created pick - GameID=%d, TeamID=%d, TeamName='%s', PickType='%s', PickDescription='%s'", 
+						pick.GameID, pick.TeamID, pick.TeamName, pick.PickType, pick.PickDescription)
+
 					picks = append(picks, pick)
 				}
 			}

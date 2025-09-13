@@ -94,10 +94,23 @@ $env:DB_PASSWORD="your_actual_password"; go run main.go
     - HTMX Best Practices: Follow https://htmx.org/docs/, https://htmx.org/extensions/sse/, https://htmx.org/attributes/hx-swap-oob/ as the bible
     - Minimal JavaScript: Server-side rendering, HTMX attributes over custom JS
     - Current Stack: Go, MongoDB, HTMX, SSE for real-time updates
-    - I'm always running the app and using the port, you can try using a different port when you run, or you can just check logs without the port just to make sure it starts up properly
-
+    - you're allowed to "go run ." to check compilation, but any functionality will be tested by me
+    - IMPORTANT: When searching for code, always use grep -r "pattern" . or the Grep tool without path restrictions to search the entire codebase first. Don't waste time with complex searches or specific paths - just search everything immediately.
+    - IMPORTANT: I've seen countless times where claude uses `Search(pattern: "<SEARCH_TERM>", output_mode: "content")` and it always fails. just use `Bash(grep -r "<SEARCH_TERM>" .)` instead
+    
     Please start by reviewing HTMX documentation, especially SSE handling, before making any changes.
 
+
+    - I'm always running the app and using the port, you can try using a different port when you run, or you can just check logs without the port just to make sure it starts up properly
+
+========================
+so far claude code has written 99% of the codebase in this project. There have been many instances where you have re-written or duplicated code to fix issues that have arisen but the old problematic code has not been removed. I would like to begin a full audit of the codebase starting from ingres points and main functions that process code that is being used and remove unused data paths or functions and properly identify and document used code. I have made a commit at the current stage because I anticipate a lot of refacotring and removing of code. Just go ahead and start auditing the code from the ingress points and start to refactor and break out code in logical blocks to new files to make it easier to read and update for a new engineer.
+
+ok seems to still work. go further beyond the main.go file to identify duplicated code and redundant/vestigial code paths. I want a full audit of the ENTIRE code base. REPEAT: ENTIER CODE BASE. audit the whole thing. compare file layouts to enterprise level golang codebases and reconfigure the current codebase to be matching that level of granularity. follow every code path and hilight them as real and prune unused ones. make sure every function and structure is properly documented in code to show what it does and how it's used. go all out and dont stop until  you're out of tokens. Refrence/update ENTERPRISE_RESTRUCTURE_PLAN.md to see what other conversations have done so far and use it as a live checklist to track what is yet to be done.
+
+review CODE_PATH_ANALYSIS.md, CODEBASE_AUDIT_RESULTS.md, ENTERPRISE_RESTRUCTURE_PLAN.md, FINAL_COMPREHENSIVE_AUDIT_REPORT.md, and MISSING_METHODS_AND_REFACTORING.md. Some of those documents may be a little out of date. update and consolidate where needed to keep track of the progress of the current refactor.
+
+review and keep up to date CONSOLIDATED_REFACTOR_STATUS.md for current task tracking
 
 ==================
   Context: NFL picks application with HTMX, Go backend, MongoDB. Working on real-time pick updates via Server-Sent Events.

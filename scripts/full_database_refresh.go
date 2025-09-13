@@ -25,8 +25,9 @@ func main() {
 	log.Println("This script will:")
 	log.Println("  1. Clear all games and picks from MongoDB")
 	log.Println("  2. Re-import all legacy data from JSON files")
-	log.Println("  3. Recalculate all parlay scores")
-	log.Println("  4. Verify the final results")
+	log.Println("  3. Calculate pick results for completed games")
+	log.Println("  4. Recalculate all parlay scores")
+	log.Println("  5. Verify the final results")
 	log.Println()
 	
 	// Load .env file
@@ -134,17 +135,47 @@ func main() {
 	}
 	log.Println("✓ Legacy data imported successfully")
 
-	// STEP 3: Recalculate all parlay scores
+	// STEP 3: Calculate pick results for completed games
 	log.Println("\n" + strings.Repeat("=", 50))
-	log.Println("STEP 3: RECALCULATING PARLAY SCORES")
+	log.Println("STEP 3: CALCULATING PICK RESULTS")
 	log.Println(strings.Repeat("=", 50))
 
-	// Create parlay repository and pick service
+	// Create result calculation service
+	resultCalcService := services.NewResultCalculationService(pickRepo, gameRepo)
+
+	// Process all completed games for each season
+	for _, season := range []int{2023, 2024, 2025} {
+		log.Printf("Processing pick results for season %d...", season)
+		if err := resultCalcService.ProcessAllCompletedGames(ctx, season); err != nil {
+			log.Printf("Failed to process completed games for season %d: %v", season, err)
+			continue
+		}
+		log.Printf("✓ Completed pick result processing for season %d", season)
+	}
+
+	// STEP 4: Recalculate all parlay scores
+	log.Println("\n" + strings.Repeat("=", 50))
+	log.Println("STEP 4: RECALCULATING PARLAY SCORES")
+	log.Println(strings.Repeat("=", 50))
+
+	// Create parlay repository and specialized services
 	parlayRepo := database.NewMongoParlayRepository(db)
+	parlayService := services.NewParlayService(pickRepo, gameRepo, parlayRepo)
 	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
+	
+	// Set specialized services on pick service
+	pickService.SetSpecializedServices(parlayService, nil, nil)
+	
+	// Clear existing parlay scores to avoid double-counting from previous runs
+	log.Println("Clearing existing parlay scores...")
+	result, err = parlayCollection.DeleteMany(ctx, bson.M{})
+	if err != nil {
+		log.Fatalf("Failed to clear parlay scores collection: %v", err)
+	}
+	log.Printf("✓ Deleted %d existing parlay score records", result.DeletedCount)
 
 	// Recalculate all seasons
-	seasons := []int{2023, 2024}
+	seasons := []int{2023, 2024, 2025}
 	totalWeeksProcessed := 0
 	totalPointsAwarded := 0
 
@@ -199,9 +230,9 @@ func main() {
 		totalPointsAwarded += seasonPoints
 	}
 
-	// STEP 4: Final verification
+	// STEP 5: Final verification
 	log.Println("\n" + strings.Repeat("=", 50))
-	log.Println("STEP 4: VERIFICATION")
+	log.Println("STEP 5: VERIFICATION")
 	log.Println(strings.Repeat("=", 50))
 
 	// Count final totals

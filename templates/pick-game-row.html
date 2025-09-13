@@ -1,0 +1,74 @@
+{{define "pick-game-row"}}
+{{$game := .Game}}{{$pickState := .PickState -}}
+<div class="pick-game-row {{if ne $game.State "scheduled"}}game-disabled{{end}}" data-game-id="{{$game.ID}}">
+    
+    <!-- Away Team Pick -->
+    <div class="pick-team-option">
+        <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+            <input type="checkbox" 
+                   name="pick-{{$game.ID}}-away" 
+                   value="1"
+                   class="pick-checkbox"
+                   {{if ne $game.State "scheduled"}}disabled{{end}}
+                   {{if index (index $pickState $game.ID) 1}}checked{{end}}>
+            <img class="pick-team-img" src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/{{$game.Away | lower}}.png" alt="{{$game.Away}}" onerror="this.style.display='none'">
+            <div class="pick-text-container">
+                <span class="pick-team-name">{{$game.Away}}</span>
+                {{if $game.Odds}}
+                    <span class="pick-spread">{{formatAwaySpread $game.Odds}}</span>
+                {{end}}
+            </div>
+        </label>
+    </div>
+    
+    <!-- Home Team Pick -->
+    <div class="pick-team-option">
+        <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+            <input type="checkbox" 
+                   name="pick-{{$game.ID}}-home" 
+                   value="1"
+                   class="pick-checkbox"
+                   {{if ne $game.State "scheduled"}}disabled{{end}}
+                   {{if index (index $pickState $game.ID) 2}}checked{{end}}>
+            <img class="pick-team-img" src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/{{$game.Home | lower}}.png" alt="{{$game.Home}}" onerror="this.style.display='none'">
+            <div class="pick-text-container">
+                <span class="pick-team-name">{{$game.Home}}</span>
+                {{if $game.Odds}}
+                    <span class="pick-spread">{{formatHomeSpread $game.Odds}}</span>
+                {{end}}
+            </div>
+        </label>
+    </div>
+    
+    <!-- O/U Display -->
+    <div class="pick-ou-display">
+        {{if $game.Odds}}+{{$game.Odds.OU}}{{else}}-{{end}}
+    </div>
+    
+    <!-- Under Pick -->
+    <div class="pick-team-option">
+        <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+            <input type="checkbox" 
+                   name="pick-{{$game.ID}}-98" 
+                   value="1"
+                   class="pick-checkbox"
+                   {{if ne $game.State "scheduled"}}disabled{{end}}
+                   {{if index (index $pickState $game.ID) 98}}checked{{end}}>
+            <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND">
+        </label>
+    </div>
+    
+    <!-- Over Pick -->
+    <div class="pick-team-option">
+        <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+            <input type="checkbox" 
+                   name="pick-{{$game.ID}}-99" 
+                   value="1"
+                   class="pick-checkbox"
+                   {{if ne $game.State "scheduled"}}disabled{{end}}
+                   {{if index (index $pickState $game.ID) 99}}checked{{end}}>
+            <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR">
+        </label>
+    </div>
+</div>
+{{end}}

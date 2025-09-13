@@ -118,9 +118,14 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		}
 	}
 	
-	// Sort games chronologically
+	// Sort games chronologically (same as game display logic)
 	sort.Slice(games, func(i, j int) bool {
-		return games[i].Date.Before(games[j].Date)
+		// Primary sort: by game date/time
+		if games[i].Date.Unix() != games[j].Date.Unix() {
+			return games[i].Date.Before(games[j].Date)
+		}
+		// Secondary sort: alphabetically by home team name for same kickoff time
+		return games[i].Home < games[j].Home
 	})
 	
 	// Get user's existing picks for this week
@@ -144,6 +149,38 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		picksByGame[pick.GameID] = pick
 	}
 	
+	// Build PickState structure expected by template: map[gameID]map[teamID]bool
+	pickState := make(map[int]map[int]bool)
+	for _, game := range games {
+		gameState := make(map[int]bool)
+		
+		// Initialize all options as false
+		gameState[1] = false  // away team
+		gameState[2] = false  // home team  
+		gameState[98] = false // under
+		gameState[99] = false // over
+		
+		// Set existing picks to true
+		if existingPick, exists := picksByGame[game.ID]; exists {
+			// For Over/Under picks, use the TeamID directly (98/99)
+			if existingPick.TeamID == 98 || existingPick.TeamID == 99 {
+				gameState[existingPick.TeamID] = true
+			} else {
+				// For spread picks, convert ESPN team ID back to positional key (1=away, 2=home)
+				awayTeamID := h.getTeamIDFromAbbreviation(game.Away)
+				homeTeamID := h.getTeamIDFromAbbreviation(game.Home)
+				
+				if existingPick.TeamID == awayTeamID {
+					gameState[1] = true // away team
+				} else if existingPick.TeamID == homeTeamID {
+					gameState[2] = true // home team
+				}
+			}
+		}
+		
+		pickState[game.ID] = gameState
+	}
+	
 	// Check if picks can still be submitted (before kickoff)
 	canSubmitPicks := h.canSubmitPicksForWeek(games)
 	
@@ -155,7 +192,7 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		CurrentSeason  int
 		CurrentWeek    int
 		CanSubmitPicks bool
-		PickState      map[int]*models.Pick // Alias for ExistingPicks to match template expectations
+		PickState      map[int]map[int]bool // Proper structure for template
 	}{
 		User:           user,
 		Games:          games,
@@ -163,7 +200,7 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		CurrentSeason:  season,
 		CurrentWeek:    week,
 		CanSubmitPicks: canSubmitPicks,
-		PickState:      picksByGame,
+		PickState:      pickState,
 	}
 	
 	// Render the pick picker template
@@ -242,61 +279,111 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 		gameMap[game.ID] = game
 	}
 	
-	// Parse picks from form
+	// Parse picks from form (format: pick-{gameID}-{type} = "1")
 	var picks []*models.Pick
 	
-	for gameIDStr, teamIDStr := range r.Form {
-		if !strings.HasPrefix(gameIDStr, "pick_") {
-			continue // Skip non-pick fields
-		}
-		
-		// Extract game ID from form field name (pick_12345 -> 12345)
-		gameIDStr = strings.TrimPrefix(gameIDStr, "pick_")
-		gameID, err := strconv.Atoi(gameIDStr)
-		if err != nil {
-			log.Printf("Invalid game ID in form: %s", gameIDStr)
+	for fieldName, fieldValues := range r.Form {
+		// Skip non-pick fields and fields without "pick-" prefix
+		if !strings.HasPrefix(fieldName, "pick-") {
 			continue
 		}
 		
-		// Parse team ID
-		if len(teamIDStr) == 0 {
-			continue // Skip empty picks
-		}
-		
-		teamID, err := strconv.Atoi(teamIDStr[0])
-		if err != nil {
-			log.Printf("Invalid team ID in form: %s", teamIDStr[0])
+		// Skip if no value provided or checkbox not checked
+		if len(fieldValues) == 0 || fieldValues[0] != "1" {
 			continue
 		}
 		
-		// Validate that game exists
-		_, exists := gameMap[gameID]
+		// Parse field name: pick-{gameID}-{type}
+		parts := strings.Split(fieldName, "-")
+		if len(parts) != 3 {
+			log.Printf("Invalid pick field format: %s", fieldName)
+			continue
+		}
+		
+		// Extract game ID
+		gameID, err := strconv.Atoi(parts[1])
+		if err != nil {
+			log.Printf("Invalid game ID in field %s: %s", fieldName, parts[1])
+			continue
+		}
+		
+		// Validate that game exists and get game data
+		game, exists := gameMap[gameID]
 		if !exists {
 			log.Printf("Pick submitted for non-existent game: %d", gameID)
 			continue
 		}
 		
-		// Determine pick type based on team ID
-		var pickType models.PickType
-		switch teamID {
-		case 98: // Over
-			pickType = models.PickTypeOverUnder
-		case 99: // Under  
-			pickType = models.PickTypeOverUnder
-		default: // Spread pick
-			pickType = models.PickTypeSpread
+		// Extract team ID/type (away, home, 98, 99) - now with proper ESPN team IDs
+		var teamID int
+		switch parts[2] {
+		case "away":
+			teamID = h.getTeamIDFromAbbreviation(game.Away)
+		case "home":
+			teamID = h.getTeamIDFromAbbreviation(game.Home)
+		case "98": // Under
+			teamID = 98
+		case "99": // Over
+			teamID = 99
+		default:
+			log.Printf("Invalid pick type in field %s: %s", fieldName, parts[2])
+			continue
 		}
 		
-		// Create pick
-		pick := &models.Pick{
-			UserID:   user.ID,
-			GameID:   gameID,
-			TeamID:   teamID,
-			PickType: pickType,
-			Season:   season,
-			Week:     week,
-			Result:   models.PickResultPending,
+		// Determine pick type and team name based on team ID
+		var pickType models.PickType
+		var teamName string
+		
+		// Handle Over/Under picks (still use 98/99)
+		if teamID == 98 {
+			pickType = models.PickTypeOverUnder
+			if game.HasOdds() {
+				teamName = fmt.Sprintf("Under %.1f", game.Odds.OU)
+			} else {
+				teamName = "Under"
+			}
+		} else if teamID == 99 {
+			pickType = models.PickTypeOverUnder
+			if game.HasOdds() {
+				teamName = fmt.Sprintf("Over %.1f", game.Odds.OU)
+			} else {
+				teamName = "Over"
+			}
+		} else {
+			// Handle spread picks (now using actual ESPN team IDs)
+			pickType = models.PickTypeSpread
+			
+			// Determine team name by comparing ESPN team ID with away/home teams
+			awayTeamID := h.getTeamIDFromAbbreviation(game.Away)
+			homeTeamID := h.getTeamIDFromAbbreviation(game.Home)
+			
+			if teamID == awayTeamID {
+				teamName = game.Away
+			} else if teamID == homeTeamID {
+				teamName = game.Home
+			} else {
+				log.Printf("TeamID %d doesn't match away team %s (ID: %d) or home team %s (ID: %d) for game %d", 
+					teamID, game.Away, awayTeamID, game.Home, homeTeamID, gameID)
+				continue
+			}
 		}
+		
+		// Create pick with proper TeamName
+		pick := &models.Pick{
+			UserID:          user.ID,
+			GameID:          gameID,
+			TeamID:          teamID,
+			PickType:        pickType,
+			Season:          season,
+			Week:            week,
+			Result:          models.PickResultPending,
+			TeamName:        teamName,
+			GameDescription: fmt.Sprintf("%s @ %s", game.Away, game.Home),
+		}
+		
+		// Debug logging for pick creation
+		log.Printf("SUBMIT_PICKS DEBUG: Created pick - GameID=%d, TeamID=%d, TeamName='%s', PickType='%s', GameDescription='%s'", 
+			pick.GameID, pick.TeamID, pick.TeamName, pick.PickType, pick.GameDescription)
 		
 		picks = append(picks, pick)
 	}
@@ -316,7 +403,14 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 	// Broadcast pick update via SSE
 	h.broadcastPickUpdate(user.ID, season, week)
 	
-	// Redirect back to pick picker with success message
+	// For HTMX requests, return success message instead of redirect
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<div class="success-message">✓ Successfully saved %d picks!</div>`, len(picks))
+		return
+	}
+	
+	// For regular requests, redirect back to pick picker with success message  
 	redirectURL := fmt.Sprintf("/pick-picker?season=%d&week=%d&success=1", season, week)
 	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
@@ -381,4 +475,24 @@ func (h *PickManagementHandler) getCurrentWeek(games []models.Game) int {
 	}
 	
 	return 1 // Fallback
+}
+
+// getTeamIDFromAbbreviation maps team abbreviation to ESPN team ID
+func (h *PickManagementHandler) getTeamIDFromAbbreviation(abbr string) int {
+	// ESPN team ID mapping (matches the one used in PickService)
+	teamMap := map[string]int{
+		"ARI": 22, "ATL": 1,  "BAL": 33, "BUF": 2,  "CAR": 29, "CHI": 3,
+		"CIN": 4,  "CLE": 5,  "DAL": 6,  "DEN": 7,  "DET": 8,  "GB":  9,
+		"HOU": 34, "IND": 11, "JAX": 30, "KC":  12, "LV":  13, "LAC": 24,
+		"LAR": 14, "MIA": 15, "MIN": 16, "NE":  17, "NO":  18, "NYG": 19,
+		"NYJ": 20, "PHI": 21, "PIT": 23, "SF":  25, "SEA": 26, "TB":  27,
+		"TEN": 10, "WSH": 28, "WAS": 28, // Handle both WSH and WAS for Washington
+	}
+	
+	if id, exists := teamMap[abbr]; exists {
+		return id
+	}
+	
+	log.Printf("Unknown team abbreviation: %s", abbr)
+	return 0 // Fallback for unknown teams
 }
