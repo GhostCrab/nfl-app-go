@@ -390,10 +390,11 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 	
 	log.Printf("Processed %d picks from form submission", len(picks))
 	
-	// Replace all picks for this week using the service method
+	// CRITICAL FIX: Use UpdateUserPicksForScheduledGames to preserve existing picks for completed games
+	// instead of ReplaceUserPicksForWeek which deletes all picks for the week
 	ctx := context.Background()
-	if err := h.pickService.ReplaceUserPicksForWeek(ctx, user.ID, season, week, picks); err != nil {
-		log.Printf("Error replacing picks for user %d: %v", user.ID, err)
+	if err := h.pickService.UpdateUserPicksForScheduledGames(ctx, user.ID, season, week, picks, gameMap); err != nil {
+		log.Printf("Error updating picks for user %d: %v", user.ID, err)
 		http.Error(w, "Error saving picks", http.StatusInternalServerError)
 		return
 	}

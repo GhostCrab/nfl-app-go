@@ -4,6 +4,7 @@ import (
 	"context"
 	"html/template"
 	"net/http"
+	"nfl-app-go/config"
 	"nfl-app-go/database"
 	"nfl-app-go/handlers"
 	"nfl-app-go/logging"
@@ -13,41 +14,25 @@ import (
 	"os"
 
 	"github.com/gorilla/mux"
-	"github.com/joho/godotenv"
 )
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
 
 func main() {
-	// Configure structured logging
-	logging.Configure(logging.Config{
-		Level:       getEnv("LOG_LEVEL", "info"),
-		Output:      os.Stdout,
-		Prefix:      "nfl-app",
-		EnableColor: getEnv("LOG_COLOR", "true") != "false",
-	})
-
-	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		logging.Warnf("Could not load .env file: %v", err)
+	// Load configuration from environment and .env file
+	cfg, err := config.Load()
+	if err != nil {
+		// Use basic logging since structured logging isn't configured yet
+		logging.Fatal("Failed to load configuration:", err)
 	}
 
-	// Initialize MongoDB connection
-	dbConfig := database.Config{
-		Host:     getEnv("DB_HOST", "p5server"),
-		Port:     getEnv("DB_PORT", "27017"),
-		Username: getEnv("DB_USERNAME", "nflapp"),
-		Password: getEnv("DB_PASSWORD", ""),
-		Database: getEnv("DB_NAME", "nfl_app"),
-	}
+	// Configure structured logging using config
+	logging.Configure(cfg.ToLoggingConfig())
 
-	logging.Infof("DB Config - Host: %s, Port: %s, Username: %s, Database: %s, Password set: %t",
-		dbConfig.Host, dbConfig.Port, dbConfig.Username, dbConfig.Database, dbConfig.Password != "")
+	// Log the loaded configuration
+	cfg.LogConfiguration()
+
+	// Get database config from centralized config
+	dbConfig := cfg.ToDatabaseConfig()
 
 	db, err := database.NewMongoConnection(dbConfig)
 	if err != nil {
@@ -74,10 +59,11 @@ func main() {
 		r.HandleFunc("/games", gameDisplayHandler.GetGames).Methods("GET")
 		r.HandleFunc("/games/refresh", gameDisplayHandler.RefreshGames).Methods("GET")
 
-		// Start server
-		logging.Info("Server starting on 0.0.0.0:8080 (available on LAN)")
-		logging.Info("Visit: http://localhost:8080 or http://[your-pi-ip]:8080")
-		logging.Fatal(http.ListenAndServe("0.0.0.0:8080", r))
+		// Start server using centralized config
+		demoServerAddr := cfg.GetServerAddress()
+		logging.Infof("Demo server starting on %s (available on LAN)", demoServerAddr)
+		logging.Infof("Visit: http://localhost:%s or http://[your-pi-ip]:%s", cfg.Server.Port, cfg.Server.Port)
+		logging.Fatal(http.ListenAndServe(demoServerAddr, r))
 		return
 	}
 
@@ -97,8 +83,8 @@ func main() {
 	espnService := services.NewESPNService()
 	dataLoader := services.NewDataLoader(espnService, gameRepo)
 
-	// Check if we have games for 2025 season, if not load them
-	currentSeason := 2025
+	// Check if we have games for current season, if not load them
+	currentSeason := cfg.App.CurrentSeason
 	existingGames, err := gameRepo.GetGamesBySeason(currentSeason)
 	if err != nil || len(existingGames) == 0 {
 		logging.Infof("No games found for %d season, loading from ESPN API...", currentSeason)
@@ -123,16 +109,8 @@ func main() {
 		logging.Fatal("Error parsing templates:", err)
 	}
 
-	// Create email service
-	emailConfig := services.EmailConfig{
-		SMTPHost:     getEnv("SMTP_HOST", ""),
-		SMTPPort:     getEnv("SMTP_PORT", "587"),
-		SMTPUsername: getEnv("SMTP_USERNAME", ""),
-		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
-		FromEmail:    getEnv("FROM_EMAIL", ""),
-		FromName:     getEnv("FROM_NAME", "NFL Games"),
-	}
-	emailService := services.NewEmailService(emailConfig)
+	// Create email service using centralized config
+	emailService := services.NewEmailService(cfg.ToEmailConfig())
 
 	// Test email configuration if provided
 	if emailService.IsConfigured() {
@@ -147,9 +125,8 @@ func main() {
 		logging.Info("Email service not configured - using development mode for password resets")
 	}
 
-	// Create services
-	jwtSecret := getEnv("JWT_SECRET", "your-secret-key-change-in-production")
-	authService := services.NewAuthService(userRepo, jwtSecret)
+	// Create services using centralized config
+	authService := services.NewAuthService(userRepo, cfg.Auth.JWTSecret)
 	gameService := services.NewDatabaseGameService(gameRepo)
 	pickRepo := database.NewMongoPickRepository(db)
 	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
@@ -213,8 +190,8 @@ func main() {
 	r.Use(middleware.SecurityMiddleware)
 
 	// Add no-cache middleware for development only
-	isDevelopment := getEnv("ENVIRONMENT", "development") == "development"
-	logging.Infof("Server starting in %s mode (isDevelopment: %t)", getEnv("ENVIRONMENT", "development"), isDevelopment)
+	isDevelopment := cfg.App.IsDevelopment
+	logging.Infof("Server starting in %s mode (isDevelopment: %t)", cfg.Server.Environment, isDevelopment)
 	if isDevelopment {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -277,12 +254,12 @@ func main() {
 	apiRouter.Use(authMiddleware.RequireAuth)
 	apiRouter.HandleFunc("/me", authHandler.Me).Methods("GET")
 
-	// Server configuration
-	useTLS := getEnv("USE_TLS", "true") == "true"
-	serverPort := getEnv("SERVER_PORT", "8080")
-	behindProxy := getEnv("BEHIND_PROXY", "false") == "true"
+	// Server configuration from centralized config
+	useTLS := cfg.Server.UseTLS
+	serverPort := cfg.Server.Port
+	behindProxy := cfg.Server.BehindProxy
 
-	if !emailService.IsConfigured() {
+	if !cfg.IsEmailConfigured() {
 		logging.Info("")
 		logging.Info("📧 EMAIL CONFIGURATION:")
 		logging.Info("To enable real password reset emails, set these environment variables:")
@@ -294,8 +271,8 @@ func main() {
 		logging.Info("")
 	}
 
-	// Start server
-	serverAddr := "0.0.0.0:" + serverPort
+	// Start server using centralized config
+	serverAddr := cfg.GetServerAddress()
 
 	if behindProxy {
 		logging.Infof("Server starting on %s (HTTP - behind proxy/tunnel)", serverAddr)
@@ -310,14 +287,14 @@ func main() {
 		logging.Info("⚠️  Using self-signed certificate - browser will show security warning")
 
 		// Check if certificate files exist
-		if _, err := os.Stat("server.crt"); os.IsNotExist(err) {
-			logging.Fatal("server.crt not found. Set USE_TLS=false or generate certificates.")
+		if _, err := os.Stat(cfg.Server.CertFile); os.IsNotExist(err) {
+			logging.Fatalf("%s not found. Set USE_TLS=false or generate certificates.", cfg.Server.CertFile)
 		}
-		if _, err := os.Stat("server.key"); os.IsNotExist(err) {
-			logging.Fatal("server.key not found. Set USE_TLS=false or generate certificates.")
+		if _, err := os.Stat(cfg.Server.KeyFile); os.IsNotExist(err) {
+			logging.Fatalf("%s not found. Set USE_TLS=false or generate certificates.", cfg.Server.KeyFile)
 		}
 
-		logging.Fatal(http.ListenAndServeTLS(serverAddr, "server.crt", "server.key", r))
+		logging.Fatal(http.ListenAndServeTLS(serverAddr, cfg.Server.CertFile, cfg.Server.KeyFile, r))
 	} else {
 		logging.Infof("Server starting on %s (HTTP - available on LAN)", serverAddr)
 		logging.Infof("Visit: http://localhost:%s or http://[your-pi-ip]:%s", serverPort, serverPort)

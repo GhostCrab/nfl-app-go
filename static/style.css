@@ -2009,6 +2009,37 @@ body.modal-open {
     opacity: 0.5;
 }
 
+/* IMPORTANT: Ensure disabled checked checkboxes are still visible */
+.pick-checkbox:disabled:checked {
+    opacity: 0.8 !important; /* Higher opacity for checked disabled checkboxes */
+}
+
+/* Enhanced styling for disabled but selected picks */
+.pick-checkbox-label.disabled .pick-checkbox:checked {
+    opacity: 0.8 !important;
+}
+
+/* Add a subtle background highlight to show existing picks on disabled games */
+.pick-checkbox-label.disabled .pick-checkbox:checked + .pick-team-img,
+.pick-checkbox-label.disabled .pick-checkbox:checked ~ .pick-text-container {
+    background-color: rgba(76, 175, 80, 0.2); /* Subtle green highlight */
+    border-radius: 4px;
+}
+
+/* Ensure the label itself indicates selection for disabled games */
+.pick-checkbox-label.disabled:has(.pick-checkbox:checked) {
+    background-color: rgba(76, 175, 80, 0.1);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+    border-radius: 4px;
+}
+
+/* Fallback for browsers without :has() support - use JavaScript class */
+.pick-checkbox-label.disabled.has-checked-pick {
+    background-color: rgba(76, 175, 80, 0.1);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+    border-radius: 4px;
+}
+
 .pick-team-img {
     width: 24px;
     height: 24px;

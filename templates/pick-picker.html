@@ -39,4 +39,33 @@
             </form>
         </div>
     </div>
+    
+    <script>
+        // Apply fallback class for disabled labels with checked checkboxes
+        // This ensures existing picks are highlighted on disabled games for all browsers
+        document.addEventListener('DOMContentLoaded', function() {
+            const disabledLabels = document.querySelectorAll('.pick-checkbox-label.disabled');
+            
+            disabledLabels.forEach(function(label) {
+                const checkbox = label.querySelector('.pick-checkbox');
+                if (checkbox && checkbox.checked) {
+                    label.classList.add('has-checked-pick');
+                }
+            });
+        });
+        
+        // Also monitor for dynamic changes (if checkboxes are programmatically updated)
+        document.addEventListener('change', function(event) {
+            if (event.target.classList.contains('pick-checkbox')) {
+                const label = event.target.closest('.pick-checkbox-label');
+                if (label && label.classList.contains('disabled')) {
+                    if (event.target.checked) {
+                        label.classList.add('has-checked-pick');
+                    } else {
+                        label.classList.remove('has-checked-pick');
+                    }
+                }
+            }
+        });
+    </script>
 {{end}}

@@ -227,7 +227,7 @@ func (h *SSEHandler) broadcastToAllClients(messageData string) {
 	// log.Printf("SSE: Broadcasted to %d/%d clients", sentCount, clientCount)
 }
 
-// broadcastPickUpdate broadcasts pick updates for a specific user
+// broadcastPickUpdate broadcasts pick updates for a specific user with proper visibility filtering
 func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	if h.pickService == nil {
 		logger := logging.WithPrefix("SSE")
@@ -235,10 +235,18 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		return
 	}
 
+	if h.visibilityService == nil {
+		logger := logging.WithPrefix("SSE")
+		logger.Warn("Visibility service not available for pick update broadcast")
+		return
+	}
+
+	logger := logging.WithPrefix("SSE:PickUpdate")
+	logger.Debugf("Broadcasting pick update for user %d, season %d, week %d", userID, season, week)
+
 	// Get current games for the season and week
 	games, err := h.gameService.GetGamesBySeason(season)
 	if err != nil {
-		logger := logging.WithPrefix("SSE")
 		logger.Errorf("Error fetching games for pick update: %v", err)
 		return
 	}
@@ -251,71 +259,100 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		}
 	}
 
-	// Get user picks for all users - this is a simplified approach
-	// In the real implementation, we would need to get picks for all users
-	// For now, let's get picks for the specific user
+	// Get the updated user's picks
 	userPicksData, err := h.pickService.GetUserPicksForWeek(context.Background(), userID, season, week)
 	if err != nil {
-		logger := logging.WithPrefix("SSE")
 		logger.Errorf("Error fetching user picks for broadcast: %v", err)
 		return
 	}
 
 	// Convert single user picks to array for template compatibility
-	var userPicks []*models.UserPicks
+	var allUserPicks []*models.UserPicks
 	if userPicksData != nil {
-		userPicks = []*models.UserPicks{userPicksData}
+		allUserPicks = []*models.UserPicks{userPicksData}
 	}
 
 	// Enrich picks with display fields before rendering (CRITICAL for SSE updates)
-	logger := logging.WithPrefix("SSE:PickEnrich")
-	for _, up := range userPicks {
-		logger.Debugf("Enriching %d picks for user %s", len(up.Picks), up.UserName)
+	enrichLogger := logging.WithPrefix("SSE:PickEnrich")
+	for _, up := range allUserPicks {
+		enrichLogger.Debugf("Enriching %d picks for user %s", len(up.Picks), up.UserName)
 		for i := range up.Picks {
 			pick := &up.Picks[i]
-			logger.Debugf("BEFORE enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
 			
 			if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
-				logger.Errorf("Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
+				enrichLogger.Errorf("Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
 				continue
 			}
-			
-			logger.Debugf("AFTER enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
 		}
 
 		// Populate DailyPickGroups for modern seasons (2025+)
 		up.PopulateDailyPickGroups(weekGames, season)
 	}
 
-	// Loop through userPicks and render each one using the same template as main page
-	htmlBuffer := &strings.Builder{}
+	// CRITICAL SECURITY FIX: Broadcast different content to each client based on their viewing permissions
+	clientCount := len(h.sseClients)
+	if clientCount == 0 {
+		logger.Debug("No SSE clients connected, skipping broadcast")
+		return
+	}
 
-	for _, up := range userPicks {
-		// Use same template and data structure as main page (user-picks-block)
-		templateData := map[string]interface{}{
-			"UserPicks":     up,
-			"Games":         weekGames,
-			"IsCurrentUser": false, // SSE updates are for other users viewing
-			"IsFirst":       false,
-			"Season":        season,
-			"Week":          week,
+	sentCount := 0
+	for client := range h.sseClients {
+		// Apply visibility filtering for this specific viewing user
+		viewingUserID := client.UserID // UserID 0 means unauthenticated
+		
+		// Filter picks based on what this specific viewer is allowed to see
+		filteredPicks, err := h.visibilityService.FilterVisibleUserPicks(
+			context.Background(), 
+			allUserPicks, 
+			season, 
+			week, 
+			viewingUserID,
+		)
+		if err != nil {
+			logger.Errorf("Error filtering picks for viewing user %d: %v", viewingUserID, err)
+			continue
 		}
 
-		if err := h.templates.ExecuteTemplate(htmlBuffer, "sse-user-picks-block", templateData); err != nil {
-			logger := logging.WithPrefix("SSE")
-			logger.Errorf("Error rendering user picks template: %v", err)
-			return
+		// Skip if no picks are visible to this user
+		if len(filteredPicks) == 0 {
+			logger.Debugf("No picks visible to viewing user %d, skipping", viewingUserID)
+			continue
+		}
+
+		// Render template with filtered picks for this specific viewer
+		htmlBuffer := &strings.Builder{}
+		for _, up := range filteredPicks {
+			templateData := map[string]interface{}{
+				"UserPicks":     up,
+				"Games":         weekGames,
+				"IsCurrentUser": viewingUserID == userID, // True if viewing their own picks
+				"IsFirst":       false,
+				"Season":        season,
+				"Week":          week,
+			}
+
+			if err := h.templates.ExecuteTemplate(htmlBuffer, "sse-user-picks-block", templateData); err != nil {
+				logger.Errorf("Error rendering user picks template for viewer %d: %v", viewingUserID, err)
+				continue
+			}
+		}
+
+		// Send personalized content to this specific client
+		htmlContent := htmlBuffer.String()
+		message := fmt.Sprintf("user-picks-updated:%s", htmlContent)
+
+		// Send to this specific client only
+		select {
+		case client.Channel <- message:
+			sentCount++
+			logger.Debugf("Sent filtered pick update to user %d (viewing user %d's picks)", viewingUserID, userID)
+		default:
+			logger.Warnf("Client channel full for user %d, skipping pick update", viewingUserID)
 		}
 	}
 
-	// Send HTML content directly for OOB replacement (matching old working format)
-	htmlContent := htmlBuffer.String()
-	
-	// Use the eventType:data format that the old SSE system expected
-	message := fmt.Sprintf("user-picks-updated:%s", htmlContent)
-
-	// Broadcast to all clients (picks visibility is already filtered per user above)
-	h.broadcastToAllClients(message)
+	logger.Infof("Broadcasted filtered pick updates to %d/%d clients for user %d's picks", sentCount, clientCount, userID)
 }
 
 // broadcastGameUpdate broadcasts game updates for a specific game
