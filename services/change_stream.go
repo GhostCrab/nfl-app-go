@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"nfl-app-go/database"
 	"nfl-app-go/logging"
-	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -51,14 +50,12 @@ func (w *ChangeStreamWatcher) ForceRestart() {
 	}
 }
 
-// StartWatching begins watching for changes in games, picks, and parlay_scores collections
+// StartWatching begins watching for changes in games and picks collections
 func (w *ChangeStreamWatcher) StartWatching() {
 	// Start watching games collection
 	go w.watchCollection("games")
-	// Start watching picks collection  
+	// Start watching picks collection
 	go w.watchCollection("picks")
-	// Start watching parlay scores collection
-	go w.watchCollection("parlay_scores")
 }
 
 // watchCollection watches a specific collection for changes
@@ -276,32 +273,6 @@ func (w *ChangeStreamWatcher) extractChangeInfo(event bson.M, collection, operat
 			} else if gameID, ok := doc["game_id"].(int32); ok {
 				changeEvent.GameID = fmt.Sprintf("%d", gameID)
 			}
-		} else if collection == "parlay_scores" {
-			// For parlay_scores, extract season and user_id from document root
-			if season, ok := doc["season"].(int32); ok {
-				changeEvent.Season = int(season)
-			}
-			if userID, ok := doc["user_id"].(int32); ok {
-				changeEvent.UserID = int(userID)
-			}
-
-			// For updates, extract week from the updated week_scores keys in updateDescription
-			if operation == "update" {
-				if updateDesc, ok := event["updateDescription"].(bson.M); ok {
-					if updatedFields, ok := updateDesc["updatedFields"].(bson.M); ok {
-						if weekScores, ok := updatedFields["week_scores"].(bson.M); ok {
-							// Extract week numbers from week_scores keys (e.g., "1", "2")
-							for weekKey := range weekScores {
-								if weekNum, err := strconv.Atoi(weekKey); err == nil {
-									changeEvent.Week = weekNum
-									break // Use first week found
-								}
-							}
-						}
-					}
-				}
-			}
-			// Note: parlay_scores documents don't have a direct week field at root level
 		}
 	}
 

@@ -236,10 +236,10 @@ func (bu *BackgroundUpdater) updateGames() {
 
 	// Separate step: Enrich games with odds data (independent of scoreboard updates)
 	// Only run odds enrichment every 30 minutes to avoid excessive API calls
-	if time.Since(bu.lastOddsUpdate) >= 30*time.Minute {
-		bu.enrichOddsForMissingGames()
-		bu.lastOddsUpdate = time.Now()
-	}
+	// if time.Since(bu.lastOddsUpdate) >= 30*time.Minute {
+	// 	bu.enrichOddsForMissingGames()
+	// 	bu.lastOddsUpdate = time.Now()
+	// }
 
 	duration := time.Since(startTime)
 	log.Printf("BackgroundUpdater: Update completed in %v - %d games processed, %d weeks completed",
@@ -543,19 +543,6 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 				game.Odds.Spread, game.Odds.OU)
 			log.Printf("  STATUS: SUCCESS - Added new odds to database")
 		}
-		// else if i < len(gamesNeedingOdds) {
-		// 	// Log failed odds fetch attempts with enhanced details
-		// 	failedGame := gamesNeedingOdds[i]
-
-		// 	// Convert to Pacific time for better readability
-		// 	pacificTime, _ := time.LoadLocation("America/Los_Angeles")
-		// 	gameTimePacific := failedGame.Date.In(pacificTime)
-
-		// 	log.Printf("BackgroundUpdater: ODDS FETCH FAILED for Game %d (Week %d: %s vs %s) - ESPN API returned no odds",
-		// 		failedGame.ID, failedGame.Week, failedGame.Away, failedGame.Home)
-		// 	log.Printf("  Game Time: %s Pacific (%s)",
-		// 		gameTimePacific.Format("Mon 1/2/2006 3:04 PM MST"), gameTimePacific.Format("2006-01-02 15:04:05 MST"))
-		// }
 	}
 
 	// SANITY CHECK: Double-check cutoff times before database update

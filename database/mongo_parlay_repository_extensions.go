@@ -1,3 +1,7 @@
+// DEPRECATED: This file is deprecated as of the parlay scoring refactor.
+// Parlay scores are now calculated in-memory using MemoryParlayScorer.
+// This file is kept only for legacy compatibility and will be removed in a future cleanup.
+
 package database
 
 import (

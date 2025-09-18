@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"nfl-app-go/database"
 	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
@@ -26,7 +25,7 @@ type SSEHandler struct {
 	pickService       *services.PickService
 	authService       *services.AuthService
 	visibilityService *services.PickVisibilityService
-	parlayRepo        *database.MongoParlayRepository
+	memoryScorer      *services.MemoryParlayScorer
 	sseClients        map[*SSEClient]bool
 	messageCounter    uint64       // Atomic counter for message sequencing
 	heartbeatTicker   *time.Ticker // Heartbeat timer
@@ -49,11 +48,11 @@ func NewSSEHandler(templates *template.Template, gameService services.GameServic
 }
 
 // SetServices sets the required services
-func (h *SSEHandler) SetServices(pickService *services.PickService, authService *services.AuthService, visibilityService *services.PickVisibilityService, parlayRepo *database.MongoParlayRepository) {
+func (h *SSEHandler) SetServices(pickService *services.PickService, authService *services.AuthService, visibilityService *services.PickVisibilityService, memoryScorer *services.MemoryParlayScorer) {
 	h.pickService = pickService
 	h.authService = authService
 	h.visibilityService = visibilityService
-	h.parlayRepo = parlayRepo
+	h.memoryScorer = memoryScorer
 }
 
 // GetClients returns the SSE clients for broadcasting (for use by other handlers)
@@ -154,9 +153,14 @@ func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
 		h.BroadcastPickUpdate(event.UserID, event.Season, event.Week)
 	}
 
-	// Handle parlay score collection changes
-	if event.Collection == "parlay_scores" {
-		h.BroadcastParlayScoreUpdate(event.Season, event.Week)
+	// Handle game completion events to trigger parlay score recalculation
+	if event.Collection == "games" && h.memoryScorer != nil {
+		// Check if this is a meaningful game state change that affects scoring
+		if event.UpdatedFields != nil {
+			if _, hasState := event.UpdatedFields["state"]; hasState {
+				h.handleGameCompletion(event.Season, event.Week, event.GameID)
+			}
+		}
 	}
 }
 
@@ -600,25 +604,18 @@ func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
 		}
 
 		// Populate parlay scores for each user - CRITICAL for club scores display
-		if h.parlayRepo != nil {
+		if h.memoryScorer != nil {
 			for _, up := range userPicks {
-				// Get user's cumulative parlay score up to this week
-				cumulativeScore, err := h.parlayRepo.GetUserCumulativeScoreUpToWeek(ctx, up.UserID, season, week)
-				if err != nil {
-					logger.Warnf("Failed to get cumulative score for user %d: %v", up.UserID, err)
-					continue
-				}
-
-				// Get this week's specific score for weekly gain display
-				weekScore, err := h.parlayRepo.GetUserParlayScore(ctx, up.UserID, season, week)
-				if err != nil {
-					logger.Warnf("Failed to get week score for user %d: %v", up.UserID, err)
-				}
-
+				// Get this week's specific score from memory scorer
+				weekScore, exists := h.memoryScorer.GetUserScore(season, week, up.UserID)
 				weeklyPoints := 0
-				if weekScore != nil {
+				if exists && weekScore != nil {
 					weeklyPoints = weekScore.TotalPoints
 				}
+
+				// For now, use weekly points as cumulative (will need separate cumulative calculation)
+				// TODO: Implement proper cumulative scoring across multiple weeks
+				cumulativeScore := weeklyPoints
 
 				// Populate the Record field with parlay scoring data
 				up.Record.ParlayPoints = cumulativeScore
@@ -648,5 +645,43 @@ func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
 		logger.Infof("Broadcasted club scores HTML update to %d clients", len(h.sseClients))
 	} else {
 		logger.Warn("Pick service not available for parlay score HTML broadcast")
+	}
+}
+
+// handleGameCompletion handles game completion events to recalculate parlay scores
+func (h *SSEHandler) handleGameCompletion(season, week int, gameID string) {
+	logger := logging.WithPrefix("SSE:GameCompletion")
+	ctx := context.Background()
+
+	if h.memoryScorer == nil || h.pickService == nil {
+		logger.Warn("Memory scorer or pick service not available")
+		return
+	}
+
+	logger.Infof("Game %s completed for season %d, week %d - recalculating parlay scores", gameID, season, week)
+
+	// Get all users who made picks for this week
+	allUserPicks, err := h.pickService.GetAllUserPicksForWeek(ctx, season, week)
+	if err != nil {
+		logger.Errorf("Failed to get user picks for week %d: %v", week, err)
+		return
+	}
+
+	// Recalculate scores for each user who made picks this week
+	updatedCount := 0
+	for _, userPicks := range allUserPicks {
+		_, err := h.memoryScorer.RecalculateUserScore(ctx, season, week, userPicks.UserID)
+		if err != nil {
+			logger.Errorf("Failed to recalculate score for user %d: %v", userPicks.UserID, err)
+			continue
+		}
+		updatedCount++
+	}
+
+	logger.Infof("Recalculated parlay scores for %d users", updatedCount)
+
+	// Broadcast the updated scores via SSE
+	if updatedCount > 0 {
+		h.BroadcastParlayScoreUpdate(season, week)
 	}
 }

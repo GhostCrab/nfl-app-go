@@ -1,3 +1,8 @@
+// DEPRECATED: This file is deprecated as of the parlay scoring refactor.
+// Parlay scores are now calculated in-memory using MemoryParlayScorer.
+// This repository is kept only for season record functionality and will be
+// removed in a future cleanup once all database dependencies are eliminated.
+
 package database
 
 import (
@@ -13,6 +18,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// DEPRECATED: MongoParlayRepository is deprecated in favor of MemoryParlayScorer
 type MongoParlayRepository struct {
 	collection *mongo.Collection
 }

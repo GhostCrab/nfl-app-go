@@ -21,14 +21,18 @@ type ParlayService struct {
 // NewParlayService creates a new parlay service instance
 func NewParlayService(
 	pickRepo *database.MongoPickRepository,
-	gameRepo *database.MongoGameRepository, 
+	gameRepo *database.MongoGameRepository,
 	parlayRepo *database.MongoParlayRepository,
 ) *ParlayService {
-	return &ParlayService{
+	log.Printf("Creating ParlayService with pickRepo=%v, gameRepo=%v, parlayRepo=%v",
+		pickRepo, gameRepo, parlayRepo)
+	service := &ParlayService{
 		pickRepo:   pickRepo,
 		gameRepo:   gameRepo,
 		parlayRepo: parlayRepo,
 	}
+	log.Printf("Created ParlayService: %v", service)
+	return service
 }
 
 // CalculateUserParlayScore calculates parlay scores for a specific user and week

@@ -135,18 +135,29 @@ func main() {
 	analyticsService := services.NewAnalyticsService(pickRepo, gameRepo, userRepo)
 	visibilityService := services.NewPickVisibilityService(gameService)
 
+	// Set up specialized services for delegation BEFORE creating memory scorer
+	pickService.SetSpecializedServices(parlayService, resultCalcService, analyticsService)
+
+	// Create in-memory parlay scorer for real-time score management
+	logging.Debugf("Creating memory scorer with parlayService=%v, pickService=%v", parlayService, pickService)
+	memoryScorer := services.NewMemoryParlayScorer(parlayService, pickService)
+	ctx := context.Background()
+	if err := memoryScorer.InitializeFromDatabase(ctx, currentSeason); err != nil {
+		logging.Errorf("Failed to initialize memory scorer: %v", err)
+	}
+
 	// Create middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
 
 	// Create new specialized handlers
 	sseHandler := handlers.NewSSEHandler(templates, gameService)
-	sseHandler.SetServices(pickService, authService, visibilityService, parlayRepo)
+	sseHandler.SetServices(pickService, authService, visibilityService, memoryScorer)
 	
 	gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService)
 	gameDisplayHandler.SetServices(pickService, authService, visibilityService, userRepo)
 	pickManagementHandler := handlers.NewPickManagementHandler(templates, gameService, pickService, authService, visibilityService, sseHandler)
 	dashboardHandler := handlers.NewDashboardHandler(templates, gameService, pickService, authService, visibilityService, nil, dataLoader)
-	demoTestingHandler := handlers.NewDemoTestingHandler(templates, gameService, sseHandler, parlayService, parlayRepo)
+	demoTestingHandler := handlers.NewDemoTestingHandler(templates, gameService, sseHandler, parlayService)
 	
 	// Legacy GameHandler removed - all functionality moved to specialized handlers
 	
@@ -155,9 +166,6 @@ func main() {
 	
 	// Set up SSE broadcasting for pick service
 	pickService.SetBroadcaster(sseHandler)
-	
-	// Set up specialized services for delegation
-	pickService.SetSpecializedServices(parlayService, resultCalcService, analyticsService)
 
 	// Start background ESPN API updater
 	backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, parlayService, currentSeason)

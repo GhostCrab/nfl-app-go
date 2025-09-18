@@ -1,14 +1,10 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"html/template"
 	"log"
-	"math/rand"
 	"net/http"
-	"nfl-app-go/database"
-	"nfl-app-go/models"
 	"nfl-app-go/services"
 	"strconv"
 	"time"
@@ -21,7 +17,6 @@ type DemoTestingHandler struct {
 	gameService   services.GameService
 	sseHandler    *SSEHandler // Reference to SSE handler for broadcasts
 	parlayService *services.ParlayService
-	parlayRepo    *database.MongoParlayRepository
 }
 
 // NewDemoTestingHandler creates a new demo testing handler
@@ -30,14 +25,12 @@ func NewDemoTestingHandler(
 	gameService services.GameService,
 	sseHandler *SSEHandler,
 	parlayService *services.ParlayService,
-	parlayRepo *database.MongoParlayRepository,
 ) *DemoTestingHandler {
 	return &DemoTestingHandler{
 		templates:     templates,
 		gameService:   gameService,
 		sseHandler:    sseHandler,
 		parlayService: parlayService,
-		parlayRepo:    parlayRepo,
 	}
 }
 
@@ -190,53 +183,20 @@ func (h *DemoTestingHandler) TestDatabaseParlayUpdate(w http.ResponseWriter, r *
 		}
 	}
 
-	log.Printf("Modifying parlay scores database for season %d, week %d", currentSeason, currentWeek)
+	log.Printf("DEPRECATED: TestDatabaseParlayUpdate called for season %d, week %d", currentSeason, currentWeek)
+	log.Printf("This endpoint is deprecated as parlay scores are now calculated in-memory, not stored in database")
 
-	if h.parlayService == nil {
-		log.Println("Parlay service not available")
-		http.Error(w, "Parlay service not available", http.StatusInternalServerError)
-		return
+	// Since parlay scores are now calculated in-memory from picks and games,
+	// trigger a parlay score recalculation instead
+	if h.sseHandler != nil {
+		h.sseHandler.BroadcastParlayScoreUpdate(currentSeason, currentWeek)
+		log.Printf("Triggered parlay score broadcast for season %d, week %d", currentSeason, currentWeek)
 	}
 
-	// Generate random dummy data for users 1-6 (assuming these users exist)
-	ctx := context.Background()
-	updatedUsers := []int{}
-
-	for userID := 1; userID <= 6; userID++ {
-		// Create random parlay score
-		parlayScore := &models.ParlayScore{
-			UserID:              userID,
-			Season:              currentSeason,
-			Week:                currentWeek,
-			RegularPoints:       rand.Intn(5),    // 0-4 points
-			BonusThursdayPoints: rand.Intn(3),    // 0-2 points
-			BonusFridayPoints:   rand.Intn(3),    // 0-2 points
-			CreatedAt:           time.Now(),
-			UpdatedAt:           time.Now(),
-		}
-
-		// Calculate total points
-		parlayScore.CalculateTotal()
-
-		// DEBUG: Log before demo parlay score update
-		log.Printf("PARLAY_DEBUG: TestDatabaseParlayUpdate about to save - UserID=%d, Season=%d, Week=%d",
-			userID, parlayScore.Season, parlayScore.Week)
-
-		// Insert/update the score - this should trigger MongoDB change stream
-		err := h.parlayRepo.UpsertParlayScore(ctx, parlayScore)
-		if err != nil {
-			log.Printf("Failed to update parlay score for user %d: %v", userID, err)
-			continue
-		}
-
-		updatedUsers = append(updatedUsers, userID)
-		log.Printf("Updated parlay score for user %d: %d total points", userID, parlayScore.TotalPoints)
-	}
-
-	// Return success response with details
+	// Return deprecation notice
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	response := fmt.Sprintf(`{"success": true, "message": "Database parlay scores updated for %d users", "season": %d, "week": %d, "count": %d}`,
-		len(updatedUsers), currentSeason, currentWeek, len(updatedUsers))
+	response := fmt.Sprintf(`{"success": true, "message": "DEPRECATED: Database parlay scores are no longer used. Triggered in-memory score broadcast instead.", "season": %d, "week": %d}`,
+		currentSeason, currentWeek)
 	w.Write([]byte(response))
 }
