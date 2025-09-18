@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"nfl-app-go/database"
 	"nfl-app-go/logging"
+	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -106,9 +107,7 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 		
 		// Configure change stream options to include full document on updates
 		opts := options.ChangeStream()
-		if collectionName == "games" {
-			opts.SetFullDocument(options.UpdateLookup) // Include full document for update operations
-		}
+		opts.SetFullDocument(options.UpdateLookup) // Include full document for update operations on all collections
 		
 		changeStream, err := collection.Watch(ctx, pipeline, opts)
 		if err != nil {
@@ -121,11 +120,21 @@ func (w *ChangeStreamWatcher) watchCollection(collectionName string) {
 
 		// Process change events
 		for changeStream.Next(ctx) {
+			// Log raw change stream cursor information before decode
+			logger.Debugf("Processing change event from %s collection", collectionName)
+
 			var event bson.M
 			if err := changeStream.Decode(&event); err != nil {
 				logger.Errorf("Error decoding change event from %s: %v", collectionName, err)
+				// Log additional context about the failed decode
+				logger.Errorf("Failed to decode change event - context: %+v", ctx)
+				streamID := changeStream.ID()
+				logger.Errorf("Change stream ID: %v", streamID)
 				continue
 			}
+
+			// Log the successfully decoded event structure for debugging
+			logger.Debugf("Successfully decoded change event from %s: %+v", collectionName, event)
 
 			// Extract operation type
 			operationType, ok := event["operationType"].(string)
@@ -223,30 +232,13 @@ func (w *ChangeStreamWatcher) extractChangeInfo(event bson.M, collection, operat
 			doc = fullDoc
 		}
 	} else if operation == "update" {
-		// Try fullDocument first (if UpdateLookup is working)
+		// With UpdateLookup enabled, fullDocument should always be available for updates
 		if fullDoc, ok := event["fullDocument"].(bson.M); ok {
 			doc = fullDoc
 		} else {
-			// Fallback: use documentKey to get the game ID and look up season/week
-			if docKey, ok := event["documentKey"].(bson.M); ok {
-				if gameID, ok := docKey["id"].(int32); ok {
-					// For games collection, try to extract season/week from a quick DB lookup
-					if collection == "games" {
-						ctx := context.Background()
-						gameCollection := w.db.GetCollection("games")
-						var gameDoc bson.M
-						err := gameCollection.FindOne(ctx, bson.M{"id": gameID}).Decode(&gameDoc)
-						if err == nil {
-							doc = gameDoc
-							fallbackLogger := logging.WithPrefix("ChangeStream")
-							fallbackLogger.Debugf("Fallback lookup for game %d successful", gameID)
-						} else {
-							fallbackLogger := logging.WithPrefix("ChangeStream")
-							fallbackLogger.Warnf("Fallback lookup for game %d failed: %v", gameID, err)
-						}
-					}
-				}
-			}
+			// This should rarely happen now that UpdateLookup is enabled for all collections
+			debugLogger := logging.WithPrefix("ChangeStream")
+			debugLogger.Warnf("Missing fullDocument for %s update operation, this is unexpected", collection)
 		}
 	} else if operation == "delete" {
 		if docKey, ok := event["documentKey"].(bson.M); ok {
@@ -269,6 +261,7 @@ func (w *ChangeStreamWatcher) extractChangeInfo(event bson.M, collection, operat
 				changeEvent.GameID = fmt.Sprintf("%d", gameID)
 			}
 		} else if collection == "picks" {
+			// Extract season, week, user_id, and game_id from picks document
 			if season, ok := doc["season"].(int32); ok {
 				changeEvent.Season = int(season)
 			}
@@ -280,7 +273,35 @@ func (w *ChangeStreamWatcher) extractChangeInfo(event bson.M, collection, operat
 			}
 			if gameID, ok := doc["game_id"].(string); ok {
 				changeEvent.GameID = gameID
+			} else if gameID, ok := doc["game_id"].(int32); ok {
+				changeEvent.GameID = fmt.Sprintf("%d", gameID)
 			}
+		} else if collection == "parlay_scores" {
+			// For parlay_scores, extract season and user_id from document root
+			if season, ok := doc["season"].(int32); ok {
+				changeEvent.Season = int(season)
+			}
+			if userID, ok := doc["user_id"].(int32); ok {
+				changeEvent.UserID = int(userID)
+			}
+
+			// For updates, extract week from the updated week_scores keys in updateDescription
+			if operation == "update" {
+				if updateDesc, ok := event["updateDescription"].(bson.M); ok {
+					if updatedFields, ok := updateDesc["updatedFields"].(bson.M); ok {
+						if weekScores, ok := updatedFields["week_scores"].(bson.M); ok {
+							// Extract week numbers from week_scores keys (e.g., "1", "2")
+							for weekKey := range weekScores {
+								if weekNum, err := strconv.Atoi(weekKey); err == nil {
+									changeEvent.Week = weekNum
+									break // Use first week found
+								}
+							}
+						}
+					}
+				}
+			}
+			// Note: parlay_scores documents don't have a direct week field at root level
 		}
 	}
 

@@ -218,6 +218,10 @@ func (h *DemoTestingHandler) TestDatabaseParlayUpdate(w http.ResponseWriter, r *
 		// Calculate total points
 		parlayScore.CalculateTotal()
 
+		// DEBUG: Log before demo parlay score update
+		log.Printf("PARLAY_DEBUG: TestDatabaseParlayUpdate about to save - UserID=%d, Season=%d, Week=%d",
+			userID, parlayScore.Season, parlayScore.Week)
+
 		// Insert/update the score - this should trigger MongoDB change stream
 		err := h.parlayRepo.UpsertParlayScore(ctx, parlayScore)
 		if err != nil {

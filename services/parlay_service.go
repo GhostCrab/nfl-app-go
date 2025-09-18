@@ -6,6 +6,7 @@ import (
 	"log"
 	"nfl-app-go/database"
 	"nfl-app-go/models"
+	"runtime"
 )
 
 // ParlayService handles all parlay scoring logic separated from PickService
@@ -174,6 +175,21 @@ func (s *ParlayService) ProcessWeekParlayScoring(ctx context.Context, season, we
 
 // UpdateUserParlayRecord updates a user's parlay scores in the database
 func (s *ParlayService) UpdateUserParlayRecord(ctx context.Context, userID, season, week int, weeklyScores map[models.ParlayCategory]int) error {
+	// DEBUG: Log parlay service record updates
+	log.Printf("PARLAY_DEBUG: ParlayService.UpdateUserParlayRecord called - UserID=%d, Season=%d, Week=%d",
+		userID, season, week)
+
+	// Check for invalid data
+	if season == 0 || week == 0 {
+		log.Printf("PARLAY_ERROR: Invalid ParlayService.UpdateUserParlayRecord params - Season=%d, Week=%d, UserID=%d",
+			season, week, userID)
+
+		// Print stack trace to identify caller
+		buf := make([]byte, 4096)
+		n := runtime.Stack(buf, false)
+		log.Printf("PARLAY_ERROR: ParlayService.UpdateUserParlayRecord stack trace:\n%s", buf[:n])
+	}
+
 	// Get or create the user's season record
 	seasonRecord, err := s.parlayRepo.GetUserSeasonRecord(ctx, userID, season)
 	if err != nil {
@@ -281,6 +297,19 @@ func (s *ParlayService) CheckWeekHasParlayScores(ctx context.Context, season, we
 
 // ProcessDailyParlayScoring processes daily parlay scoring (for modern seasons)
 func (s *ParlayService) ProcessDailyParlayScoring(ctx context.Context, season, week int) error {
+	// DEBUG: Log entry point for daily parlay scoring
+	log.Printf("PARLAY_DEBUG: ProcessDailyParlayScoring called - Season=%d, Week=%d", season, week)
+
+	// Check for invalid data
+	if season == 0 || week == 0 {
+		log.Printf("PARLAY_ERROR: Invalid ProcessDailyParlayScoring params - Season=%d, Week=%d", season, week)
+
+		// Print stack trace to identify caller
+		buf := make([]byte, 4096)
+		n := runtime.Stack(buf, false)
+		log.Printf("PARLAY_ERROR: ProcessDailyParlayScoring stack trace:\n%s", buf[:n])
+	}
+
 	log.Printf("Processing daily parlay scoring for season %d, week %d", season, week)
 
 	// Get all games for the week

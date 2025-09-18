@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"nfl-app-go/models"
+	"runtime"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -40,6 +41,21 @@ func NewMongoParlayRepository(db *MongoDB) *MongoParlayRepository {
 
 // UpsertParlayScore creates or updates a parlay score entry
 func (r *MongoParlayRepository) UpsertParlayScore(ctx context.Context, score *models.ParlayScore) error {
+	// DEBUG: Log every parlay_scores update to identify bad data sources
+	log.Printf("PARLAY_DEBUG: UpsertParlayScore called - UserID=%d, Season=%d, Week=%d, TotalPoints=%d",
+		score.UserID, score.Season, score.Week, score.TotalPoints)
+
+	// Check for invalid data
+	if score.Season == 0 || score.Week == 0 {
+		log.Printf("PARLAY_ERROR: Invalid data detected - Season=%d, Week=%d, UserID=%d",
+			score.Season, score.Week, score.UserID)
+
+		// Print stack trace to identify caller
+		buf := make([]byte, 4096)
+		n := runtime.Stack(buf, false)
+		log.Printf("PARLAY_ERROR: Stack trace:\n%s", buf[:n])
+	}
+
 	filter := bson.M{
 		"user_id": score.UserID,
 		"season":  score.Season,

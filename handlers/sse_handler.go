@@ -28,7 +28,7 @@ type SSEHandler struct {
 	visibilityService *services.PickVisibilityService
 	parlayRepo        *database.MongoParlayRepository
 	sseClients        map[*SSEClient]bool
-	messageCounter    uint64 // Atomic counter for message sequencing
+	messageCounter    uint64       // Atomic counter for message sequencing
 	heartbeatTicker   *time.Ticker // Heartbeat timer
 	stopHeartbeat     chan bool    // Channel to stop heartbeat
 }
@@ -370,7 +370,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		enrichLogger.Debugf("Enriching %d picks for user %s", len(up.Picks), up.UserName)
 		for i := range up.Picks {
 			pick := &up.Picks[i]
-			
+
 			if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
 				enrichLogger.Errorf("Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
 				continue
@@ -392,13 +392,13 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	for client := range h.sseClients {
 		// Apply visibility filtering for this specific viewing user
 		viewingUserID := client.UserID // UserID 0 means unauthenticated
-		
+
 		// Filter picks based on what this specific viewer is allowed to see
 		filteredPicks, err := h.visibilityService.FilterVisibleUserPicks(
-			context.Background(), 
-			allUserPicks, 
-			season, 
-			week, 
+			context.Background(),
+			allUserPicks,
+			season,
+			week,
 			viewingUserID,
 		)
 		if err != nil {
@@ -432,7 +432,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 
 		// Send personalized content to this specific client
 		htmlContent := htmlBuffer.String()
-		message := fmt.Sprintf("user-picks-updated:%s", htmlContent)
+		message := fmt.Sprintf("user-picks-updated-sse-handler:%s", htmlContent)
 
 		// Send to this specific client only
 		if h.sendMessageToClient(client, message) {

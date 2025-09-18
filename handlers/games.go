@@ -500,19 +500,6 @@ func (h *GameHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleDatabaseChange processes database changes and sends appropriate updates to SSE clients
-func (h *GameHandler) HandleDatabaseChange(event services.ChangeEvent) {
-	// Skip pick changes - these are now handled directly by SubmitPicks handler
-	if event.Collection == "picks" {
-		return
-	}
-
-	// For game collection changes, send targeted HTML updates
-	if event.Collection == "games" && event.GameID != "" {
-		h.broadcastGameUpdate(event.GameID, event.Season, event.Week)
-	}
-}
-
 // BroadcastUpdate sends game updates to all connected SSE clients (legacy method)
 func (h *GameHandler) BroadcastUpdate() {
 	games, err := h.gameService.GetGames()
@@ -1223,7 +1210,7 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 					}
 
 					// DEBUG: Log pick creation details
-					log.Printf("SUBMIT_PICKS DEBUG: Created pick - GameID=%d, TeamID=%d, TeamName='%s', PickType='%s', PickDescription='%s'", 
+					log.Printf("SUBMIT_PICKS DEBUG: Created pick - GameID=%d, TeamID=%d, TeamName='%s', PickType='%s', PickDescription='%s'",
 						pick.GameID, pick.TeamID, pick.TeamName, pick.PickType, pick.PickDescription)
 
 					picks = append(picks, pick)
@@ -1242,181 +1229,12 @@ func (h *GameHandler) SubmitPicks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to submit picks", http.StatusInternalServerError)
 			return
 		}
-
-		// Trigger single SSE update after all database operations complete
-		h.broadcastPickUpdate(user.ID, season, week)
 	}
 
 	// Return success response for HTMX
 	w.Header().Set("HX-Trigger", "picks-updated")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, "Picks submitted successfully!")
-}
-
-// broadcastPickUpdate sends targeted OOB updates for the specific user who updated picks
-func (h *GameHandler) broadcastPickUpdate(userID, season, week int) {
-	// Get fresh data for the updated week
-	var games []models.Game
-	var err error
-
-	// Use GameService interface method that supports seasons
-	if gameServiceWithSeason, ok := h.gameService.(interface {
-		GetGamesBySeason(int) ([]models.Game, error)
-	}); ok {
-		games, err = gameServiceWithSeason.GetGamesBySeason(season)
-	} else {
-		games, err = h.gameService.GetGames()
-	}
-
-	if err != nil {
-		log.Printf("SSE: Error fetching games for pick update broadcast: %v", err)
-		return
-	}
-
-	// Filter games by week
-	filteredGames := make([]models.Game, 0)
-	for _, game := range games {
-		if game.Week == week {
-			filteredGames = append(filteredGames, game)
-		}
-	}
-	games = filteredGames
-
-	// Get picks for ONLY the user who updated their picks
-	var updatedUserPicks *models.UserPicks
-	if h.pickService != nil {
-		userPicks, pickErr := h.pickService.GetUserPicksForWeek(context.Background(), userID, season, week)
-		if pickErr != nil {
-			log.Printf("SSE: Warning - failed to load picks for user %d, week %d, season %d: %v", userID, week, season, pickErr)
-			return
-		}
-		updatedUserPicks = userPicks
-	}
-
-	// Generate weeks list
-	weeks := make([]int, 18)
-	for i := range weeks {
-		weeks[i] = i + 1
-	}
-
-	// Get user info for the updated user
-	users := []*models.User{
-		{ID: 0, Name: "ANDREW", Email: "ackilpatrick@gmail.com"},
-		{ID: 1, Name: "BARDIA", Email: "bbakhtari@gmail.com"},
-		{ID: 2, Name: "COOPER", Email: "cooper.kocsis@mattel.com"},
-		{ID: 3, Name: "MICAH", Email: "micahgoldman@gmail.com"},
-		{ID: 4, Name: "RYAN", Email: "ryan.pielow@gmail.com"},
-		{ID: 5, Name: "TJ", Email: "tyerke@yahoo.com"},
-		{ID: 6, Name: "BRAD", Email: "bradvassar@gmail.com"},
-	}
-
-	var updatedUser *models.User
-	for _, user := range users {
-		if user.ID == userID {
-			updatedUser = user
-			break
-		}
-	}
-
-	if updatedUser == nil {
-		log.Printf("SSE: Could not find user info for updated user %d", userID)
-		return
-	}
-
-	// Send targeted update to all connected clients
-	for client := range h.sseClients {
-		// Find viewing user info for this client
-		var viewingUser *models.User
-		for _, user := range users {
-			if user.ID == client.UserID {
-				viewingUser = user
-				break
-			}
-		}
-
-		if viewingUser == nil {
-			log.Printf("SSE: Could not find user info for client UserID %d", client.UserID)
-			continue
-		}
-
-		// Debug logging
-		log.Printf("SSE: Broadcasting user %s picks update to client %d", updatedUser.Name, client.UserID)
-		if updatedUserPicks != nil {
-			log.Printf("SSE: Updated user %s has %d picks", updatedUserPicks.UserName, len(updatedUserPicks.Picks))
-		}
-
-		// Get all user picks for this week to render complete picks section
-		allUserPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, week)
-		if err != nil {
-			log.Printf("SSE: Error fetching all user picks for complete section render: %v", err)
-			continue
-		}
-
-		// Apply pick visibility filtering for security
-		if h.visibilityService != nil {
-			filteredUserPicks, err := h.visibilityService.FilterVisibleUserPicks(context.Background(), allUserPicks, season, week, client.UserID)
-			if err != nil {
-				log.Printf("SSE: Warning - failed to filter pick visibility for user %d: %v", client.UserID, err)
-			} else {
-				allUserPicks = filteredUserPicks
-				log.Printf("SSE: Applied pick visibility filtering for user ID %d", client.UserID)
-			}
-		}
-
-		// Render targeted OOB update for just the updated user's picks
-		var htmlContent strings.Builder
-		isCurrentUser := (client.UserID == userID)
-
-		// Enrich picks with display fields before template rendering (CRITICAL for SSE updates)
-		log.Printf("SSE: Enriching %d picks for user %s", len(updatedUserPicks.Picks), updatedUser.Name)
-		for i := range updatedUserPicks.Picks {
-			pick := &updatedUserPicks.Picks[i]
-			log.Printf("SSE: BEFORE enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
-
-			if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
-				log.Printf("SSE: Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
-				continue
-			}
-
-			log.Printf("SSE: AFTER enrichment - Pick GameID=%d, TeamName='%s', PickType='%s'", pick.GameID, pick.TeamName, pick.PickType)
-		}
-
-		// Populate DailyPickGroups for modern seasons (2025+)
-		updatedUserPicks.PopulateDailyPickGroups(games, season)
-
-		templateData := map[string]interface{}{
-			"UserPicks":     updatedUserPicks,
-			"Games":         games,
-			"IsCurrentUser": isCurrentUser,
-			"IsFirst":       false,  // Not needed for OOB updates
-			"Season":        season, // Add season for template logic
-		}
-
-		if err := h.templates.ExecuteTemplate(&htmlContent, "sse-user-picks-block", templateData); err != nil {
-			log.Printf("SSE: Template error for user picks block: %v", err)
-			continue
-		}
-
-		// Get the rendered OOB content with hx-swap-oob="true" already in template
-		finalContent := strings.TrimSpace(htmlContent.String())
-
-		// Debug the rendered content (much smaller now!)
-		log.Printf("SSE: Rendered user %d OOB picks content length: %d characters", userID, len(finalContent))
-		if len(finalContent) > 0 && len(finalContent) <= 200 {
-			log.Printf("SSE: OOB Content preview: %s", finalContent)
-		} else if len(finalContent) > 200 {
-			log.Printf("SSE: OOB Content preview: %s...", finalContent[:200])
-		}
-
-		// Send user-picks-updated event with OOB content
-		select {
-		case client.Channel <- fmt.Sprintf("user-picks-updated:%s", finalContent):
-		default:
-			// Client channel is full, skip
-		}
-	}
-
-	log.Printf("SSE: Sent targeted OOB pick updates for user %d to %d connected clients", userID, len(h.sseClients))
 }
 
 // broadcastGameUpdate sends targeted game HTML updates to all connected SSE clients

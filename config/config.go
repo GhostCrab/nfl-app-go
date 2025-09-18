@@ -7,27 +7,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
 	"nfl-app-go/logging"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds all application configuration
 type Config struct {
 	// Server configuration
 	Server ServerConfig `json:"server"`
-	
+
 	// Database configuration
 	Database DatabaseConfig `json:"database"`
-	
+
 	// Logging configuration
 	Logging LoggingConfig `json:"logging"`
-	
+
 	// Email configuration
 	Email EmailConfig `json:"email"`
-	
+
 	// Authentication configuration
 	Auth AuthConfig `json:"auth"`
-	
+
 	// Application configuration
 	App AppConfig `json:"app"`
 }
@@ -45,11 +46,11 @@ type ServerConfig struct {
 
 // DatabaseConfig holds database configuration
 type DatabaseConfig struct {
-	Host     string `json:"host"`
-	Port     string `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Database string `json:"database"`
+	Host     string        `json:"host"`
+	Port     string        `json:"port"`
+	Username string        `json:"username"`
+	Password string        `json:"password"`
+	Database string        `json:"database"`
 	Timeout  time.Duration `json:"timeout"`
 }
 
@@ -108,7 +109,7 @@ func Load() (*Config, error) {
 			Timeout:  getDurationEnv("DB_TIMEOUT", 10*time.Second),
 		},
 		Logging: LoggingConfig{
-			Level:       getEnv("LOG_LEVEL", "info"),
+			Level:       getEnv("LOG_LEVEL", "debug"),
 			Prefix:      getEnv("LOG_PREFIX", "nfl-app"),
 			EnableColor: getBoolEnv("LOG_COLOR", true),
 		},
@@ -143,12 +144,12 @@ func (c *Config) Validate() error {
 	if c.Server.Port == "" {
 		return fmt.Errorf("server port is required")
 	}
-	
+
 	if c.Server.UseTLS && !c.Server.BehindProxy {
 		if c.Server.CertFile == "" || c.Server.KeyFile == "" {
 			return fmt.Errorf("TLS certificate and key files are required when USE_TLS=true")
 		}
-		
+
 		// Check if certificate files exist
 		if _, err := os.Stat(c.Server.CertFile); os.IsNotExist(err) {
 			return fmt.Errorf("TLS certificate file not found: %s", c.Server.CertFile)
@@ -187,10 +188,10 @@ func (c *Config) Validate() error {
 
 // IsEmailConfigured returns true if email service is configured
 func (c *Config) IsEmailConfigured() bool {
-	return c.Email.SMTPHost != "" && 
-		   c.Email.SMTPUsername != "" && 
-		   c.Email.SMTPPassword != "" && 
-		   c.Email.FromEmail != ""
+	return c.Email.SMTPHost != "" &&
+		c.Email.SMTPUsername != "" &&
+		c.Email.SMTPPassword != "" &&
+		c.Email.FromEmail != ""
 }
 
 // GetServerAddress returns the full server address
@@ -202,8 +203,8 @@ func (c *Config) GetServerAddress() string {
 func (c *Config) GetMongoURI() string {
 	if c.Database.Username != "" && c.Database.Password != "" {
 		return fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?authSource=%s",
-			c.Database.Username, c.Database.Password, 
-			c.Database.Host, c.Database.Port, 
+			c.Database.Username, c.Database.Password,
+			c.Database.Host, c.Database.Port,
 			c.Database.Database, c.Database.Database)
 	}
 	return fmt.Sprintf("mongodb://%s:%s/%s",
@@ -213,16 +214,16 @@ func (c *Config) GetMongoURI() string {
 // LogConfiguration logs the current configuration (without sensitive data)
 func (c *Config) LogConfiguration() {
 	logging.Info("=== Application Configuration ===")
-	logging.Infof("Server: %s (TLS: %t, Behind Proxy: %t, Environment: %s)", 
+	logging.Infof("Server: %s (TLS: %t, Behind Proxy: %t, Environment: %s)",
 		c.GetServerAddress(), c.Server.UseTLS, c.Server.BehindProxy, c.Server.Environment)
-	logging.Infof("Database: %s:%s/%s (Username: %s, Auth: %t)", 
-		c.Database.Host, c.Database.Port, c.Database.Database, 
+	logging.Infof("Database: %s:%s/%s (Username: %s, Auth: %t)",
+		c.Database.Host, c.Database.Port, c.Database.Database,
 		c.Database.Username, c.Database.Password != "")
-	logging.Infof("Logging: Level=%s, Prefix=%s, Color=%t", 
+	logging.Infof("Logging: Level=%s, Prefix=%s, Color=%t",
 		c.Logging.Level, c.Logging.Prefix, c.Logging.EnableColor)
-	logging.Infof("Email: Configured=%t, Host=%s, From=%s", 
+	logging.Infof("Email: Configured=%t, Host=%s, From=%s",
 		c.IsEmailConfigured(), c.Email.SMTPHost, c.Email.FromEmail)
-	logging.Infof("App: Season=%d, Development=%t", 
+	logging.Infof("App: Season=%d, Development=%t",
 		c.App.CurrentSeason, c.App.IsDevelopment)
 	logging.Info("================================")
 }

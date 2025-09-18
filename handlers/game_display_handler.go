@@ -49,7 +49,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters for week filtering
 	seasonStr := r.URL.Query().Get("season")
 	weekStr := r.URL.Query().Get("week")
-	
+
 	// Handle debug datetime parameter for testing visibility (from original games.go)
 	debugDateTimeStr := r.URL.Query().Get("datetime")
 	if debugDateTimeStr != "" && h.visibilityService != nil {
@@ -64,10 +64,10 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	var season int
 	var err error
-	
+
 	// Default to current season (2025)
 	season = 2025
 	if seasonStr != "" {
@@ -75,7 +75,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 			season = s
 		}
 	}
-	
+
 	// Get all games for season to determine current week
 	allGames, err := h.gameService.GetGamesBySeason(season)
 	if err != nil {
@@ -83,7 +83,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unable to fetch games", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Determine current week
 	currentWeek := 0
 	if weekStr != "" {
@@ -95,7 +95,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		currentWeek = h.getCurrentWeek(allGames)
 		log.Printf("GameHandler: Auto-detected current week: %d", currentWeek)
 	}
-	
+
 	// Filter games by the determined current week
 	filteredGames := make([]models.Game, 0)
 	for _, game := range allGames {
@@ -104,16 +104,16 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	games := filteredGames
-	
+
 	// Sort games chronologically by kickoff time
 	sortGamesByKickoffTime(games)
-	
+
 	// Get current user from context (if authenticated)
 	user := middleware.GetUserFromContext(r)
-	
+
 	// Generate week list (1-18 for regular season)
 	weeks := generateWeekList()
-	
+
 	// Get all users
 	var users []*models.User
 	if h.userRepo != nil {
@@ -174,7 +174,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
-		
+
 		// Populate daily pick groups for modern seasons (after visibility filtering)
 		for _, up := range userPicks {
 			up.PopulateDailyPickGroups(games, season)
@@ -182,7 +182,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	} else {
 		log.Printf("GameHandler: WARNING - No pick service available")
 	}
-	
+
 	data := struct {
 		Games         []models.Game
 		Title         string
@@ -202,13 +202,13 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		CurrentWeek:   currentWeek,
 		CurrentSeason: season,
 	}
-	
+
 	// Check if this is an HTMX request
 	isHTMXRequest := r.Header.Get("HX-Request") == "true"
-	
+
 	var templateName string
 	var contentType string
-	
+
 	if isHTMXRequest {
 		// HTMX request - return only the dashboard content
 		templateName = "dashboard-content"
@@ -220,10 +220,10 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		contentType = "text/html; charset=utf-8"
 		log.Printf("HTTP: Serving full dashboard page for week %d, season %d", currentWeek, season)
 	}
-	
+
 	// Set content type
 	w.Header().Set("Content-Type", contentType)
-	
+
 	// Execute the appropriate template
 	err = h.templates.ExecuteTemplate(w, templateName, data)
 	if err != nil {
@@ -231,7 +231,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error rendering page", http.StatusInternalServerError)
 		return
 	}
-	
+
 	log.Printf("HTTP: Successfully served %s for season %d, week %d", templateName, season, currentWeek)
 }
 
@@ -239,14 +239,14 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 // This endpoint returns updated game HTML fragments for real-time updates
 func (h *GameDisplayHandler) RefreshGames(w http.ResponseWriter, r *http.Request) {
 	log.Println("RefreshGames called")
-	
+
 	// Parse query parameters
 	seasonStr := r.URL.Query().Get("season")
 	weekStr := r.URL.Query().Get("week")
-	
+
 	var season, week int
 	var err error
-	
+
 	// Parse season parameter
 	if seasonStr != "" {
 		season, err = strconv.Atoi(seasonStr)
@@ -261,7 +261,7 @@ func (h *GameDisplayHandler) RefreshGames(w http.ResponseWriter, r *http.Request
 			season--
 		}
 	}
-	
+
 	// Parse week parameter
 	if weekStr != "" {
 		week, err = strconv.Atoi(weekStr)
@@ -280,7 +280,7 @@ func (h *GameDisplayHandler) RefreshGames(w http.ResponseWriter, r *http.Request
 		}
 		week = h.getCurrentWeek(allGames)
 	}
-	
+
 	// Get fresh game data
 	allGames, err := h.gameService.GetGamesBySeason(season)
 	if err != nil {
@@ -288,7 +288,7 @@ func (h *GameDisplayHandler) RefreshGames(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Error retrieving games", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Filter games by week
 	games := make([]models.Game, 0)
 	for _, game := range allGames {
@@ -296,10 +296,10 @@ func (h *GameDisplayHandler) RefreshGames(w http.ResponseWriter, r *http.Request
 			games = append(games, game)
 		}
 	}
-	
+
 	// Sort games chronologically
 	sortGamesByKickoffTime(games)
-	
+
 	// Return HTMX-compatible partial response
 	data := struct {
 		Games  []models.Game
@@ -310,7 +310,7 @@ func (h *GameDisplayHandler) RefreshGames(w http.ResponseWriter, r *http.Request
 		Season: season,
 		Week:   week,
 	}
-	
+
 	// Render just the games list fragment for HTMX
 	if err := h.templates.ExecuteTemplate(w, "games-list-fragment.html", data); err != nil {
 		log.Printf("Error rendering games refresh template: %v", err)
@@ -322,17 +322,17 @@ func (h *GameDisplayHandler) RefreshGames(w http.ResponseWriter, r *http.Request
 // This endpoint is used by JavaScript clients and mobile applications
 func (h *GameDisplayHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request) {
 	log.Println("GetGamesAPI called")
-	
+
 	// Set JSON content type
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Parse query parameters
 	seasonStr := r.URL.Query().Get("season")
 	weekStr := r.URL.Query().Get("week")
-	
+
 	var season, week int
 	var err error
-	
+
 	// Parse season
 	if seasonStr != "" {
 		season, err = strconv.Atoi(seasonStr)
@@ -347,7 +347,7 @@ func (h *GameDisplayHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request)
 			season--
 		}
 	}
-	
+
 	// Parse week
 	if weekStr != "" {
 		week, err = strconv.Atoi(weekStr)
@@ -365,7 +365,7 @@ func (h *GameDisplayHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request)
 		}
 		week = h.getCurrentWeek(allGames)
 	}
-	
+
 	// Get games data
 	allGames, err := h.gameService.GetGamesBySeason(season)
 	if err != nil {
@@ -373,7 +373,7 @@ func (h *GameDisplayHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request)
 		http.Error(w, `{"error":"Error retrieving games"}`, http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Filter games by week
 	games := make([]models.Game, 0)
 	for _, game := range allGames {
@@ -381,10 +381,10 @@ func (h *GameDisplayHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request)
 			games = append(games, game)
 		}
 	}
-	
+
 	// Sort games chronologically
 	sortGamesByKickoffTime(games)
-	
+
 	// Create API response
 	response := struct {
 		Games  []models.Game `json:"games"`
@@ -397,7 +397,7 @@ func (h *GameDisplayHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request)
 		Week:   week,
 		Count:  len(games),
 	}
-	
+
 	// Encode and send JSON response
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("Error encoding games API response: %v", err)
@@ -411,47 +411,47 @@ func (h *GameDisplayHandler) getCurrentWeek(games []models.Game) int {
 	if len(games) == 0 {
 		return 1 // Default to week 1 if no games
 	}
-	
+
 	now := time.Now()
-	
+
 	// Group games by week
 	weekGames := make(map[int][]models.Game)
 	for _, game := range games {
 		weekGames[game.Week] = append(weekGames[game.Week], game)
 	}
-	
+
 	// Find the current week based on game timing
 	for week := 1; week <= 18; week++ {
 		gamesThisWeek := weekGames[week]
 		if len(gamesThisWeek) == 0 {
 			continue
 		}
-		
+
 		// Check if any games this week are in progress or recently completed
 		hasRecentActivity := false
 		allCompleted := true
-		
+
 		for _, game := range gamesThisWeek {
 			timeSinceKickoff := now.Sub(game.Date)
-			
+
 			// Game is recent if it's within 4 hours of kickoff (before or after)
 			if timeSinceKickoff >= -4*time.Hour && timeSinceKickoff <= 4*time.Hour {
 				hasRecentActivity = true
 			}
-			
+
 			// Check if game is not completed
 			if !game.IsCompleted() {
 				allCompleted = false
 			}
 		}
-		
+
 		// If there's recent activity or not all games are completed, this is likely the current week
 		if hasRecentActivity || !allCompleted {
 			log.Printf("Determined current week as %d based on game activity", week)
 			return week
 		}
 	}
-	
+
 	// Fallback: find the first week with incomplete games
 	for week := 1; week <= 18; week++ {
 		gamesThisWeek := weekGames[week]
@@ -462,7 +462,7 @@ func (h *GameDisplayHandler) getCurrentWeek(games []models.Game) int {
 			}
 		}
 	}
-	
+
 	// Ultimate fallback: return week 1
 	log.Println("Using fallback current week: 1")
 	return 1
@@ -476,4 +476,3 @@ func generateWeekList() []int {
 	}
 	return weeks
 }
-

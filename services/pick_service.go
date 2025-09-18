@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"sort"
 	"time"
 
@@ -201,12 +202,25 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 
 // GetAllUserPicksForWeek retrieves all users' picks for a specific week
 func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week int) ([]*models.UserPicks, error) {
+	// DEBUG: Log all calls to this function to identify bad data sources
+	log.Printf("PICK_DEBUG: GetAllUserPicksForWeek called - Season=%d, Week=%d", season, week)
+
+	// Check for invalid data and print stack trace
+	if season == 0 || week == 0 {
+		log.Printf("PICK_ERROR: Invalid GetAllUserPicksForWeek params - Season=%d, Week=%d", season, week)
+
+		// Print stack trace to identify caller
+		buf := make([]byte, 4096)
+		n := runtime.Stack(buf, false)
+		log.Printf("PICK_ERROR: GetAllUserPicksForWeek stack trace:\n%s", buf[:n])
+	}
+
 	// Get all picks for the week
 	allPicks, err := s.pickRepo.FindByWeek(ctx, season, week)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get week picks: %w", err)
 	}
-	
+
 	log.Printf("PickService: Found %d total picks for season %d, week %d", len(allPicks), season, week)
 	
 	// Group picks by user
@@ -610,7 +624,11 @@ func (s *PickService) CalculateAllUsersParlayScores(ctx context.Context, season,
 func (s *PickService) UpdateUserParlayRecord(ctx context.Context, userID, season, week int, weeklyScores map[models.ParlayCategory]int) error {
 	// Create parlay score entry
 	parlayScore := models.CreateParlayScore(userID, season, week, weeklyScores)
-	
+
+	// DEBUG: Log before saving parlay score
+	log.Printf("PARLAY_DEBUG: UpdateUserParlayRecord about to save - UserID=%d, Season=%d, Week=%d",
+		userID, season, week)
+
 	// Save to database
 	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
 		return fmt.Errorf("failed to save parlay score: %w", err)
@@ -720,7 +738,11 @@ func (s *PickService) UpdateUserParlayCategoryRecord(ctx context.Context, userID
 	// Recalculate total and update timestamp
 	parlayScore.CalculateTotal()
 	parlayScore.UpdatedAt = time.Now()
-	
+
+	// DEBUG: Log before saving parlay score in ProcessParlayCategory
+	log.Printf("PARLAY_DEBUG: ProcessParlayCategory about to save - UserID=%d, Season=%d, Week=%d",
+		userID, season, week)
+
 	// Save to database
 	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
 		return fmt.Errorf("failed to save parlay score: %w", err)
@@ -966,7 +988,11 @@ func (s *PickService) UpdateUserDailyParlayRecord(ctx context.Context, userID, s
 		// MODERN: Store daily breakdown as JSON or separate table
 		// For now, just store total in existing structure
 	}
-	
+
+	// DEBUG: Log before saving daily parlay score
+	log.Printf("PARLAY_DEBUG: ProcessUserDailyParlayScoring about to save - UserID=%d, Season=%d, Week=%d",
+		userID, season, week)
+
 	// Save to database
 	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
 		return fmt.Errorf("failed to save daily parlay scores: %w", err)

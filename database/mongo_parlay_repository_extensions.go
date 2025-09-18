@@ -3,7 +3,9 @@ package database
 import (
 	"context"
 	"fmt"
+	"log"
 	"nfl-app-go/models"
+	"runtime"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -38,6 +40,21 @@ func (r *MongoParlayRepository) GetUserSeasonRecord(ctx context.Context, userID,
 // UpsertUserSeasonRecord creates or updates a user's season record for parlay scores
 // This method supports parlay service scoring operations
 func (r *MongoParlayRepository) UpsertUserSeasonRecord(ctx context.Context, record *models.ParlaySeasonRecord) error {
+	// DEBUG: Log season record operations
+	log.Printf("PARLAY_DEBUG: UpsertUserSeasonRecord called - UserID=%d, Season=%d",
+		record.UserID, record.Season)
+
+	// Check for invalid data
+	if record.Season == 0 {
+		log.Printf("PARLAY_ERROR: Invalid UpsertUserSeasonRecord data - Season=%d, UserID=%d",
+			record.Season, record.UserID)
+
+		// Print stack trace to identify caller
+		buf := make([]byte, 4096)
+		n := runtime.Stack(buf, false)
+		log.Printf("PARLAY_ERROR: UpsertUserSeasonRecord stack trace:\n%s", buf[:n])
+	}
+
 	ctx, cancel := WithMediumTimeout()
 	defer cancel()
 
@@ -193,6 +210,21 @@ func (r *MongoParlayRepository) GetUserWeeklyScoresForSeason(ctx context.Context
 // UpdateWeekScore updates a specific week's score in a user's season record
 // This method supports parlay service score management operations
 func (r *MongoParlayRepository) UpdateWeekScore(ctx context.Context, userID, season, week int, weekScore models.ParlayWeekScore) error {
+	// DEBUG: Log every week score update to identify bad data sources
+	log.Printf("PARLAY_DEBUG: UpdateWeekScore called - UserID=%d, Season=%d, Week=%d",
+		userID, season, week)
+
+	// Check for invalid data
+	if season == 0 || week == 0 {
+		log.Printf("PARLAY_ERROR: Invalid UpdateWeekScore data - Season=%d, Week=%d, UserID=%d",
+			season, week, userID)
+
+		// Print stack trace to identify caller
+		buf := make([]byte, 4096)
+		n := runtime.Stack(buf, false)
+		log.Printf("PARLAY_ERROR: UpdateWeekScore stack trace:\n%s", buf[:n])
+	}
+
 	ctx, cancel := WithMediumTimeout()
 	defer cancel()
 
