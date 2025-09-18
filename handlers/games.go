@@ -1446,14 +1446,15 @@ func (h *GameHandler) broadcastGameUpdate(gameID string, season, week int) {
 	if updatedGame.State == models.GameStateInPlay {
 		h.broadcastGameStatusHTML(updatedGame)
 		h.broadcastGameScoresHTML(updatedGame)
-		// Also update pick items to reflect current scores and spread results
-		h.broadcastPickUpdatesHTML(updatedGame)
+		// Note: Pick updates are handled by SSEHandler to avoid conflicts
+		// h.broadcastPickUpdatesHTML(updatedGame)
 	}
 
 	// Also trigger pick updates when games complete (final results)
 	if updatedGame.State == models.GameStateCompleted {
 		h.broadcastGameStatusHTML(updatedGame) // Update game status to remove live expansion
-		h.broadcastPickUpdatesHTML(updatedGame)
+		// Note: Pick updates are handled by SSEHandler to avoid conflicts
+		// h.broadcastPickUpdatesHTML(updatedGame)
 	}
 }
 

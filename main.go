@@ -140,7 +140,7 @@ func main() {
 
 	// Create new specialized handlers
 	sseHandler := handlers.NewSSEHandler(templates, gameService)
-	sseHandler.SetServices(pickService, authService, visibilityService)
+	sseHandler.SetServices(pickService, authService, visibilityService, parlayRepo)
 	
 	gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService)
 	gameDisplayHandler.SetServices(pickService, authService, visibilityService, userRepo)

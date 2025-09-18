@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"nfl-app-go/database"
 	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
 	"nfl-app-go/services"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 // Note: SSEClient is already defined in games.go, but we'll use the same structure
@@ -23,23 +26,34 @@ type SSEHandler struct {
 	pickService       *services.PickService
 	authService       *services.AuthService
 	visibilityService *services.PickVisibilityService
+	parlayRepo        *database.MongoParlayRepository
 	sseClients        map[*SSEClient]bool
+	messageCounter    uint64 // Atomic counter for message sequencing
+	heartbeatTicker   *time.Ticker // Heartbeat timer
+	stopHeartbeat     chan bool    // Channel to stop heartbeat
 }
 
 // NewSSEHandler creates a new SSE handler
 func NewSSEHandler(templates *template.Template, gameService services.GameService) *SSEHandler {
-	return &SSEHandler{
-		templates:   templates,
-		gameService: gameService,
-		sseClients:  make(map[*SSEClient]bool),
+	handler := &SSEHandler{
+		templates:     templates,
+		gameService:   gameService,
+		sseClients:    make(map[*SSEClient]bool),
+		stopHeartbeat: make(chan bool),
 	}
+
+	// Start heartbeat goroutine
+	handler.startHeartbeat()
+
+	return handler
 }
 
 // SetServices sets the required services
-func (h *SSEHandler) SetServices(pickService *services.PickService, authService *services.AuthService, visibilityService *services.PickVisibilityService) {
+func (h *SSEHandler) SetServices(pickService *services.PickService, authService *services.AuthService, visibilityService *services.PickVisibilityService, parlayRepo *database.MongoParlayRepository) {
 	h.pickService = pickService
 	h.authService = authService
 	h.visibilityService = visibilityService
+	h.parlayRepo = parlayRepo
 }
 
 // GetClients returns the SSE clients for broadcasting (for use by other handlers)
@@ -207,15 +221,26 @@ func (h *SSEHandler) BroadcastStructuredUpdate(eventType, data string) {
 
 // broadcastToAllClients sends a message to all connected SSE clients
 func (h *SSEHandler) broadcastToAllClients(messageData string) {
+	h.broadcastToAllClientsWithID(messageData)
+}
+
+// broadcastToAllClientsWithID sends a message with sequence ID to all connected SSE clients
+func (h *SSEHandler) broadcastToAllClientsWithID(messageData string) {
 	clientCount := len(h.sseClients)
 	if clientCount == 0 {
 		return
 	}
 
+	// Generate next message ID
+	msgID := atomic.AddUint64(&h.messageCounter, 1)
+
+	// Add message ID to the SSE message
+	messageWithID := fmt.Sprintf("id: %d\n%s", msgID, messageData)
+
 	sentCount := 0
 	for client := range h.sseClients {
 		select {
-		case client.Channel <- messageData:
+		case client.Channel <- messageWithID:
 			sentCount++
 		default:
 			logger := logging.WithPrefix("SSE")
@@ -223,7 +248,75 @@ func (h *SSEHandler) broadcastToAllClients(messageData string) {
 		}
 	}
 
-	// log.Printf("SSE: Broadcasted to %d/%d clients", sentCount, clientCount)
+	// log.Printf("SSE: Broadcasted message %d to %d/%d clients", msgID, sentCount, clientCount)
+}
+
+// sendMessageToClient sends a message with sequence ID to a specific client
+func (h *SSEHandler) sendMessageToClient(client *SSEClient, messageData string) bool {
+	// Generate next message ID
+	msgID := atomic.AddUint64(&h.messageCounter, 1)
+
+	// Add message ID to the SSE message
+	messageWithID := fmt.Sprintf("id: %d\n%s", msgID, messageData)
+
+	select {
+	case client.Channel <- messageWithID:
+		return true
+	default:
+		return false
+	}
+}
+
+// startHeartbeat starts sending periodic heartbeat messages
+func (h *SSEHandler) startHeartbeat() {
+	h.heartbeatTicker = time.NewTicker(30 * time.Second) // Heartbeat every 30 seconds
+
+	go func() {
+		for {
+			select {
+			case <-h.heartbeatTicker.C:
+				h.sendHeartbeat()
+			case <-h.stopHeartbeat:
+				h.heartbeatTicker.Stop()
+				return
+			}
+		}
+	}()
+}
+
+// sendHeartbeat sends a heartbeat message to all connected clients
+func (h *SSEHandler) sendHeartbeat() {
+	if len(h.sseClients) == 0 {
+		return
+	}
+
+	heartbeatMessage := map[string]any{
+		"type":      "heartbeat",
+		"timestamp": time.Now().Unix(),
+		"message":   "keepalive",
+	}
+
+	messageData, err := json.Marshal(heartbeatMessage)
+	if err != nil {
+		logger := logging.WithPrefix("SSE:Heartbeat")
+		logger.Errorf("Error marshaling heartbeat message: %v", err)
+		return
+	}
+
+	h.broadcastToAllClients(string(messageData))
+
+	logger := logging.WithPrefix("SSE:Heartbeat")
+	logger.Debugf("Sent heartbeat to %d clients", len(h.sseClients))
+}
+
+// Stop stops the heartbeat timer (cleanup method)
+func (h *SSEHandler) Stop() {
+	if h.stopHeartbeat != nil {
+		close(h.stopHeartbeat)
+	}
+	if h.heartbeatTicker != nil {
+		h.heartbeatTicker.Stop()
+	}
 }
 
 // broadcastPickUpdate broadcasts pick updates for a specific user with proper visibility filtering
@@ -342,11 +435,10 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		message := fmt.Sprintf("user-picks-updated:%s", htmlContent)
 
 		// Send to this specific client only
-		select {
-		case client.Channel <- message:
+		if h.sendMessageToClient(client, message) {
 			sentCount++
 			logger.Debugf("Sent filtered pick update to user %d (viewing user %d's picks)", viewingUserID, userID)
-		default:
+		} else {
 			logger.Warnf("Client channel full for user %d, skipping pick update", viewingUserID)
 		}
 	}
@@ -505,6 +597,33 @@ func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
 		if err != nil {
 			logger.Errorf("Failed to get user picks for club score update: %v", err)
 			return
+		}
+
+		// Populate parlay scores for each user - CRITICAL for club scores display
+		if h.parlayRepo != nil {
+			for _, up := range userPicks {
+				// Get user's cumulative parlay score up to this week
+				cumulativeScore, err := h.parlayRepo.GetUserCumulativeScoreUpToWeek(ctx, up.UserID, season, week)
+				if err != nil {
+					logger.Warnf("Failed to get cumulative score for user %d: %v", up.UserID, err)
+					continue
+				}
+
+				// Get this week's specific score for weekly gain display
+				weekScore, err := h.parlayRepo.GetUserParlayScore(ctx, up.UserID, season, week)
+				if err != nil {
+					logger.Warnf("Failed to get week score for user %d: %v", up.UserID, err)
+				}
+
+				weeklyPoints := 0
+				if weekScore != nil {
+					weeklyPoints = weekScore.TotalPoints
+				}
+
+				// Populate the Record field with parlay scoring data
+				up.Record.ParlayPoints = cumulativeScore
+				up.Record.WeeklyPoints = weeklyPoints
+			}
 		}
 
 		// Create template data

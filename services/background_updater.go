@@ -164,13 +164,25 @@ func (bu *BackgroundUpdater) updateGames() {
 			continue
 		}
 		
-		// LEGACY: 2023-2024 use category-based scoring
 		if !models.IsModernSeason(bu.currentSeason) {
-			log.Printf("BackgroundUpdater: LEGACY parlay category completed for Season %d Week %d Category %s, triggering immediate scoring", 
+			// LEGACY: 2023-2024 use category-based scoring
+			log.Printf("BackgroundUpdater: LEGACY parlay category completed for Season %d Week %d Category %s, triggering immediate scoring",
 				bu.currentSeason, weekCategory.Week, weekCategory.Category)
 			if err := bu.parlayService.ProcessParlayCategory(ctx, bu.currentSeason, weekCategory.Week, weekCategory.Category); err != nil {
-				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d Category %s: %v", 
+				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d Category %s: %v",
 					bu.currentSeason, weekCategory.Week, weekCategory.Category, err)
+			} else {
+				// Mark category as processed
+				bu.processedCategories[weekCategory] = true
+			}
+		} else {
+			// MODERN: 2025+ use daily parlay scoring for completed days
+			dayName := bu.categoryToDayName(weekCategory.Category)
+			log.Printf("BackgroundUpdater: MODERN daily parlay completed for Season %d Week %d Day %s, triggering immediate daily scoring",
+				bu.currentSeason, weekCategory.Week, dayName)
+			if err := bu.parlayService.ProcessDailyParlayScoring(ctx, bu.currentSeason, weekCategory.Week); err != nil {
+				log.Printf("BackgroundUpdater: Failed to process MODERN daily parlay scoring for Season %d Week %d Day %s: %v",
+					bu.currentSeason, weekCategory.Week, dayName, err)
 			} else {
 				// Mark category as processed
 				bu.processedCategories[weekCategory] = true
@@ -299,6 +311,20 @@ func (bu *BackgroundUpdater) checkForCompletedParlayCategories(games []models.Ga
 	}
 	
 	return completedCategories
+}
+
+// categoryToDayName maps parlay categories to day names for modern scoring
+func (bu *BackgroundUpdater) categoryToDayName(category models.ParlayCategory) string {
+	switch category {
+	case models.ParlayBonusThursday:
+		return "Thursday"
+	case models.ParlayBonusFriday:
+		return "Friday"
+	case models.ParlayRegular:
+		return "Sunday/Monday" // Regular category includes both weekend days
+	default:
+		return string(category)
+	}
 }
 
 // getUpdateInterval returns the appropriate update interval based on the time of year

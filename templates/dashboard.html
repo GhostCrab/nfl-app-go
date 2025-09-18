@@ -78,7 +78,9 @@
              hx-swap="outerHTML"
              hx-target-404="#nonexistent"></div>
              
-        <!-- Parlay score updates listener - removed full page refresh, using hx-swap-oob instead -->
+        <!-- Parlay score updates listener -->
+        <div sse-swap="parlay-scores-updated"
+             hx-swap="none"></div>
              
     </div>
          
@@ -191,11 +193,12 @@
             <div class="week-selector-container">
                 <div class="form-field">
                     <label for="week-select" class="form-label">View Week</label>
-                    <select id="week-select" name="week" class="week-select" 
-                            hx-get="/" 
+                    <select id="week-select" name="week" class="week-select"
+                            hx-get="/"
                             hx-target="#dashboard-content"
                             hx-include="[name='season']"
-                            hx-trigger="change">
+                            hx-trigger="change"
+                            onchange="localStorage.setItem('currentWeek', this.value)">
                         {{range .Weeks}}
                             <option value="{{.}}" {{if eq . $.CurrentWeek}}selected{{end}}>
                                 Week {{.}}
@@ -871,7 +874,10 @@
                 // Update the form values
                 weekSelect.value = newWeek;
                 seasonInput.value = newSeason;
-                
+
+                // Store current week in localStorage
+                localStorage.setItem('currentWeek', newWeek);
+
                 // Trigger the HTMX change event on the select element
                 htmx.trigger(weekSelect, 'change');
                 event.preventDefault();
@@ -936,7 +942,10 @@
                     // Update the form values
                     weekSelect.value = newWeek;
                     seasonInput.value = newSeason;
-                    
+
+                    // Store current week in localStorage
+                    localStorage.setItem('currentWeek', newWeek);
+
                     // Trigger the HTMX change event on the select element
                     htmx.trigger(weekSelect, 'change');
                 }
@@ -1001,18 +1010,139 @@
             }
         });
 
-        // Debug HTMX SSE events
+        // SSE Message ID tracking for missed updates detection
+        let expectedMessageId = 1;
+        let isReconnecting = false;
+        let lastMessageTime = Date.now();
+        let messageTimeoutId = null;
+
+        // SSE timeout configuration
+        const MESSAGE_TIMEOUT = 90 * 1000; // 90 seconds (3x heartbeat interval)
+        const HEARTBEAT_INTERVAL = 30 * 1000; // Expected heartbeat every 30 seconds
+
         document.addEventListener('htmx:sseMessage', function(e) {
             console.log('HTMX SSE Message received:', e.detail);
+
+            // Update last message time and reset timeout
+            lastMessageTime = Date.now();
+            resetMessageTimeout();
+
+            // Extract message ID from SSE event
+            const lastEventId = e.detail.lastEventId;
+            if (lastEventId) {
+                const messageId = parseInt(lastEventId);
+
+                // Check for gaps in message sequence
+                if (messageId > expectedMessageId && !isReconnecting) {
+                    console.warn(`SSE Message gap detected: expected ${expectedMessageId}, got ${messageId}. Triggering dashboard refresh.`);
+                    refreshDashboard();
+                    return;
+                }
+
+                // Update expected next message ID
+                expectedMessageId = messageId + 1;
+            }
         });
 
         document.addEventListener('htmx:oobAfterSwap', function(e) {
             console.log('HTMX OOB swap completed:', e.detail);
         });
 
-        // Log SSE connection status
+        // Log SSE connection status and handle reconnection
         document.addEventListener('htmx:sseOpen', function(e) {
             console.log('SSE connection opened successfully');
+            lastMessageTime = Date.now();
+            resetMessageTimeout();
+
+            if (isReconnecting) {
+                console.log('SSE reconnected after tab focus, triggering dashboard refresh');
+                refreshDashboard();
+            }
+            isReconnecting = false;
+        });
+
+        // Handle SSE connection errors and server restarts
+        document.addEventListener('htmx:sseError', function(e) {
+            console.warn('SSE connection error:', e.detail);
+            clearMessageTimeout();
+            isReconnecting = true;
+            // Reset expected message ID on connection error (server may have restarted)
+            expectedMessageId = 1;
+        });
+
+        // Handle page visibility changes (tab focus/blur)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                // Tab became visible - check if we might have missed updates
+                console.log('Tab became visible, marking for potential refresh on next SSE message');
+                isReconnecting = true;
+
+                // Check if too much time has passed since last message
+                const timeSinceLastMessage = Date.now() - lastMessageTime;
+                if (timeSinceLastMessage > MESSAGE_TIMEOUT) {
+                    console.warn(`Tab was hidden for ${Math.floor(timeSinceLastMessage / 1000)}s, triggering refresh`);
+                    refreshDashboard();
+                }
+            } else {
+                // Tab became hidden - clear timeout to avoid unnecessary refreshes
+                clearMessageTimeout();
+            }
+        });
+
+        // Reset message timeout - called when we receive any SSE message
+        function resetMessageTimeout() {
+            clearMessageTimeout();
+
+            // Only set timeout if tab is visible
+            if (!document.hidden) {
+                messageTimeoutId = setTimeout(function() {
+                    console.warn(`No SSE messages received for ${MESSAGE_TIMEOUT / 1000}s, triggering refresh`);
+                    refreshDashboard();
+                }, MESSAGE_TIMEOUT);
+            }
+        }
+
+        // Clear message timeout
+        function clearMessageTimeout() {
+            if (messageTimeoutId) {
+                clearTimeout(messageTimeoutId);
+                messageTimeoutId = null;
+            }
+        }
+
+        // Function to refresh dashboard state
+        function refreshDashboard() {
+            console.log('Refreshing dashboard due to missed SSE messages');
+            clearMessageTimeout();
+
+            // Get stored week from localStorage, fallback to current week selector value
+            const storedWeek = localStorage.getItem('currentWeek');
+            const weekSelect = document.getElementById('week-select');
+
+            if (storedWeek && weekSelect) {
+                // Restore the week selector to the stored value
+                weekSelect.value = storedWeek;
+
+                // Trigger the HTMX change event to refresh the dashboard content
+                htmx.trigger(weekSelect, 'change');
+                console.log('Dashboard refreshed with stored week:', storedWeek);
+            } else {
+                // Fallback to page reload if we can't find the week selector
+                console.log('Week selector not found, falling back to page reload');
+                window.location.href = window.location.href;
+            }
+        }
+
+        // Initialize timeout on page load
+        resetMessageTimeout();
+
+        // Initialize localStorage with current week on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const weekSelect = document.getElementById('week-select');
+            if (weekSelect && weekSelect.value) {
+                localStorage.setItem('currentWeek', weekSelect.value);
+                console.log('Initialized localStorage with current week:', weekSelect.value);
+            }
         });
         
         // Debug DOM manipulation

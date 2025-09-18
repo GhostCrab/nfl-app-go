@@ -37,7 +37,7 @@ func NewAuthService(userRepo UserRepository, jwtSecret string) *AuthService {
 	return &AuthService{
 		userRepo:    userRepo,
 		jwtSecret:   []byte(jwtSecret),
-		tokenExpiry: 24 * 30 * 6 * time.Hour, // Token expires in 6 months
+		tokenExpiry: 24 * 180 * time.Hour, // Token expires in 6 months (180 days)
 	}
 }
 

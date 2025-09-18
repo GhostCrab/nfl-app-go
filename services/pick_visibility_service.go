@@ -81,6 +81,8 @@ func (s *PickVisibilityService) FilterVisibleUserPicks(ctx context.Context, user
 			UserID:   userPicksEntry.UserID,
 			UserName: userPicksEntry.UserName,
 			Record:   userPicksEntry.Record,
+			// IMPORTANT: Copy DailyPickGroups for modern season template support
+			DailyPickGroups: make(map[string][]models.Pick),
 		}
 
 		// Filter each pick category
@@ -89,6 +91,16 @@ func (s *PickVisibilityService) FilterVisibleUserPicks(ctx context.Context, user
 		filteredEntry.OverUnderPicks = s.visibilityModel.GetVisiblePicksForUser(userPicksEntry.OverUnderPicks, games, viewingUserID)
 		filteredEntry.BonusThursdayPicks = s.visibilityModel.GetVisiblePicksForUser(userPicksEntry.BonusThursdayPicks, games, viewingUserID)
 		filteredEntry.BonusFridayPicks = s.visibilityModel.GetVisiblePicksForUser(userPicksEntry.BonusFridayPicks, games, viewingUserID)
+
+		// CRITICAL: Filter DailyPickGroups for modern seasons
+		if len(userPicksEntry.DailyPickGroups) > 0 {
+			for dayKey, dayPicks := range userPicksEntry.DailyPickGroups {
+				filteredDayPicks := s.visibilityModel.GetVisiblePicksForUser(dayPicks, games, viewingUserID)
+				if len(filteredDayPicks) > 0 {
+					filteredEntry.DailyPickGroups[dayKey] = filteredDayPicks
+				}
+			}
+		}
 
 		// Get hidden pick counts for this user - collect ALL picks from all arrays
 		allPicks := make([]models.Pick, 0)

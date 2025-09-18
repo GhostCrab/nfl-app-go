@@ -313,7 +313,7 @@ func (h *AuthHandler) setAuthCookie(w http.ResponseWriter, token string) {
 		Name:     "auth_token",
 		Value:    token,
 		Path:     "/",
-		Expires:  time.Now().Add(24 * 30 * 6 * time.Hour), // 6 months
+		Expires:  time.Now().Add(24 * 180 * time.Hour), // 6 months (180 days)
 		HttpOnly: true,
 		Secure:   secure, // Adapt based on proxy configuration
 		SameSite: http.SameSiteStrictMode,
