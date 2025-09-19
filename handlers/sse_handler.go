@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
 	"nfl-app-go/services"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -105,7 +105,7 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send initial connection message using proper SSE format
-	fmt.Fprintf(w, "id: 0\nevent: connection\ndata: SSE connection established\n\n")
+	fmt.Fprintf(w, "event: connection\ndata: SSE connection established\n\n")
 	flusher.Flush()
 
 	// Listen for messages
@@ -154,63 +154,8 @@ func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
 	}
 }
 
-// BroadcastUpdate sends game updates to all connected SSE clients (legacy method)
-func (h *SSEHandler) BroadcastUpdate() {
-	games, err := h.gameService.GetGames()
-	if err != nil {
-		logger := logging.WithPrefix("SSE")
-		logger.Errorf("Error fetching games for broadcast: %v", err)
-		return
-	}
-
-	// Render games HTML
-	data := struct {
-		Games []models.Game
-	}{
-		Games: games,
-	}
-
-	// Execute the template
-	htmlBuffer := &strings.Builder{}
-	if err := h.templates.ExecuteTemplate(htmlBuffer, "games-container", data); err != nil {
-		logger := logging.WithPrefix("SSE")
-		logger.Errorf("Error rendering games template: %v", err)
-		return
-	}
-
-	// Create SSE message
-	message := map[string]interface{}{
-		"type":    "games-update",
-		"html":    htmlBuffer.String(),
-		"message": "Games updated",
-	}
-
-	messageData, err := json.Marshal(message)
-	if err != nil {
-		logger := logging.WithPrefix("SSE")
-		logger.Errorf("Error marshaling message: %v", err)
-		return
-	}
-
-	// Broadcast to all clients
-	h.broadcastToAllClients(string(messageData))
-}
-
-// BroadcastStructuredUpdate sends structured updates to all SSE clients
-func (h *SSEHandler) BroadcastStructuredUpdate(eventType, data string) {
-	// Create proper SSE format with event: and data: lines (no JSON)
-	// HTMX SSE extension expects this exact format
-	message := fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, data)
-	h.broadcastToAllClients(message)
-}
-
-// broadcastToAllClients sends a message to all connected SSE clients
-func (h *SSEHandler) broadcastToAllClients(messageData string) {
-	h.broadcastToAllClientsWithID(messageData)
-}
-
-// broadcastToAllClientsWithID sends a message with sequence ID to all connected SSE clients
-func (h *SSEHandler) broadcastToAllClientsWithID(messageData string) {
+// BroadcastToAllClientsWithID sends a message with sequence ID to all connected SSE clients
+func (h *SSEHandler) BroadcastToAllClients(eventType, data string) {
 	clientCount := len(h.sseClients)
 	if clientCount == 0 {
 		return
@@ -220,7 +165,7 @@ func (h *SSEHandler) broadcastToAllClientsWithID(messageData string) {
 	msgID := atomic.AddUint64(&h.messageCounter, 1)
 
 	// Add message ID to the SSE message
-	messageWithID := fmt.Sprintf("id: %d\n%s", msgID, messageData)
+	messageWithID := fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", msgID, eventType, compactHTMLForSSE(data))
 
 	sentCount := 0
 	for client := range h.sseClients {
@@ -238,14 +183,8 @@ func (h *SSEHandler) broadcastToAllClientsWithID(messageData string) {
 
 // sendMessageToClient sends a message with sequence ID to a specific client
 func (h *SSEHandler) sendMessageToClient(client *SSEClient, messageData string) bool {
-	// Generate next message ID
-	msgID := atomic.AddUint64(&h.messageCounter, 1)
-
-	// Add message ID to the SSE message
-	messageWithID := fmt.Sprintf("id: %d\n%s", msgID, messageData)
-
 	select {
-	case client.Channel <- messageWithID:
+	case client.Channel <- messageData:
 		return true
 	default:
 		return false
@@ -254,7 +193,7 @@ func (h *SSEHandler) sendMessageToClient(client *SSEClient, messageData string) 
 
 // startHeartbeat starts sending periodic heartbeat messages
 func (h *SSEHandler) startHeartbeat() {
-	h.heartbeatTicker = time.NewTicker(30 * time.Second) // Heartbeat every 30 seconds
+	h.heartbeatTicker = time.NewTicker(3 * time.Second) // Heartbeat every 30 seconds
 
 	go func() {
 		for {
@@ -271,26 +210,14 @@ func (h *SSEHandler) startHeartbeat() {
 
 // sendHeartbeat sends a heartbeat message to all connected clients
 func (h *SSEHandler) sendHeartbeat() {
+	logger := logging.WithPrefix("SSE:Heartbeat")
+
 	if len(h.sseClients) == 0 {
 		return
 	}
 
-	heartbeatMessage := map[string]any{
-		"type":      "heartbeat",
-		"timestamp": time.Now().Unix(),
-		"message":   "keepalive",
-	}
+	h.BroadcastToAllClients("heartbeat", "keep-alive")
 
-	messageData, err := json.Marshal(heartbeatMessage)
-	if err != nil {
-		logger := logging.WithPrefix("SSE:Heartbeat")
-		logger.Errorf("Error marshaling heartbeat message: %v", err)
-		return
-	}
-
-	h.broadcastToAllClients(string(messageData))
-
-	logger := logging.WithPrefix("SSE:Heartbeat")
 	logger.Debugf("Sent heartbeat to %d clients", len(h.sseClients))
 }
 
@@ -409,7 +336,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 				"Week":          week,
 			}
 
-			if err := h.templates.ExecuteTemplate(htmlBuffer, "sse-user-picks-block", templateData); err != nil {
+			if err := h.templates.ExecuteTemplate(htmlBuffer, "user-picks-block", templateData); err != nil {
 				logger.Errorf("Error rendering user picks template for viewer %d: %v", viewingUserID, err)
 				continue
 			}
@@ -420,7 +347,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 
 		// Create proper SSE message with HTML content (no JSON wrapping)
 		// HTMX SSE extension expects event: and data: lines with raw HTML
-		message := fmt.Sprintf("event: user-picks-updated\ndata: %s\n\n", htmlContent)
+		message := fmt.Sprintf("event: user-picks-updated\ndata: %s\n\n", compactHTMLForSSE(htmlContent))
 
 		// Send to this specific client only
 		if h.sendMessageToClient(client, message) {
@@ -497,7 +424,7 @@ func (h *SSEHandler) BroadcastLivePickExpansionForPick(game *models.Game, pick *
 
 	htmlBuffer.WriteString(`</div>`)
 
-	h.BroadcastStructuredUpdate("live-pick-expansion", htmlBuffer.String())
+	h.BroadcastToAllClients("live-pick-expansion", htmlBuffer.String())
 	logger.Debugf("Broadcasted live pick expansion update for pick %s (game %d)", pick.ID.Hex(), game.ID)
 }
 
@@ -518,7 +445,7 @@ func (h *SSEHandler) BroadcastGameClockUpdate(game *models.Game) {
 	}
 
 	html := fmt.Sprintf(`<span class="status-item game-clock" id="game-time-%d-%d-%d" hx-swap-oob="true">%s</span>`, game.ID, game.Season, game.Week, clockText)
-	h.BroadcastStructuredUpdate("game-clock-update", html)
+	h.BroadcastToAllClients("game-clock-update", html)
 
 	logger := logging.WithPrefix("SSE:GameClock")
 	logger.Debugf("Broadcasted game clock update for game %d: %s", game.ID, clockText)
@@ -536,7 +463,7 @@ func (h *SSEHandler) BroadcastPossessionUpdate(game *models.Game) {
 	}
 
 	html := fmt.Sprintf(`<span class="game-possession" id="possession-%d" hx-swap-oob="true">%s</span>`, game.ID, possessionStr)
-	h.BroadcastStructuredUpdate("possession-update", html)
+	h.BroadcastToAllClients("possession-update", html)
 
 	logger := logging.WithPrefix("SSE:Possession")
 	logger.Debugf("Broadcasted possession update for game %d: %s", game.ID, possessionStr)
@@ -620,7 +547,7 @@ func (h *SSEHandler) broadcastConsolidatedGameUpdate(game *models.Game) {
 	}
 
 	// Send consolidated update
-	h.BroadcastStructuredUpdate("dashboard-update", htmlBuffer.String())
+	h.BroadcastToAllClients("dashboard-update", htmlBuffer.String())
 	logger.Debugf("Broadcasted consolidated game update for game %d", game.ID)
 
 	// Send live pick expansion updates separately (but only for live games)
@@ -672,7 +599,7 @@ func (h *SSEHandler) broadcastGameStatusHTML(game *models.Game) {
 
 	// Create proper SSE message with HTML content (no JSON wrapping)
 	// HTMX SSE extension expects raw HTML with hx-swap-oob attributes
-	h.BroadcastStructuredUpdate("dashboard-update", htmlBuffer.String())
+	h.BroadcastToAllClients("dashboard-update", htmlBuffer.String())
 	logger := logging.WithPrefix("SSE")
 	logger.Debugf("Broadcasted game status update for game %d", game.ID)
 }
@@ -692,13 +619,10 @@ func (h *SSEHandler) broadcastGameScoresHTML(game *models.Game) {
 
 	// Create proper SSE message with HTML content (no JSON wrapping)
 	// HTMX SSE extension expects raw HTML with hx-swap-oob attributes
-	h.BroadcastStructuredUpdate("dashboard-update", htmlBuffer.String())
+	h.BroadcastToAllClients("dashboard-update", htmlBuffer.String())
 	logger := logging.WithPrefix("SSE")
 	logger.Debugf("Broadcasted game scores update for game %d (%d-%d)", game.ID, game.AwayScore, game.HomeScore)
 }
-
-// REMOVED: broadcastPickUpdatesHTML was causing massive 400+ line DOM updates
-// Replaced with targeted updates: BroadcastLivePickExpansion, BroadcastGameClockUpdate, etc.
 
 // BroadcastParlayScoreUpdate broadcasts parlay score updates for a specific season/week
 func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
@@ -750,8 +674,7 @@ func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
 		oobHTML := fmt.Sprintf(`<div class="club-scores" id="club-scores" hx-swap-oob="true">%s</div>`, htmlBuffer.String())
 
 		// Send the HTML update via SSE
-		message := fmt.Sprintf("parlay-scores-updated:%s", oobHTML)
-		h.broadcastToAllClients(message)
+		h.BroadcastToAllClients("parlay-scores-updated", oobHTML)
 
 		logger.Infof("Broadcasted club scores HTML update to %d clients", len(h.sseClients))
 	} else {
@@ -872,7 +795,27 @@ func (h *SSEHandler) BroadcastPickStatusUpdate(game *models.Game, pick *models.P
 		colorClass, pick.ID.Hex(), statusValue,
 	)
 
-	h.BroadcastStructuredUpdate("pick-status-update", pickStatusHTML)
+	h.BroadcastToAllClients("pick-status-update", pickStatusHTML)
 	logger.Debugf("Broadcasted pick status update for pick %s (game %d): %s (%s)",
 		pick.ID.Hex(), game.ID, statusValue, colorClass)
+}
+
+func compactHTMLForSSE(data string) string {
+	// Remove newlines and extra spaces between tags, but preserve content spaces
+	lines := strings.Split(data, "\n")
+	var cleaned []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+
+	// Join with spaces to preserve readability
+	joined := strings.Join(cleaned, " ")
+
+	// Remove spaces between adjacent tags only
+	re := regexp.MustCompile(`>\s+<`)
+	return re.ReplaceAllString(joined, "><")
 }

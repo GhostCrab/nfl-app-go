@@ -170,6 +170,14 @@ func main() {
 		defer backgroundUpdater.Stop()
 	}
 
+	// Start mock background updater for testing (if enabled)
+	if cfg.IsMockUpdaterEnabled() {
+		mockUpdater := services.NewMockBackgroundUpdater(gameRepo, currentSeason)
+		mockUpdater.Start()
+		defer mockUpdater.Stop()
+		logging.Info("Mock background updater enabled - generating fake game updates every 10 seconds (every 4th update completes games)")
+	}
+
 	// Start change stream watcher for real-time updates
 	changeWatcher := services.NewChangeStreamWatcher(db, sseHandler.HandleDatabaseChange)
 	changeWatcher.StartWatching()
@@ -179,7 +187,7 @@ func main() {
 		visibilityService,
 		func(eventType, data string) {
 			// Broadcast visibility changes via SSE
-			sseHandler.BroadcastStructuredUpdate(eventType, data)
+			sseHandler.BroadcastToAllClients(eventType, data)
 		},
 		currentSeason,
 	)

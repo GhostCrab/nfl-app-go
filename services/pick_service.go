@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
 	"runtime"
 	"sort"
 	"time"
@@ -11,13 +10,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"nfl-app-go/database"
+	"nfl-app-go/logging"
 	"nfl-app-go/models"
 )
 
 // PickService handles business logic for picks
 // SSEBroadcaster interface for sending SSE updates
 type SSEBroadcaster interface {
-	BroadcastStructuredUpdate(eventType, data string)
+	BroadcastToAllClients(eventType, data string)
 }
 
 type PickService struct {
@@ -57,6 +57,7 @@ func (s *PickService) SetSpecializedServices(parlayService *ParlayService, resul
 
 // CreatePick creates a new pick with validation
 func (s *PickService) CreatePick(ctx context.Context, userID, gameID, teamID, season, week int) (*models.Pick, error) {
+	logger := logging.WithPrefix("PickService")
 	// Validate game exists
 	game, err := s.gameRepo.FindByESPNID(ctx, gameID)
 	if err != nil {
@@ -83,7 +84,7 @@ func (s *PickService) CreatePick(ctx context.Context, userID, gameID, teamID, se
 		return nil, fmt.Errorf("failed to create pick: %w", err)
 	}
 
-	log.Printf("Created pick: User %d, Game %d, Team %d, Season %d, Week %d",
+	logger.Infof("Created pick: User %d, Game %d, Team %d, Season %d, Week %d",
 		userID, gameID, teamID, season, week)
 
 	return pick, nil
@@ -91,6 +92,7 @@ func (s *PickService) CreatePick(ctx context.Context, userID, gameID, teamID, se
 
 // GetUserPicksForWeek retrieves a user's picks for a specific week with organized structure
 func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, week int) (*models.UserPicks, error) {
+	logger := logging.WithPrefix("PickService")
 	picks, err := s.pickRepo.FindByUserAndWeek(ctx, userID, season, week)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user picks: %w", err)
@@ -114,7 +116,7 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 	// Get cumulative parlay points up to the current week (not entire season)
 	cumulativeParlayTotal, err := s.parlayRepo.GetUserCumulativeScoreUpToWeek(ctx, userID, season, week)
 	if err != nil {
-		log.Printf("Warning: failed to get cumulative parlay total for user %d season %d week %d: %v", userID, season, week, err)
+		logger.Warnf("Failed to get cumulative parlay total for user %d season %d week %d: %v", userID, season, week, err)
 	} else {
 		record.ParlayPoints = cumulativeParlayTotal
 	}
@@ -122,7 +124,7 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 	// Get parlay points for this specific week
 	weekParlayScore, err := s.parlayRepo.GetUserParlayScore(ctx, userID, season, week)
 	if err != nil {
-		log.Printf("Warning: failed to get weekly parlay score for user %d week %d: %v", userID, week, err)
+		logger.Warnf("Failed to get weekly parlay score for user %d week %d: %v", userID, week, err)
 	} else if weekParlayScore != nil {
 		record.WeeklyPoints = weekParlayScore.TotalPoints
 	}
@@ -130,7 +132,7 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 	// Get game information for categorizing picks by day
 	gameInfoMap, err := s.getGameInfoForWeek(ctx, season, week)
 	if err != nil {
-		log.Printf("Warning: failed to get game info for pick categorization: %v", err)
+		logger.Warnf("Failed to get game info for pick categorization: %v", err)
 		gameInfoMap = make(map[int]models.GameDayInfo) // Empty map as fallback
 	}
 
@@ -168,7 +170,7 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 	// Get games for this week to support daily grouping and sorting
 	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
 	if err != nil {
-		log.Printf("Warning: failed to get games for sorting: %v", err)
+		logger.Warnf("Failed to get games for sorting: %v", err)
 	} else {
 		// Convert to slice and create game lookup map for sorting
 		gameSlice := make([]models.Game, len(games))
@@ -202,17 +204,18 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 
 // GetAllUserPicksForWeek retrieves all users' picks for a specific week
 func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week int) ([]*models.UserPicks, error) {
+	logger := logging.WithPrefix("PickService")
 	// DEBUG: Log all calls to this function to identify bad data sources
-	log.Printf("PICK_DEBUG: GetAllUserPicksForWeek called - Season=%d, Week=%d", season, week)
+	logger.Debugf("GetAllUserPicksForWeek called - Season=%d, Week=%d", season, week)
 
 	// Check for invalid data and print stack trace
 	if season == 0 || week == 0 {
-		log.Printf("PICK_ERROR: Invalid GetAllUserPicksForWeek params - Season=%d, Week=%d", season, week)
+		logger.Errorf("Invalid GetAllUserPicksForWeek params - Season=%d, Week=%d", season, week)
 
 		// Print stack trace to identify caller
 		buf := make([]byte, 4096)
 		n := runtime.Stack(buf, false)
-		log.Printf("PICK_ERROR: GetAllUserPicksForWeek stack trace:\n%s", buf[:n])
+		logger.Errorf("GetAllUserPicksForWeek stack trace:\n%s", buf[:n])
 	}
 
 	// Get all picks for the week
@@ -221,24 +224,24 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 		return nil, fmt.Errorf("failed to get week picks: %w", err)
 	}
 
-	log.Printf("PickService: Found %d total picks for season %d, week %d", len(allPicks), season, week)
+	logger.Infof("Found %d total picks for season %d, week %d", len(allPicks), season, week)
 
 	// Group picks by user
 	picksByUser := make(map[int][]*models.Pick)
 	for _, pick := range allPicks {
 		picksByUser[pick.UserID] = append(picksByUser[pick.UserID], pick)
-		log.Printf("PickService: Assigning pick for game %d to user %d (team: %s)", pick.GameID, pick.UserID, pick.TeamName)
+		logger.Debugf("Assigning pick for game %d to user %d (teamID: %d)", pick.GameID, pick.UserID, pick.TeamID)
 	}
 
-	log.Printf("PickService: Grouped picks by user: %d users have picks", len(picksByUser))
+	logger.Infof("Grouped picks by user: %d users have picks", len(picksByUser))
 	for userID, userPicks := range picksByUser {
-		log.Printf("PickService: User %d has %d picks", userID, len(userPicks))
+		logger.Debugf("User %d has %d picks", userID, len(userPicks))
 	}
 
 	// Get game information for categorizing picks by day
 	gameInfoMap, err := s.getGameInfoForWeek(ctx, season, week)
 	if err != nil {
-		log.Printf("Warning: failed to get game info for pick categorization: %v", err)
+		logger.Warnf("Failed to get game info for pick categorization: %v", err)
 		gameInfoMap = make(map[int]models.GameDayInfo) // Empty map as fallback
 	}
 
@@ -259,7 +262,7 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 
 				// Enrich pick with game information
 				if err := s.EnrichPickWithGameData(&enrichedPick); err != nil {
-					log.Printf("Warning: failed to enrich pick for game %d: %v", pick.GameID, err)
+					logger.Warnf("Failed to enrich pick for game %d: %v", pick.GameID, err)
 				}
 
 				picks[i] = enrichedPick
@@ -269,14 +272,14 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 		// Get user's basic record for the season
 		record, err := s.pickRepo.GetUserRecord(ctx, user.ID, season)
 		if err != nil {
-			log.Printf("Warning: failed to get record for user %d: %v", user.ID, err)
+			logger.Warnf("Failed to get record for user %d: %v", user.ID, err)
 			record = &models.UserRecord{} // Empty record on error
 		}
 
 		// Get cumulative parlay points up to the current week (not entire season)
 		cumulativeParlayTotal, err := s.parlayRepo.GetUserCumulativeScoreUpToWeek(ctx, user.ID, season, week)
 		if err != nil {
-			log.Printf("Warning: failed to get cumulative parlay total for user %d season %d week %d: %v", user.ID, season, week, err)
+			logger.Warnf("Failed to get cumulative parlay total for user %d season %d week %d: %v", user.ID, season, week, err)
 		} else {
 			record.ParlayPoints = cumulativeParlayTotal
 		}
@@ -284,7 +287,7 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 		// Get parlay points for this specific week
 		weekParlayScore, err := s.parlayRepo.GetUserParlayScore(ctx, user.ID, season, week)
 		if err != nil {
-			log.Printf("Warning: failed to get weekly parlay score for user %d week %d: %v", user.ID, week, err)
+			logger.Warnf("Failed to get weekly parlay score for user %d week %d: %v", user.ID, week, err)
 		} else if weekParlayScore != nil {
 			record.WeeklyPoints = weekParlayScore.TotalPoints
 		}
@@ -323,7 +326,7 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 	// Get games for this week to support daily grouping and sorting
 	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
 	if err != nil {
-		log.Printf("Warning: failed to get games for sorting: %v", err)
+		logger.Warnf("Failed to get games for sorting: %v", err)
 	} else {
 		// Convert to slice and create game lookup map for sorting
 		gameSlice := make([]models.Game, len(games))
@@ -344,15 +347,15 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 		if models.IsModernSeason(season) {
 			// Populate daily groups for each user
 			for _, userPicks := range result {
-				log.Printf("PickService: BEFORE PopulateDailyPickGroups - User %s has %d picks, DailyPickGroups: %v", userPicks.UserName, len(userPicks.Picks), userPicks.DailyPickGroups != nil)
+				logger.Debugf("BEFORE PopulateDailyPickGroups - User %s has %d picks, DailyPickGroups: %v", userPicks.UserName, len(userPicks.Picks), userPicks.DailyPickGroups != nil)
 				userPicks.PopulateDailyPickGroups(gameSlice, season)
-				log.Printf("PickService: AFTER PopulateDailyPickGroups - User %s DailyPickGroups has %d groups", userPicks.UserName, len(userPicks.DailyPickGroups))
+				logger.Debugf("AFTER PopulateDailyPickGroups - User %s DailyPickGroups has %d groups", userPicks.UserName, len(userPicks.DailyPickGroups))
 
 				// Sort picks within each daily group by game start time
 				for date, dayPicks := range userPicks.DailyPickGroups {
 					s.sortPicksByGameTime(dayPicks, gameMap)
 					userPicks.DailyPickGroups[date] = dayPicks
-					log.Printf("PickService: User %s - Date %s has %d picks (sorted)", userPicks.UserName, date, len(dayPicks))
+					logger.Debugf("User %s - Date %s has %d picks (sorted)", userPicks.UserName, date, len(dayPicks))
 				}
 			}
 		}
@@ -373,6 +376,7 @@ func (s *PickService) UpdatePickResult(ctx context.Context, pickID primitive.Obj
 
 // ProcessGameCompletion processes all picks for a completed game and calculates results
 func (s *PickService) ProcessGameCompletion(ctx context.Context, game *models.Game) error {
+	logger := logging.WithPrefix("PickService")
 	if !game.IsCompleted() {
 		return fmt.Errorf("game %d is not completed", game.ID)
 	}
@@ -383,7 +387,7 @@ func (s *PickService) ProcessGameCompletion(ctx context.Context, game *models.Ga
 		return fmt.Errorf("failed to get picks for game %d: %w", game.ID, err)
 	}
 
-	log.Printf("Processing %d picks for completed game %d", len(picks), game.ID)
+	logger.Infof("Processing %d picks for completed game %d", len(picks), game.ID)
 
 	for _, pick := range picks {
 		var result models.PickResult
@@ -393,11 +397,11 @@ func (s *PickService) ProcessGameCompletion(ctx context.Context, game *models.Ga
 
 		// Update the pick result
 		if err := s.pickRepo.UpdateResult(ctx, pick.ID, result); err != nil {
-			log.Printf("Failed to update pick %s result: %v", pick.ID.Hex(), err)
+			logger.Errorf("Failed to update pick %s result: %v", pick.ID.Hex(), err)
 			continue
 		}
 
-		log.Printf("Updated pick %s result to %s", pick.ID.Hex(), result)
+		logger.Infof("Updated pick %s result to %s", pick.ID.Hex(), result)
 	}
 
 	return nil
@@ -427,6 +431,7 @@ func (s *PickService) GetPickStats(ctx context.Context) (map[string]interface{},
 
 // EnrichPickWithGameData populates the display fields of a pick with game information
 func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
+	logger := logging.WithPrefix("PickService")
 	// Get the game information
 	game, err := s.gameRepo.FindByESPNID(context.Background(), pick.GameID)
 	if err != nil {
@@ -499,9 +504,9 @@ func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
 		if calculatedResult != pick.Result {
 			// Result has changed, update in database
 			if err := s.pickRepo.UpdateResult(context.Background(), pick.ID, calculatedResult); err != nil {
-				log.Printf("Warning: failed to update pick result for pick %s: %v", pick.ID.Hex(), err)
+				logger.Warnf("Failed to update pick result for pick %s: %v", pick.ID.Hex(), err)
 			} else {
-				log.Printf("Updated pick result for pick %s: %s -> %s", pick.ID.Hex(), pick.Result, calculatedResult)
+				logger.Infof("Updated pick result for pick %s: %s -> %s", pick.ID.Hex(), pick.Result, calculatedResult)
 			}
 			pick.Result = calculatedResult
 		}
@@ -520,6 +525,7 @@ func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
 // getTeamNameFromID attempts to map team ID to team abbreviation
 // This is a heuristic based on common ESPN team ID patterns
 func (s *PickService) getTeamNameFromID(teamID int, game *models.Game) string {
+	logger := logging.WithPrefix("PickService")
 	// Team ID mappings from legacy system - the definitive mapping
 	espnTeamMap := map[int]string{
 		0: "PSH", 1: "ATL", 2: "BUF", 3: "CHI", 4: "CIN", 5: "CLE", 6: "DAL", 7: "DEN", 8: "DET",
@@ -548,7 +554,7 @@ func (s *PickService) getTeamNameFromID(teamID int, game *models.Game) string {
 
 	// Debug logging for unmatched teams
 	if teamID == 28 { // Washington
-		log.Printf("Warning: Washington team ID 28 not matched - Game: %s @ %s, Expected: WSH", game.Away, game.Home)
+		logger.Warnf("Washington team ID 28 not matched - Game: %s @ %s, Expected: WSH", game.Away, game.Home)
 	}
 
 	// Fallback: return the team ID as string
@@ -590,6 +596,7 @@ func (s *PickService) CalculateUserParlayScore(ctx context.Context, userID, seas
 
 // CalculateAllUsersParlayScores calculates parlay scores for all users in a week
 func (s *PickService) CalculateAllUsersParlayScores(ctx context.Context, season, week int) (map[int]map[models.ParlayCategory]int, error) {
+	logger := logging.WithPrefix("PickService")
 	// Get all users
 	users, err := s.userRepo.GetAllUsers()
 	if err != nil {
@@ -601,7 +608,7 @@ func (s *PickService) CalculateAllUsersParlayScores(ctx context.Context, season,
 	for _, user := range users {
 		scores, err := s.CalculateUserParlayScore(ctx, user.ID, season, week)
 		if err != nil {
-			log.Printf("Warning: failed to calculate parlay score for user %d: %v", user.ID, err)
+			logger.Warnf("Failed to calculate parlay score for user %d: %v", user.ID, err)
 			continue
 		}
 		result[user.ID] = scores
@@ -612,11 +619,12 @@ func (s *PickService) CalculateAllUsersParlayScores(ctx context.Context, season,
 
 // UpdateUserParlayRecord updates a user's parlay record with weekly points
 func (s *PickService) UpdateUserParlayRecord(ctx context.Context, userID, season, week int, weeklyScores map[models.ParlayCategory]int) error {
+	logger := logging.WithPrefix("PickService")
 	// Create parlay score entry
 	parlayScore := models.CreateParlayScore(userID, season, week, weeklyScores)
 
 	// DEBUG: Log before saving parlay score
-	log.Printf("PARLAY_DEBUG: UpdateUserParlayRecord about to save - UserID=%d, Season=%d, Week=%d",
+	logger.Debugf("UpdateUserParlayRecord about to save - UserID=%d, Season=%d, Week=%d",
 		userID, season, week)
 
 	// Save to database
@@ -624,7 +632,7 @@ func (s *PickService) UpdateUserParlayRecord(ctx context.Context, userID, season
 		return fmt.Errorf("failed to save parlay score: %w", err)
 	}
 
-	log.Printf("User %d earned %d parlay points in week %d (Regular: %d, Thu: %d, Fri: %d)",
+	logger.Infof("User %d earned %d parlay points in week %d (Regular: %d, Thu: %d, Fri: %d)",
 		userID, parlayScore.TotalPoints, week,
 		weeklyScores[models.ParlayRegular],
 		weeklyScores[models.ParlayBonusThursday],
@@ -696,6 +704,7 @@ func (s *PickService) CalculateUserParlayCategoryScore(ctx context.Context, user
 
 // UpdateUserParlayCategoryRecord updates a specific category score in the user's parlay record
 func (s *PickService) UpdateUserParlayCategoryRecord(ctx context.Context, userID, season, week int, category models.ParlayCategory, points int) error {
+	logger := logging.WithPrefix("PickService")
 	// Get existing parlay score or create new one
 	existingScore, err := s.parlayRepo.GetUserParlayScore(ctx, userID, season, week)
 	if err != nil && err.Error() != "parlay score not found" {
@@ -730,7 +739,7 @@ func (s *PickService) UpdateUserParlayCategoryRecord(ctx context.Context, userID
 	parlayScore.UpdatedAt = time.Now()
 
 	// DEBUG: Log before saving parlay score in ProcessParlayCategory
-	log.Printf("PARLAY_DEBUG: ProcessParlayCategory about to save - UserID=%d, Season=%d, Week=%d",
+	logger.Debugf("ProcessParlayCategory about to save - UserID=%d, Season=%d, Week=%d",
 		userID, season, week)
 
 	// Save to database
@@ -745,6 +754,7 @@ func (s *PickService) UpdateUserParlayCategoryRecord(ctx context.Context, userID
 
 // ReplaceUserPicksForWeek clears existing picks and creates new ones for a user/week
 func (s *PickService) ReplaceUserPicksForWeek(ctx context.Context, userID, season, week int, picks []*models.Pick) error {
+	logger := logging.WithPrefix("PickService")
 	// First, delete all existing picks for this user/season/week
 	if err := s.pickRepo.DeleteByUserAndWeek(ctx, userID, season, week); err != nil {
 		return fmt.Errorf("failed to clear existing picks: %w", err)
@@ -757,12 +767,13 @@ func (s *PickService) ReplaceUserPicksForWeek(ctx context.Context, userID, seaso
 		}
 	}
 
-	log.Printf("Replaced picks for user %d, season %d, week %d: %d picks", userID, season, week, len(picks))
+	logger.Infof("Replaced picks for user %d, season %d, week %d: %d picks", userID, season, week, len(picks))
 	return nil
 }
 
 // UpdateUserPicksForScheduledGames updates picks only for scheduled games, preserving existing picks for completed games
 func (s *PickService) UpdateUserPicksForScheduledGames(ctx context.Context, userID, season, week int, newPicks []*models.Pick, gameMap map[int]models.Game) error {
+	logger := logging.WithPrefix("PickService")
 	// Get existing picks for this user/season/week
 	existingPicks, err := s.pickRepo.FindByUserAndWeek(ctx, userID, season, week)
 	if err != nil {
@@ -778,7 +789,7 @@ func (s *PickService) UpdateUserPicksForScheduledGames(ctx context.Context, user
 			if game.State != models.GameStateScheduled {
 				// Keep existing picks for completed/in-progress games
 				picksToKeep = append(picksToKeep, pick)
-				log.Printf("Preserving existing pick for completed/in-progress game %d (state: %s)", pick.GameID, game.State)
+				logger.Debugf("Preserving existing pick for completed/in-progress game %d (state: %s)", pick.GameID, game.State)
 			} else {
 				// Mark scheduled games for update
 				gameIDsToUpdate[pick.GameID] = true
@@ -805,7 +816,7 @@ func (s *PickService) UpdateUserPicksForScheduledGames(ctx context.Context, user
 		}
 	}
 
-	log.Printf("Updated picks for user %d, season %d, week %d: kept %d existing picks, created %d new picks",
+	logger.Infof("Updated picks for user %d, season %d, week %d: kept %d existing picks, created %d new picks",
 		userID, season, week, len(picksToKeep), len(newPicks))
 
 	// Trigger scoring for any categories that might now be complete due to pick updates
@@ -885,6 +896,7 @@ func convertPickPointers(picks []*models.Pick) []models.Pick {
 // checkAndTriggerScoring checks if any parlay categories are now complete and triggers scoring
 // Only triggers scoring for categories with completed games - not for pending games
 func (s *PickService) checkAndTriggerScoring(ctx context.Context, season, week int, gameMap map[int]models.Game) {
+	logger := logging.WithPrefix("PickService")
 	// Group games by category for this week
 	weekCategoryGames := make(map[models.ParlayCategory][]models.Game)
 
@@ -913,9 +925,9 @@ func (s *PickService) checkAndTriggerScoring(ctx context.Context, season, week i
 		// 2. ALL games in the category are completed (no pending games)
 		// 3. There are games in the category
 		if hasCompletedGames && allCompleted && len(games) > 0 {
-			log.Printf("PickService: Parlay category %s completed for Week %d, triggering scoring", category, week)
+			logger.Infof("Parlay category %s completed for Week %d, triggering scoring", category, week)
 			if err := s.ProcessParlayCategory(ctx, season, week, category); err != nil {
-				log.Printf("PickService: Failed to process parlay category %s for Week %d: %v", category, week, err)
+				logger.Errorf("Failed to process parlay category %s for Week %d: %v", category, week, err)
 			}
 		}
 	}
@@ -931,6 +943,7 @@ func (s *PickService) ProcessDailyParlayScoring(ctx context.Context, season, wee
 
 // CalculateUserDailyParlayScores calculates points for each day for a user in modern seasons
 func (s *PickService) CalculateUserDailyParlayScores(ctx context.Context, userID, season, week int, games []models.Game) (map[string]int, error) {
+	logger := logging.WithPrefix("PickService")
 	// Get user's picks for the week
 	userPicks, err := s.GetUserPicksForWeek(ctx, userID, season, week)
 	if err != nil {
@@ -948,7 +961,7 @@ func (s *PickService) CalculateUserDailyParlayScores(ctx context.Context, userID
 			dailyScores[date] = points
 		}
 
-		log.Printf("User %d, Date %s: %d picks → %d points", userID, date, len(picks), points)
+		logger.Debugf("User %d, Date %s: %d picks → %d points", userID, date, len(picks), points)
 	}
 
 	return dailyScores, nil
@@ -956,14 +969,15 @@ func (s *PickService) CalculateUserDailyParlayScores(ctx context.Context, userID
 
 // UpdateUserDailyParlayRecord updates a user's daily parlay record in the database
 func (s *PickService) UpdateUserDailyParlayRecord(ctx context.Context, userID, season, week int, dailyScores map[string]int) error {
+	logger := logging.WithPrefix("PickService")
 	// Calculate total points for the week
 	totalPoints := 0
-	log.Printf("DEBUG: User %d daily scores before save: %+v", userID, dailyScores)
+	logger.Debugf("User %d daily scores before save: %+v", userID, dailyScores)
 	for date, points := range dailyScores {
-		log.Printf("DEBUG: User %d adding %d points from date %s", userID, points, date)
+		logger.Debugf("User %d adding %d points from date %s", userID, points, date)
 		totalPoints += points
 	}
-	log.Printf("DEBUG: User %d calculated total points: %d", userID, totalPoints)
+	logger.Debugf("User %d calculated total points: %d", userID, totalPoints)
 
 	// For now, store in the existing ParlayScore structure with total points
 	// Future enhancement: could add a DailyParlayScore model for more granular storage
@@ -979,7 +993,7 @@ func (s *PickService) UpdateUserDailyParlayRecord(ctx context.Context, userID, s
 	}
 
 	// DEBUG: Log before saving daily parlay score
-	log.Printf("PARLAY_DEBUG: ProcessUserDailyParlayScoring about to save - UserID=%d, Season=%d, Week=%d",
+	logger.Debugf("ProcessUserDailyParlayScoring about to save - UserID=%d, Season=%d, Week=%d",
 		userID, season, week)
 
 	// Save to database

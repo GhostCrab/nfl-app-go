@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"log"
+	"nfl-app-go/logging"
 	"nfl-app-go/models"
 	"regexp"
 	"sort"
@@ -74,7 +74,7 @@ func GetTemplateFuncs() template.FuncMap {
 
 		// Debug functions
 		"debugLog": func(msg string) string {
-			log.Printf("TEMPLATE DEBUG: %s", msg)
+			logging.WithPrefix("Template").Debugf("%s", msg)
 			return ""
 		},
 
@@ -434,7 +434,7 @@ func getDayNameFromDate(dateStr string) string {
 	pacificLoc := models.GetPacificTimeLocation()
 	parsedTime, err := time.ParseInLocation("2006-01-02", dateStr, pacificLoc)
 	if err != nil {
-		log.Printf("Error parsing date %s: %v", dateStr, err)
+		logging.WithPrefix("Template").Errorf("Error parsing date %s: %v", dateStr, err)
 		return "UNKNOWN"
 	}
 	// Get day name (already in Pacific timezone)

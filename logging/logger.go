@@ -5,8 +5,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -47,9 +45,9 @@ func (l LogLevel) Color() string {
 	case DEBUG:
 		return "\033[36m" // Cyan
 	case INFO:
-		return "\033[32m"  // Green
+		return "\033[38;5;195m" // Pale Blue
 	case WARN:
-		return "\033[33m"  // Yellow
+		return "\033[33m" // Yellow
 	case ERROR:
 		return "\033[31m" // Red
 	case FATAL:
@@ -152,15 +150,15 @@ func (l *Logger) IsLevelEnabled(level LogLevel) bool {
 // formatMessage formats a log message with timestamp, level, and caller info
 func (l *Logger) formatMessage(level LogLevel, message string) string {
 	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
-	
+
 	// Get caller info
-	_, file, line, ok := runtime.Caller(3)
-	var caller string
-	if ok {
-		caller = fmt.Sprintf("%s:%d", filepath.Base(file), line)
-	} else {
-		caller = "unknown"
-	}
+	// _, file, line, ok := runtime.Caller(3)
+	// var caller string
+	// if ok {
+	// 	caller = fmt.Sprintf("%s:%d", filepath.Base(file), line)
+	// } else {
+	// 	caller = "unknown"
+	// }
 
 	var colorStart, colorEnd string
 	if l.enableColor {
@@ -173,12 +171,12 @@ func (l *Logger) formatMessage(level LogLevel, message string) string {
 		prefix = fmt.Sprintf("[%s] ", l.prefix)
 	}
 
-	return fmt.Sprintf("%s%s %-5s %s%s %s%s",
+	return fmt.Sprintf("%s%-5s %s %-30s%s%s",
 		colorStart,
-		timestamp,
 		level.String(),
+		timestamp,
 		prefix,
-		caller,
+		// caller,
 		message,
 		colorEnd,
 	)

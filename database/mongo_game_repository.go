@@ -119,7 +119,13 @@ func (r *MongoGameRepository) GetGamesByWeekSeason(week, season int) ([]*models.
 		"season": season,
 	}
 
-	cursor, err := r.collection.Find(ctx, filter)
+	// Sort by game start time (date) first, then alphabetically by home team name
+	sortOptions := options.Find().SetSort(bson.D{
+		{Key: "date", Value: 1},  // 1 = ascending (earliest games first)
+		{Key: "home", Value: 1},  // 1 = ascending (alphabetical order)
+	})
+
+	cursor, err := r.collection.Find(ctx, filter, sortOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find games for week %d season %d: %w", week, season, err)
 	}

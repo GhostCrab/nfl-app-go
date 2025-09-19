@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"html/template"
-	"log"
 	"net/http"
+	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
 	"nfl-app-go/services"
@@ -113,7 +113,8 @@ type AnalyticsData struct {
 
 // ShowAnalytics displays the analytics page
 func (h *AnalyticsHandler) ShowAnalytics(w http.ResponseWriter, r *http.Request) {
-	log.Printf("HTTP: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	logger := logging.WithPrefix("Analytics")
+	logger.Debugf("HTTP: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 	
 	// Get user from context
 	user := middleware.GetUserFromContext(r)
@@ -143,7 +144,7 @@ func (h *AnalyticsHandler) ShowAnalytics(w http.ResponseWriter, r *http.Request)
 	// Get analytics data
 	analyticsData, err := h.GetAnalyticsData(r.Context(), season, week, allSeasons)
 	if err != nil {
-		log.Printf("AnalyticsHandler: Error getting analytics data: %v", err)
+		logger.Errorf("Error getting analytics data: %v", err)
 		http.Error(w, "Error loading analytics data", http.StatusInternalServerError)
 		return
 	}
@@ -168,7 +169,7 @@ func (h *AnalyticsHandler) ShowAnalytics(w http.ResponseWriter, r *http.Request)
 		// Return only the analytics content for HTMX updates
 		err = h.templates.ExecuteTemplate(w, "analytics-content", data)
 		if err != nil {
-			log.Printf("AnalyticsHandler: Template error (HTMX): %v", err)
+			logger.Errorf("Template error (HTMX): %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -176,18 +177,19 @@ func (h *AnalyticsHandler) ShowAnalytics(w http.ResponseWriter, r *http.Request)
 		// Return the full page
 		err = h.templates.ExecuteTemplate(w, "analytics_htmx.html", data)
 		if err != nil {
-			log.Printf("AnalyticsHandler: Template error: %v", err)
+			logger.Errorf("Template error: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 	
-	log.Printf("HTTP: Successfully served %s %s", r.Method, r.URL.Path)
+	logger.Debugf("Successfully served %s %s", r.Method, r.URL.Path)
 }
 
 // GetAnalyticsData retrieves and processes analytics data
 func (h *AnalyticsHandler) GetAnalyticsData(ctx context.Context, season int, week *int, allSeasons bool) (*AnalyticsData, error) {
-	log.Printf("Analytics: Getting data for season=%d, week=%v, allSeasons=%t", season, week, allSeasons)
+	logger := logging.WithPrefix("Analytics")
+	logger.Debugf("Getting data for season=%d, week=%v, allSeasons=%t", season, week, allSeasons)
 	
 	// Get games
 	var games []models.Game
@@ -221,7 +223,7 @@ func (h *AnalyticsHandler) GetAnalyticsData(ctx context.Context, season int, wee
 		return nil, err
 	}
 	
-	log.Printf("Analytics: Retrieved %d games for season %d", len(games), season)
+	logger.Debugf("Retrieved %d games for season %d", len(games), season)
 	
 	// Get picks for the same scope
 	picks, err := h.pickService.GetPicksForAnalytics(ctx, season, week, allSeasons)
@@ -229,7 +231,7 @@ func (h *AnalyticsHandler) GetAnalyticsData(ctx context.Context, season int, wee
 		return nil, err
 	}
 	
-	log.Printf("Analytics: Retrieved %d picks for season %d", len(picks), season)
+	logger.Debugf("Retrieved %d picks for season %d", len(picks), season)
 	
 	// Get users
 	users, err := h.userService.GetAllUsers()
@@ -253,7 +255,8 @@ func (h *AnalyticsHandler) GetAnalyticsData(ctx context.Context, season int, wee
 
 // GetAnalyticsAPI returns analytics data as JSON
 func (h *AnalyticsHandler) GetAnalyticsAPI(w http.ResponseWriter, r *http.Request) {
-	log.Printf("HTTP: Analytics API request from %s", r.RemoteAddr)
+	logger := logging.WithPrefix("Analytics")
+	logger.Debugf("Analytics API request from %s", r.RemoteAddr)
 	
 	// Parse parameters (same as ShowAnalytics)
 	seasonStr := r.URL.Query().Get("season")
@@ -279,7 +282,7 @@ func (h *AnalyticsHandler) GetAnalyticsAPI(w http.ResponseWriter, r *http.Reques
 	// Get analytics data
 	analyticsData, err := h.GetAnalyticsData(r.Context(), season, week, allSeasons)
 	if err != nil {
-		log.Printf("AnalyticsHandler API: Error getting analytics data: %v", err)
+		logger.Errorf("API error getting analytics data: %v", err)
 		http.Error(w, "Error loading analytics data", http.StatusInternalServerError)
 		return
 	}
@@ -288,15 +291,16 @@ func (h *AnalyticsHandler) GetAnalyticsAPI(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(analyticsData)
 	
-	log.Printf("HTTP: Analytics API data returned for season %d", season)
+	logger.Debugf("Analytics API data returned for season %d", season)
 }
 
 // Helper functions for calculations - using proven dashboard approach
 func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []models.Pick, games []models.Game) []UserStats {
+	logger := logging.WithPrefix("Analytics")
 	// Instead of manually processing picks, use the proven GetAllUserPicksForWeek approach
 	// Get the pick service from analytics handler
 	if h.pickService == nil {
-		log.Printf("Analytics: No pick service available")
+		logger.Warn("No pick service available")
 		return []UserStats{}
 	}
 	
@@ -319,7 +323,7 @@ func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []model
 		seasonSet[game.Season] = true
 	}
 	
-	log.Printf("Analytics: Processing weeks %v for seasons %v", getKeysFromIntMap(weekSet), getKeysFromIntMap(seasonSet))
+	logger.Debugf("Processing weeks %v for seasons %v", getKeysFromIntMap(weekSet), getKeysFromIntMap(seasonSet))
 	
 	totalRecordsProcessed := 0
 	
@@ -340,7 +344,7 @@ func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []model
 		// Use the same method the dashboard uses - but only for the final week to get cumulative totals
 		userPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, maxWeek)
 		if err != nil {
-			log.Printf("Analytics: Error getting picks for season %d week %d: %v", season, maxWeek, err)
+			logger.Errorf("Error getting picks for season %d week %d: %v", season, maxWeek, err)
 			continue
 		}
 		
@@ -392,7 +396,7 @@ func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []model
 				}
 				
 				totalRecordsProcessed++
-				log.Printf("Analytics: User %s season %d: ATS %d-%d-%d, OU %d-%d-%d, Score: %d", 
+				logger.Debugf("User %s season %d: ATS %d-%d-%d, OU %d-%d-%d, Score: %d",
 					userPicksData.UserName, season,
 					userStats.ATSRecord.Wins, userStats.ATSRecord.Losses, userStats.ATSRecord.Pushes,
 					userStats.OURecord.Wins, userStats.OURecord.Losses, userStats.OURecord.Pushes,
@@ -401,7 +405,7 @@ func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []model
 		}
 	}
 	
-	log.Printf("Analytics: Processed %d user-week records using dashboard approach", totalRecordsProcessed)
+	logger.Debugf("Processed %d user-week records using dashboard approach", totalRecordsProcessed)
 	
 	// Convert map to slice and finalize calculations
 	var result []UserStats
@@ -423,7 +427,7 @@ func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []model
 			stats.TotalRecord.WinPct = float64(stats.TotalRecord.Wins) / float64(stats.TotalRecord.Total)
 		}
 		
-		log.Printf("Analytics: User %s final - ATS: %d-%d-%d (%.1f%%), OU: %d-%d-%d (%.1f%%), Total: %d-%d-%d (%.1f%%), Score: %d", 
+		logger.Debugf("User %s final - ATS: %d-%d-%d (%.1f%%), OU: %d-%d-%d (%.1f%%), Total: %d-%d-%d (%.1f%%), Score: %d", 
 			stats.UserName,
 			stats.ATSRecord.Wins, stats.ATSRecord.Losses, stats.ATSRecord.Pushes, stats.ATSRecord.WinPct*100,
 			stats.OURecord.Wins, stats.OURecord.Losses, stats.OURecord.Pushes, stats.OURecord.WinPct*100,

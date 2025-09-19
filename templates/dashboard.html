@@ -281,10 +281,10 @@
 {{end}}
 {{end}}
 
-    {{define "user-picks-block"}}
+{{define "user-picks-block"}}
 {{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
 {{$season := .Season -}}{{$week := .Week -}}
-<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}">
+<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}" hx-swap-oob="true">
 <div class="user-picks-header">
 {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
 </div>
@@ -1034,7 +1034,8 @@
         const HEARTBEAT_INTERVAL = 30 * 1000; // Expected heartbeat every 30 seconds
 
         document.addEventListener('htmx:sseMessage', function(e) {
-            console.log('HTMX SSE Message received:', e.detail);
+            // console.log('HTMX SSE Message received:', e.detail);
+            console.log(`[HTMX SSE Message received] type: ${e.detail.type}, lastEventId: ${e.detail.lastEventId}, expected ID: ${expectedMessageId}`);
 
             // Update last message time and reset timeout
             lastMessageTime = Date.now();
@@ -1061,12 +1062,13 @@
 
                 // Update expected next message ID
                 expectedMessageId = messageId + 1;
+                console.log(`Incremented expected message id to ${expectedMessageId}`);
             }
         });
 
-        document.addEventListener('htmx:oobAfterSwap', function(e) {
-            console.log('HTMX OOB swap completed:', e.detail);
-        });
+        // document.addEventListener('htmx:oobAfterSwap', function(e) {
+        //     console.log('HTMX OOB swap completed:', e.detail);
+        // });
 
         // Log SSE connection status and handle reconnection
         document.addEventListener('htmx:sseOpen', function(e) {
@@ -1165,30 +1167,19 @@
             }
         });
         
-        // Debug DOM manipulation
-        console.log('Page loaded - checking picks container structure');
-        
-        document.addEventListener('DOMContentLoaded', function() {
-            const container = document.getElementById('picks-container');
-            if (container) {
-                console.log('Picks container found with', container.children.length, 'children');
-                console.log('Container innerHTML preview:', container.innerHTML.substring(0, 200));
-            }
-        });
-        
         // Monitor HTMX events
         document.addEventListener('htmx:afterSettle', function(e) {
             const target = e.detail && e.detail.target;
             const eventType = e.detail && e.detail.requestConfig ? 'user-initiated' : 'sse/programmatic';
             const targetInfo = target ? (target.id || target.tagName) : `no target (${eventType})`;
-            console.log('HTMX afterSettle:', targetInfo);
+            // console.log('HTMX afterSettle:', targetInfo);
         });
         
         document.addEventListener('htmx:afterSwap', function(e) {
             const target = e.detail && e.detail.target;
             const eventType = e.detail && e.detail.requestConfig ? 'user-initiated' : 'sse/programmatic';
             const targetInfo = target ? (target.id || target.tagName) : `no target (${eventType})`;
-            console.log('HTMX afterSwap:', targetInfo);
+            // console.log('HTMX afterSwap:', targetInfo);
             
             // Set up pick-picker event handlers if the pick-picker modal was loaded
             if (target && target.id === 'dashboard-container') {
@@ -1402,131 +1393,6 @@
 
 
 
-{{define "sse-user-picks-block"}}
-{{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
-{{$season := .Season -}}{{$week := .Week -}}
-<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}" hx-swap-oob="true">
-<div class="user-picks-header">
-{{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
-</div>
-<div class="user-picks-content">
-
-{{/* Check if this is a modern season (2025+) for daily display */}}
-{{if ge $season 2025}}
-    {{/* MODERN: 2025+ Daily Grouping Display */}}
-    {{if hasDailyGroups $userPicks}}
-        {{template "modern-daily-picks" dict "DailyPickGroups" $userPicks.DailyPickGroups "Games" $games "IsCurrentUser" $isCurrentUser}}
-    {{else}}
-        {{/* Fallback: if DailyPickGroups not populated, show all picks in one section */}}
-        {{if $userPicks.Picks}}
-        <div class="regular-picks-section">
-        <div class="picks-list">
-        {{range sortPicksByGameTime $userPicks.Picks $games -}}
-        {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-        {{end -}}
-        </div>
-        </div>
-        {{end}}
-    {{end}}
-{{else}}
-    {{/* LEGACY: 2023-2024 Bonus Day Logic */}}
-    {{if $userPicks.BonusThursdayPicks -}}
-    <div class="regular-picks-section">
-    <div class="picks-category-header">BONUS THURSDAY</div>
-    <div class="picks-list">
-    {{range sortPicksByGameTime $userPicks.BonusThursdayPicks $games -}}
-    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-    {{end -}}
-    </div>
-    </div>
-    {{end -}}
-    {{if $userPicks.BonusFridayPicks -}}
-    <div class="regular-picks-section">
-    <div class="picks-category-header">BONUS FRIDAY</div>
-    <div class="picks-list">
-    {{range sortPicksByGameTime $userPicks.BonusFridayPicks $games -}}
-    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-    {{end -}}
-    </div>
-    </div>
-    {{end -}}
-    {{if $userPicks.Picks -}}
-    {{$hasAnyBonusPicks := or $userPicks.BonusThursdayPicks $userPicks.BonusFridayPicks -}}
-    {{if $hasAnyBonusPicks -}}
-    <div class="regular-picks-section">
-    <div class="picks-category-header">REMAINING PICKS</div>
-    <div class="picks-list">
-    {{range sortPicksByGameTime $userPicks.Picks $games -}}
-    {{$currentPick := . -}}
-    {{$isBonus := false -}}
-    {{range $userPicks.BonusThursdayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
-    {{range $userPicks.BonusFridayPicks}}{{if eq .GameID $currentPick.GameID}}{{$isBonus = true}}{{end}}{{end -}}
-    {{if not $isBonus -}}
-    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-    {{end -}}
-    {{end -}}
-    </div>
-    </div>
-    {{else -}}
-    <div class="regular-picks-section">
-    <div class="picks-list">
-    {{range sortPicksByGameTime $userPicks.Picks $games -}}
-    {{template "unified-pick-item" dict "Pick" . "Games" $games "IsCurrentUser" $isCurrentUser -}}
-    {{end -}}
-    </div>
-    </div>
-    {{end -}}
-    {{end -}}
-{{end}}
-
-{{/* Show hidden pick counts if user is not viewing their own picks */}}
-{{if and (not $isCurrentUser) $userPicks.HiddenPickCounts -}}
-{{$hasHiddenPicks := false -}}
-{{range $day, $count := $userPicks.HiddenPickCounts}}{{if gt $count 0}}{{$hasHiddenPicks = true}}{{end}}{{end -}}
-{{if $hasHiddenPicks -}}
-<div class="hidden-picks-section">
-<div class="picks-category-header">HIDDEN PICKS</div>
-<div class="hidden-picks-summary">
-{{/* Display hidden picks in chronological order */}}
-{{/* Check if this is a modern season (2025+) based on the presence of separate Sunday/Monday keys */}}
-{{$isModernSeason := false -}}
-{{if index $userPicks.HiddenPickCounts "Sunday"}}{{$isModernSeason = true}}{{end -}}
-{{if index $userPicks.HiddenPickCounts "Monday"}}{{$isModernSeason = true}}{{end -}}
-
-{{if $isModernSeason -}}
-    {{/* Modern seasons: separate Sunday and Monday */}}
-    {{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday" "Monday") -}}
-    {{range $orderedDays -}}
-    {{$count := index $userPicks.HiddenPickCounts . -}}
-    {{if gt $count 0 -}}
-    <div class="hidden-pick-count">
-    <span class="day-name">{{.}}:</span>
-    <span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
-    </div>
-    {{end -}}
-    {{end -}}
-{{else -}}
-    {{/* Legacy seasons: combined Sunday/Monday */}}
-    {{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday/Monday") -}}
-    {{range $orderedDays -}}
-    {{$count := index $userPicks.HiddenPickCounts . -}}
-    {{if gt $count 0 -}}
-    <div class="hidden-pick-count">
-    <span class="day-name">{{.}}:</span>
-    <span class="count-value">{{$count}} pick{{if ne $count 1}}s{{end}}</span>
-    </div>
-    {{end -}}
-    {{end -}}
-{{end -}}
-<div class="hidden-picks-note">Picks will be revealed based on game schedule</div>
-</div>
-</div>
-{{end -}}
-{{end -}}
-
-</div>
-</div>
-{{end}}
 
 {{define "game-results-display"}}
 <div class="game-time completed-game-grid">
