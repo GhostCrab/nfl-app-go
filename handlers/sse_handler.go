@@ -16,7 +16,11 @@ import (
 	"time"
 )
 
-// Note: SSEClient is already defined in games.go, but we'll use the same structure
+// SSEClient represents a connected SSE client with user context
+type SSEClient struct {
+	Channel chan string
+	UserID  int
+}
 
 // SSEHandler handles all Server-Sent Events functionality
 type SSEHandler struct {
