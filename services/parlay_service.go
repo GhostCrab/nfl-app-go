@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
 	"nfl-app-go/database"
+	"nfl-app-go/logging"
 	"nfl-app-go/models"
 	"runtime"
 )
@@ -14,7 +14,7 @@ import (
 // and updating user parlay records.
 type ParlayService struct {
 	pickRepo   *database.MongoPickRepository
-	gameRepo   *database.MongoGameRepository  
+	gameRepo   *database.MongoGameRepository
 	parlayRepo *database.MongoParlayRepository
 }
 
@@ -24,14 +24,11 @@ func NewParlayService(
 	gameRepo *database.MongoGameRepository,
 	parlayRepo *database.MongoParlayRepository,
 ) *ParlayService {
-	log.Printf("Creating ParlayService with pickRepo=%v, gameRepo=%v, parlayRepo=%v",
-		pickRepo, gameRepo, parlayRepo)
 	service := &ParlayService{
 		pickRepo:   pickRepo,
 		gameRepo:   gameRepo,
 		parlayRepo: parlayRepo,
 	}
-	log.Printf("Created ParlayService: %v", service)
 	return service
 }
 
@@ -51,7 +48,7 @@ func (s *ParlayService) CalculateUserParlayScore(ctx context.Context, userID, se
 	}
 
 	if len(userPicks) == 0 {
-		log.Printf("No picks found for user %d, season %d, week %d", userID, season, week)
+		logging.Infof("No picks found for user %d, season %d, week %d", userID, season, week)
 		return map[models.ParlayCategory]int{}, nil
 	}
 
@@ -97,17 +94,17 @@ func (s *ParlayService) calculateModernSeasonParlayScore(ctx context.Context, us
 	// Map daily scores to parlay categories for compatibility
 	// In modern seasons, each day is its own "category"
 	scores := make(map[models.ParlayCategory]int)
-	
+
 	// Thursday maps to bonus Thursday category
 	if thursdayPoints, exists := dailyScores["Thursday"]; exists {
 		scores[models.ParlayBonusThursday] = thursdayPoints
 	}
-	
-	// Friday maps to bonus Friday category  
+
+	// Friday maps to bonus Friday category
 	if fridayPoints, exists := dailyScores["Friday"]; exists {
 		scores[models.ParlayBonusFriday] = fridayPoints
 	}
-	
+
 	// Weekend days (Saturday, Sunday, Monday) map to regular category
 	weekendTotal := 0
 	for _, day := range []string{"Saturday", "Sunday", "Monday"} {
@@ -143,35 +140,34 @@ func (s *ParlayService) getGameInfoForWeek(ctx context.Context, season, week int
 	return gameInfoMap, nil
 }
 
-
 // ProcessWeekParlayScoring processes parlay scoring for all users in a week
 func (s *ParlayService) ProcessWeekParlayScoring(ctx context.Context, season, week int) error {
-	log.Printf("Processing parlay scoring for season %d, week %d", season, week)
+	logging.Infof("Processing parlay scoring for season %d, week %d", season, week)
 
 	// Get all unique user IDs who made picks this week
 	userIDs, err := s.pickRepo.GetUniqueUserIDsForWeek(ctx, season, week)
 	if err != nil {
-		return fmt.Errorf("failed to get user IDs: %w", err) 
+		return fmt.Errorf("failed to get user IDs: %w", err)
 	}
 
-	log.Printf("Found %d users with picks for week %d", len(userIDs), week)
+	logging.Infof("Found %d users with picks for week %d", len(userIDs), week)
 
 	// Process each user's parlay scores
 	for _, userID := range userIDs {
 		scores, err := s.CalculateUserParlayScore(ctx, userID, season, week)
 		if err != nil {
-			log.Printf("Failed to calculate parlay scores for user %d: %v", userID, err)
+			logging.Errorf("Failed to calculate parlay scores for user %d: %v", userID, err)
 			continue
 		}
 
 		// Update the user's parlay record
 		err = s.UpdateUserParlayRecord(ctx, userID, season, week, scores)
 		if err != nil {
-			log.Printf("Failed to update parlay record for user %d: %v", userID, err)
+			logging.Errorf("Failed to update parlay record for user %d: %v", userID, err)
 			continue
 		}
 
-		log.Printf("Updated parlay scores for user %d: %+v", userID, scores)
+		logging.Infof("Updated parlay scores for user %d: %+v", userID, scores)
 	}
 
 	return nil
@@ -179,19 +175,15 @@ func (s *ParlayService) ProcessWeekParlayScoring(ctx context.Context, season, we
 
 // UpdateUserParlayRecord updates a user's parlay scores in the database
 func (s *ParlayService) UpdateUserParlayRecord(ctx context.Context, userID, season, week int, weeklyScores map[models.ParlayCategory]int) error {
-	// DEBUG: Log parlay service record updates
-	log.Printf("PARLAY_DEBUG: ParlayService.UpdateUserParlayRecord called - UserID=%d, Season=%d, Week=%d",
-		userID, season, week)
-
 	// Check for invalid data
 	if season == 0 || week == 0 {
-		log.Printf("PARLAY_ERROR: Invalid ParlayService.UpdateUserParlayRecord params - Season=%d, Week=%d, UserID=%d",
+		logging.Errorf("Invalid ParlayService.UpdateUserParlayRecord params - Season=%d, Week=%d, UserID=%d",
 			season, week, userID)
 
 		// Print stack trace to identify caller
 		buf := make([]byte, 4096)
 		n := runtime.Stack(buf, false)
-		log.Printf("PARLAY_ERROR: ParlayService.UpdateUserParlayRecord stack trace:\n%s", buf[:n])
+		logging.Errorf("ParlayService.UpdateUserParlayRecord stack trace:\n%s", buf[:n])
 	}
 
 	// Get or create the user's season record
@@ -216,11 +208,11 @@ func (s *ParlayService) UpdateUserParlayRecord(ctx context.Context, userID, seas
 	}
 
 	weekScore := models.ParlayWeekScore{
-		Week:            week,
-		ThursdayPoints:  weeklyScores[models.ParlayBonusThursday],
-		FridayPoints:    weeklyScores[models.ParlayBonusFriday],
+		Week:               week,
+		ThursdayPoints:     weeklyScores[models.ParlayBonusThursday],
+		FridayPoints:       weeklyScores[models.ParlayBonusFriday],
 		SundayMondayPoints: weeklyScores[models.ParlayRegular],
-		TotalPoints:     totalPoints,
+		TotalPoints:        totalPoints,
 	}
 
 	seasonRecord.WeekScores[week] = weekScore
@@ -234,8 +226,6 @@ func (s *ParlayService) UpdateUserParlayRecord(ctx context.Context, userID, seas
 
 // ProcessParlayCategory processes scoring for a specific parlay category
 func (s *ParlayService) ProcessParlayCategory(ctx context.Context, season, week int, category models.ParlayCategory) error {
-	log.Printf("Processing parlay category %s for season %d, week %d", category, season, week)
-
 	// Get all users with picks for this week
 	userIDs, err := s.pickRepo.GetUniqueUserIDsForWeek(ctx, season, week)
 	if err != nil {
@@ -246,18 +236,18 @@ func (s *ParlayService) ProcessParlayCategory(ctx context.Context, season, week 
 	for _, userID := range userIDs {
 		points, err := s.CalculateUserParlayCategoryScore(ctx, userID, season, week, category)
 		if err != nil {
-			log.Printf("Failed to calculate %s score for user %d: %v", category, userID, err)
+			logging.Errorf("Failed to calculate %s score for user %d: %v", category, userID, err)
 			continue
 		}
 
 		err = s.UpdateUserParlayCategoryRecord(ctx, userID, season, week, category, points)
 		if err != nil {
-			log.Printf("Failed to update %s record for user %d: %v", category, userID, err)
+			logging.Errorf("Failed to update %s record for user %d: %v", category, userID, err)
 			continue
 		}
 
 		if points > 0 {
-			log.Printf("User %d scored %d points in %s category", userID, points, category)
+			logging.Infof("User %d scored %d points in %s category", userID, points, category)
 		}
 	}
 
@@ -279,7 +269,7 @@ func (s *ParlayService) CalculateUserParlayCategoryScore(ctx context.Context, us
 func (s *ParlayService) UpdateUserParlayCategoryRecord(ctx context.Context, userID, season, week int, category models.ParlayCategory, points int) error {
 	// For now, delegate to the full record update method
 	// This could be optimized later to only update specific fields
-	currentScores, err := s.CalculateUserParlayScore(ctx, userID, season, week) 
+	currentScores, err := s.CalculateUserParlayScore(ctx, userID, season, week)
 	if err != nil {
 		return err
 	}
@@ -301,20 +291,17 @@ func (s *ParlayService) CheckWeekHasParlayScores(ctx context.Context, season, we
 
 // ProcessDailyParlayScoring processes daily parlay scoring (for modern seasons)
 func (s *ParlayService) ProcessDailyParlayScoring(ctx context.Context, season, week int) error {
-	// DEBUG: Log entry point for daily parlay scoring
-	log.Printf("PARLAY_DEBUG: ProcessDailyParlayScoring called - Season=%d, Week=%d", season, week)
-
 	// Check for invalid data
 	if season == 0 || week == 0 {
-		log.Printf("PARLAY_ERROR: Invalid ProcessDailyParlayScoring params - Season=%d, Week=%d", season, week)
+		logging.Errorf("Invalid ProcessDailyParlayScoring params - Season=%d, Week=%d", season, week)
 
 		// Print stack trace to identify caller
 		buf := make([]byte, 4096)
 		n := runtime.Stack(buf, false)
-		log.Printf("PARLAY_ERROR: ProcessDailyParlayScoring stack trace:\n%s", buf[:n])
+		logging.Errorf("ProcessDailyParlayScoring stack trace:\n%s", buf[:n])
 	}
 
-	log.Printf("Processing daily parlay scoring for season %d, week %d", season, week)
+	logging.Infof("Processing daily parlay scoring for season %d, week %d", season, week)
 
 	// Get all games for the week
 	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
@@ -338,17 +325,17 @@ func (s *ParlayService) ProcessDailyParlayScoring(ctx context.Context, season, w
 	for _, userID := range userIDs {
 		dailyScores, err := s.CalculateUserDailyParlayScores(ctx, userID, season, week, gameSlice)
 		if err != nil {
-			log.Printf("Failed to calculate daily scores for user %d: %v", userID, err)
+			logging.Errorf("Failed to calculate daily scores for user %d: %v", userID, err)
 			continue
 		}
 
 		err = s.UpdateUserDailyParlayRecord(ctx, userID, season, week, dailyScores)
 		if err != nil {
-			log.Printf("Failed to update daily record for user %d: %v", userID, err)
+			logging.Errorf("Failed to update daily record for user %d: %v", userID, err)
 			continue
 		}
 
-		log.Printf("Updated daily parlay scores for user %d: %+v", userID, dailyScores)
+		logging.Infof("Updated daily parlay scores for user %d: %+v", userID, dailyScores)
 	}
 
 	return nil
@@ -364,14 +351,14 @@ func (s *ParlayService) CalculateUserDailyParlayScores(ctx context.Context, user
 
 	// Group games by day
 	dayGroups := models.GroupGamesByDayName(games)
-	
+
 	// Calculate scores for each day
 	dailyScores := make(map[string]int)
-	
+
 	for dayName, dayGames := range dayGroups {
 		// Get picks for games on this day
 		dayPicks := s.getPicksForGames(userPicks, dayGames)
-		
+
 		// Calculate parlay score for this day
 		dailyScores[dayName] = s.calculateDayParlayScore(dayPicks)
 	}
@@ -439,7 +426,7 @@ func (s *ParlayService) UpdateUserDailyParlayRecord(ctx context.Context, userID,
 
 	// Set daily scores
 	weekScore.DailyScores = dailyScores
-	
+
 	// Calculate total from daily scores
 	totalPoints := 0
 	for _, points := range dailyScores {
@@ -448,7 +435,7 @@ func (s *ParlayService) UpdateUserDailyParlayRecord(ctx context.Context, userID,
 	weekScore.TotalPoints = totalPoints
 
 	seasonRecord.WeekScores[week] = weekScore
-	
+
 	// Recalculate season totals
 	seasonRecord.RecalculateTotals()
 

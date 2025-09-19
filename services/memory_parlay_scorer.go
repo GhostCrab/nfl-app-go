@@ -11,19 +11,19 @@ import (
 
 // WeeklyUserScores represents all users' scores for a specific week
 type WeeklyUserScores struct {
-	Season    int
-	Week      int
+	Season     int
+	Week       int
 	UserScores map[int]*models.ParlayScore // userID -> score
-	UpdatedAt time.Time
+	UpdatedAt  time.Time
 }
 
 // MemoryParlayScorer manages parlay scores in memory
 type MemoryParlayScorer struct {
-	mu           sync.RWMutex
-	weeklyScores map[string]*WeeklyUserScores // "season-week" -> scores
+	mu            sync.RWMutex
+	weeklyScores  map[string]*WeeklyUserScores // "season-week" -> scores
 	parlayService *ParlayService
-	pickService  *PickService
-	logger       *logging.Logger
+	pickService   *PickService
+	logger        *logging.Logger
 }
 
 // NewMemoryParlayScorer creates a new in-memory parlay scorer
@@ -79,8 +79,6 @@ func (mps *MemoryParlayScorer) GetWeekScores(season, week int) []*models.ParlayS
 
 // CalculateAndStoreWeekScores calculates and stores scores for all users in a specific week
 func (mps *MemoryParlayScorer) CalculateAndStoreWeekScores(ctx context.Context, season, week int) error {
-	mps.logger.Infof("Calculating scores for season %d, week %d", season, week)
-
 	// Get all users who made picks for this week
 	allUserScores, err := mps.pickService.CalculateAllUsersParlayScores(ctx, season, week)
 	if err != nil {
@@ -106,7 +104,6 @@ func (mps *MemoryParlayScorer) CalculateAndStoreWeekScores(ctx context.Context, 
 		UpdatedAt:  time.Now(),
 	}
 
-	mps.logger.Infof("Stored scores for %d users in season %d, week %d", len(userScores), season, week)
 	return nil
 }
 
@@ -188,7 +185,7 @@ func (mps *MemoryParlayScorer) GetMemoryStats() map[string]interface{} {
 	return map[string]interface{}{
 		"total_weeks_stored": len(mps.weeklyScores),
 		"total_user_scores":  totalUsers,
-		"weeks":             func() []string {
+		"weeks": func() []string {
 			weeks := make([]string, 0, len(mps.weeklyScores))
 			for key := range mps.weeklyScores {
 				weeks = append(weeks, key)

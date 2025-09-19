@@ -16,7 +16,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-
 func main() {
 	// Load configuration from environment and .env file
 	cfg, err := config.Load()
@@ -139,7 +138,6 @@ func main() {
 	pickService.SetSpecializedServices(parlayService, resultCalcService, analyticsService)
 
 	// Create in-memory parlay scorer for real-time score management
-	logging.Debugf("Creating memory scorer with parlayService=%v, pickService=%v", parlayService, pickService)
 	memoryScorer := services.NewMemoryParlayScorer(parlayService, pickService)
 	ctx := context.Background()
 	if err := memoryScorer.InitializeFromDatabase(ctx, currentSeason); err != nil {
@@ -152,25 +150,25 @@ func main() {
 	// Create new specialized handlers
 	sseHandler := handlers.NewSSEHandler(templates, gameService)
 	sseHandler.SetServices(pickService, authService, visibilityService, memoryScorer)
-	
+
 	gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService)
 	gameDisplayHandler.SetServices(pickService, authService, visibilityService, userRepo)
 	pickManagementHandler := handlers.NewPickManagementHandler(templates, gameService, pickService, authService, visibilityService, sseHandler)
 	dashboardHandler := handlers.NewDashboardHandler(templates, gameService, pickService, authService, visibilityService, nil, dataLoader)
 	demoTestingHandler := handlers.NewDemoTestingHandler(templates, gameService, sseHandler, parlayService)
-	
-	// Legacy GameHandler removed - all functionality moved to specialized handlers
-	
+
 	// Create auth handler
 	authHandler := handlers.NewAuthHandler(templates, authService, emailService)
-	
+
 	// Set up SSE broadcasting for pick service
 	pickService.SetBroadcaster(sseHandler)
 
 	// Start background ESPN API updater
-	backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, parlayService, currentSeason)
-	backgroundUpdater.Start()
-	defer backgroundUpdater.Stop()
+	if cfg.IsBackgroundUpdaterEnabled() {
+		backgroundUpdater := services.NewBackgroundUpdater(espnService, gameRepo, pickService, parlayService, currentSeason)
+		backgroundUpdater.Start()
+		defer backgroundUpdater.Stop()
+	}
 
 	// Start change stream watcher for real-time updates
 	changeWatcher := services.NewChangeStreamWatcher(db, sseHandler.HandleDatabaseChange)
@@ -178,16 +176,16 @@ func main() {
 
 	// Start visibility timer service for automatic pick visibility updates
 	visibilityTimer := services.NewVisibilityTimerService(
-		visibilityService, 
+		visibilityService,
 		func(eventType, data string) {
 			// Broadcast visibility changes via SSE
 			sseHandler.BroadcastStructuredUpdate(eventType, data)
-		}, 
+		},
 		currentSeason,
 	)
 	visibilityTimer.Start()
 	defer visibilityTimer.Stop()
-	
+
 	// Log upcoming visibility changes for debugging
 	visibilityTimer.LogUpcomingChanges(context.Background())
 
@@ -218,7 +216,7 @@ func main() {
 	// Create additional services for analytics
 	userService := services.NewDatabaseUserService(userRepo)
 	teamService := services.NewStaticTeamService()
-	
+
 	// Create analytics handler
 	analyticsHandler := handlers.NewAnalyticsHandler(templates, gameService, pickService, userService, teamService)
 
@@ -239,15 +237,15 @@ func main() {
 	r.Handle("/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.GetGames))).Methods("GET")
 	r.Handle("/games/refresh", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.RefreshGames))).Methods("GET")
 	r.Handle("/api/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.GetGamesAPI))).Methods("GET")
-	
+
 	// SSE and real-time updates
 	r.Handle("/events", authMiddleware.OptionalAuth(http.HandlerFunc(sseHandler.Handle))).Methods("GET")
-	
+
 	// Demo and testing routes
 	r.Handle("/games/test-update", authMiddleware.OptionalAuth(http.HandlerFunc(demoTestingHandler.TestGameUpdate))).Methods("POST")
 	r.Handle("/club-scores/test-update", authMiddleware.OptionalAuth(http.HandlerFunc(demoTestingHandler.TestClubScoreUpdate))).Methods("POST")
 	r.Handle("/parlay-scores/test-db-update", authMiddleware.OptionalAuth(http.HandlerFunc(demoTestingHandler.TestDatabaseParlayUpdate))).Methods("POST")
-	
+
 	// Dashboard API routes
 	r.Handle("/api/dashboard", authMiddleware.OptionalAuth(http.HandlerFunc(dashboardHandler.GetDashboardDataAPI))).Methods("GET")
 

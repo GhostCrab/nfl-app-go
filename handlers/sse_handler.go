@@ -104,8 +104,8 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send initial connection message
-	fmt.Fprintf(w, "data: {\"type\": \"connected\", \"message\": \"SSE connection established\"}\n\n")
+	// Send initial connection message using proper SSE format
+	fmt.Fprintf(w, "id: 0\nevent: connection\ndata: SSE connection established\n\n")
 	flusher.Flush()
 
 	// Listen for messages
@@ -115,23 +115,9 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			// Parse message format: "eventType:data"
-			parts := strings.SplitN(message, ":", 2)
-			eventType := "gameUpdate" // default
-			data := message
-
-			if len(parts) == 2 {
-				eventType = parts[0]
-				data = parts[1]
-			}
-
-			fmt.Fprintf(w, "event: %s\n", eventType)
-			// Split data into lines and prefix each with "data: "
-			lines := strings.Split(data, "\n")
-			for _, line := range lines {
-				fmt.Fprintf(w, "data: %s\n", line)
-			}
-			fmt.Fprintf(w, "\n")
+			// Message is already in proper SSE format (id:/event:/data:)
+			// Just write it directly to the response
+			fmt.Fprint(w, message)
 			flusher.Flush()
 
 		case <-r.Context().Done():
@@ -212,19 +198,10 @@ func (h *SSEHandler) BroadcastUpdate() {
 
 // BroadcastStructuredUpdate sends structured updates to all SSE clients
 func (h *SSEHandler) BroadcastStructuredUpdate(eventType, data string) {
-	message := map[string]interface{}{
-		"type": eventType,
-		"data": data,
-	}
-
-	messageData, err := json.Marshal(message)
-	if err != nil {
-		logger := logging.WithPrefix("SSE")
-		logger.Errorf("Error marshaling structured message: %v", err)
-		return
-	}
-
-	h.broadcastToAllClients(string(messageData))
+	// Create proper SSE format with event: and data: lines (no JSON)
+	// HTMX SSE extension expects this exact format
+	message := fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, data)
+	h.broadcastToAllClients(message)
 }
 
 // broadcastToAllClients sends a message to all connected SSE clients
@@ -438,9 +415,12 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 			}
 		}
 
-		// Send personalized content to this specific client
+		// Send personalized content to this specific client using proper SSE format
 		htmlContent := htmlBuffer.String()
-		message := fmt.Sprintf("user-picks-updated-sse-handler:%s", htmlContent)
+
+		// Create proper SSE message with HTML content (no JSON wrapping)
+		// HTMX SSE extension expects event: and data: lines with raw HTML
+		message := fmt.Sprintf("event: user-picks-updated\ndata: %s\n\n", htmlContent)
 
 		// Send to this specific client only
 		if h.sendMessageToClient(client, message) {
@@ -452,6 +432,114 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	}
 
 	logger.Infof("Broadcasted filtered pick updates to %d/%d clients for user %d's picks", sentCount, clientCount, userID)
+}
+
+// BroadcastLivePickExpansionForUser broadcasts targeted updates for all of a user's live pick expansions for a game
+func (h *SSEHandler) BroadcastLivePickExpansionForUser(game *models.Game, userID int) {
+	if game == nil || game.State != "in_play" {
+		return
+	}
+
+	logger := logging.WithPrefix("SSE:LivePickExpansion")
+
+	// Get user's picks for this week to find picks for this game
+	ctx := context.Background()
+	userPicks, err := h.pickService.GetUserPicksForWeek(ctx, userID, game.Season, game.Week)
+	if err != nil {
+		logger.Errorf("Failed to get picks for user %d: %v", userID, err)
+		return
+	}
+
+	if userPicks == nil || len(userPicks.Picks) == 0 {
+		return // User has no picks this week
+	}
+
+	// Find picks for this specific game and broadcast updates for each
+	for _, pick := range userPicks.Picks {
+		if pick.GameID == game.ID {
+			h.BroadcastLivePickExpansionForPick(game, &pick)
+		}
+	}
+}
+
+// BroadcastLivePickExpansionForPick broadcasts targeted update for a specific pick's live expansion
+func (h *SSEHandler) BroadcastLivePickExpansionForPick(game *models.Game, pick *models.Pick) {
+	if game == nil || game.State != "in_play" || pick == nil {
+		return
+	}
+
+	logger := logging.WithPrefix("SSE:LivePickExpansion")
+
+	// Create targeted live-pick-expansion update using pick ID
+	htmlBuffer := &strings.Builder{}
+
+	// Target the specific live-pick-expansion div for this pick
+	fmt.Fprintf(htmlBuffer, `<div class="live-pick-expansion" id="live-expansion-%s" hx-swap-oob="true">`, pick.ID.Hex())
+
+	// Game clock (pick-specific)
+	fmt.Fprintf(htmlBuffer, `<span class="game-clock" id="game-time-%s">%s`, pick.ID.Hex(), game.GetGameClock())
+	if game.Quarter == 5 {
+		htmlBuffer.WriteString(` OT`)
+	} else if game.Quarter == 6 {
+		htmlBuffer.WriteString(` 2OT`)
+	} else if game.Quarter > 0 {
+		fmt.Fprintf(htmlBuffer, ` Q%d`, game.Quarter)
+	}
+	htmlBuffer.WriteString(`</span>`)
+
+	// Possession info
+	if game.HasStatus() {
+		possessionStr := game.GetPossessionString()
+		if possessionStr != "" {
+			fmt.Fprintf(htmlBuffer, `<span class="status-divider"> || </span><span class="game-possession" id="possession-%s">%s</span>`, pick.ID.Hex(), possessionStr)
+		}
+	}
+
+	htmlBuffer.WriteString(`</div>`)
+
+	h.BroadcastStructuredUpdate("live-pick-expansion", htmlBuffer.String())
+	logger.Debugf("Broadcasted live pick expansion update for pick %s (game %d)", pick.ID.Hex(), game.ID)
+}
+
+// BroadcastGameClockUpdate broadcasts targeted game clock updates
+func (h *SSEHandler) BroadcastGameClockUpdate(game *models.Game) {
+	if game == nil || game.State != "in_play" {
+		return
+	}
+
+	// Create targeted game clock update
+	clockText := game.GetGameClock()
+	if game.Quarter == 5 {
+		clockText += " OT"
+	} else if game.Quarter == 6 {
+		clockText += " 2OT"
+	} else if game.Quarter > 0 {
+		clockText += fmt.Sprintf(" Q%d", game.Quarter)
+	}
+
+	html := fmt.Sprintf(`<span class="status-item game-clock" id="game-time-%d-%d-%d" hx-swap-oob="true">%s</span>`, game.ID, game.Season, game.Week, clockText)
+	h.BroadcastStructuredUpdate("game-clock-update", html)
+
+	logger := logging.WithPrefix("SSE:GameClock")
+	logger.Debugf("Broadcasted game clock update for game %d: %s", game.ID, clockText)
+}
+
+// BroadcastPossessionUpdate broadcasts targeted possession updates
+func (h *SSEHandler) BroadcastPossessionUpdate(game *models.Game) {
+	if game == nil || game.State != "in_play" || !game.HasStatus() {
+		return
+	}
+
+	possessionStr := game.GetPossessionString()
+	if possessionStr == "" {
+		return
+	}
+
+	html := fmt.Sprintf(`<span class="game-possession" id="possession-%d" hx-swap-oob="true">%s</span>`, game.ID, possessionStr)
+	h.BroadcastStructuredUpdate("possession-update", html)
+
+	logger := logging.WithPrefix("SSE:Possession")
+	logger.Debugf("Broadcasted possession update for game %d: %s", game.ID, possessionStr)
 }
 
 // broadcastGameUpdate broadcasts game updates for a specific game
@@ -471,10 +559,82 @@ func (h *SSEHandler) BroadcastGameUpdate(gameIDStr string, season, week int) {
 		return
 	}
 
-	// Broadcast different types of game updates
-	h.broadcastGameStatusHTML(game)
-	h.broadcastGameScoresHTML(game)
-	h.broadcastPickUpdatesHTML(game)
+	// Consolidate game updates to reduce rapid-fire SSE messages
+	h.broadcastConsolidatedGameUpdate(game)
+}
+
+// broadcastConsolidatedGameUpdate sends consolidated updates to reduce SSE message volume
+func (h *SSEHandler) broadcastConsolidatedGameUpdate(game *models.Game) {
+	if game == nil {
+		return
+	}
+
+	logger := logging.WithPrefix("SSE")
+
+	// Send game status and scores as single consolidated update
+	htmlBuffer := &strings.Builder{}
+
+	// Game status section
+	fmt.Fprintf(htmlBuffer, `<div class="game-status-section" id="game-status-%d-%d-%d" hx-swap-oob="true">`, game.ID, game.Season, game.Week)
+	if game.State == "scheduled" {
+		fmt.Fprintf(htmlBuffer, `<div class="game-time">%s</div>`, game.FormatGameTime())
+	} else if game.State == "in_play" || game.State == "completed" {
+		htmlBuffer.WriteString(`<span class="live-indicator">LIVE</span><br>`)
+		if game.Quarter == 5 {
+			htmlBuffer.WriteString(`OT`)
+		} else if game.Quarter == 6 {
+			htmlBuffer.WriteString(`2OT`)
+		} else {
+			fmt.Fprintf(htmlBuffer, `Q%d`, game.Quarter)
+		}
+	}
+	htmlBuffer.WriteString(`</div>`)
+
+	// Team scores
+	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="away-score-%d-%d-%d" hx-swap-oob="true">%d</span>`,
+		game.ID, game.Season, game.Week, game.AwayScore)
+	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="home-score-%d-%d-%d" hx-swap-oob="true">%d</span>`,
+		game.ID, game.Season, game.Week, game.HomeScore)
+
+	// Global game clock (if live)
+	if game.State == "in_play" {
+		clockText := game.GetGameClock()
+		if game.Quarter == 5 {
+			clockText += " OT"
+		} else if game.Quarter == 6 {
+			clockText += " 2OT"
+		} else if game.Quarter > 0 {
+			clockText += fmt.Sprintf(" Q%d", game.Quarter)
+		}
+		fmt.Fprintf(htmlBuffer, `<span class="status-item game-clock" id="game-time-%d-%d-%d" hx-swap-oob="true">%s</span>`,
+			game.ID, game.Season, game.Week, clockText)
+
+		// Global possession
+		if game.HasStatus() {
+			possessionStr := game.GetPossessionString()
+			if possessionStr != "" {
+				fmt.Fprintf(htmlBuffer, `<span class="game-possession" id="possession-%d" hx-swap-oob="true">%s</span>`,
+					game.ID, possessionStr)
+			}
+		}
+	}
+
+	// Send consolidated update
+	h.BroadcastStructuredUpdate("dashboard-update", htmlBuffer.String())
+	logger.Debugf("Broadcasted consolidated game update for game %d", game.ID)
+
+	// Send live pick expansion updates separately (but only for live games)
+	if game.State == "in_play" {
+		// Small delay to prevent overwhelming HTMX
+		time.Sleep(50 * time.Millisecond)
+
+		// Send targeted pick updates
+		for client := range h.sseClients {
+			if client.UserID > 0 {
+				h.BroadcastLivePickExpansionForUser(game, client.UserID)
+			}
+		}
+	}
 }
 
 // broadcastGameStatusHTML broadcasts game status updates
@@ -510,21 +670,9 @@ func (h *SSEHandler) broadcastGameStatusHTML(game *models.Game) {
 
 	htmlBuffer.WriteString(`</div>`)
 
-	// Create SSE message with hx-swap-oob content
-	// Use dashboard-update type which is configured in frontend template
-	message := map[string]interface{}{
-		"type": "dashboard-update",
-		"html": htmlBuffer.String(),
-	}
-
-	messageData, err := json.Marshal(message)
-	if err != nil {
-		logger := logging.WithPrefix("SSE")
-		logger.Errorf("Error marshaling game status message: %v", err)
-		return
-	}
-
-	h.broadcastToAllClients(string(messageData))
+	// Create proper SSE message with HTML content (no JSON wrapping)
+	// HTMX SSE extension expects raw HTML with hx-swap-oob attributes
+	h.BroadcastStructuredUpdate("dashboard-update", htmlBuffer.String())
 	logger := logging.WithPrefix("SSE")
 	logger.Debugf("Broadcasted game status update for game %d", game.ID)
 }
@@ -542,56 +690,15 @@ func (h *SSEHandler) broadcastGameScoresHTML(game *models.Game) {
 	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="away-score-%d-%d-%d" hx-swap-oob="true">%d</span>`, game.ID, game.Season, game.Week, game.AwayScore)
 	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="home-score-%d-%d-%d" hx-swap-oob="true">%d</span>`, game.ID, game.Season, game.Week, game.HomeScore)
 
-	// Create SSE message with hx-swap-oob content
-	// Use dashboard-update type which is configured in frontend template
-	message := map[string]interface{}{
-		"type": "dashboard-update",
-		"html": htmlBuffer.String(),
-	}
-
-	messageData, err := json.Marshal(message)
-	if err != nil {
-		logger := logging.WithPrefix("SSE")
-		logger.Errorf("Error marshaling game scores message: %v", err)
-		return
-	}
-
-	h.broadcastToAllClients(string(messageData))
+	// Create proper SSE message with HTML content (no JSON wrapping)
+	// HTMX SSE extension expects raw HTML with hx-swap-oob attributes
+	h.BroadcastStructuredUpdate("dashboard-update", htmlBuffer.String())
 	logger := logging.WithPrefix("SSE")
 	logger.Debugf("Broadcasted game scores update for game %d (%d-%d)", game.ID, game.AwayScore, game.HomeScore)
 }
 
-// broadcastPickUpdatesHTML broadcasts pick-related updates for a game
-func (h *SSEHandler) broadcastPickUpdatesHTML(game *models.Game) {
-	if game == nil || h.pickService == nil {
-		return
-	}
-
-	// For now, we'll broadcast to all users since determining affected users
-	// would require getting all user picks which isn't directly supported
-	// by the current service interface. This is a simplification for the refactor.
-	affectedUsers := make(map[int]bool)
-
-	// Get all connected users from SSE clients
-	for client := range h.sseClients {
-		if client.UserID > 0 {
-			affectedUsers[client.UserID] = true
-		}
-	}
-
-	// If no users are affected by this game, skip the broadcast
-	if len(affectedUsers) == 0 {
-		return
-	}
-
-	logger := logging.WithPrefix("SSE")
-	logger.Debugf("Game %d update affects %d users, broadcasting pick updates", game.ID, len(affectedUsers))
-
-	// Broadcast pick update for each affected user
-	for userID := range affectedUsers {
-		h.BroadcastPickUpdate(userID, game.Season, game.Week)
-	}
-}
+// REMOVED: broadcastPickUpdatesHTML was causing massive 400+ line DOM updates
+// Replaced with targeted updates: BroadcastLivePickExpansion, BroadcastGameClockUpdate, etc.
 
 // BroadcastParlayScoreUpdate broadcasts parlay score updates for a specific season/week
 func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
@@ -688,4 +795,84 @@ func (h *SSEHandler) handleGameCompletion(season, week int, gameID string) {
 	if updatedCount > 0 {
 		h.BroadcastParlayScoreUpdate(season, week)
 	}
+}
+
+// BroadcastPickStatusUpdate broadcasts targeted pick status updates when game results change
+// This updates the current-value span and color class for specific picks
+func (h *SSEHandler) BroadcastPickStatusUpdate(game *models.Game, pick *models.Pick) {
+	logger := logging.WithPrefix("SSE")
+
+	// Determine current status and color class
+	var colorClass, statusValue string
+
+	if game.State == "in_play" {
+		// For spread picks
+		if pick.TeamName == "OVER" || pick.TeamName == "UNDER" {
+			// O/U pick logic
+			currentTotal := game.HomeScore + game.AwayScore
+			overUnder := int(game.Odds.OU)
+
+			if pick.TeamName == "OVER" {
+				if currentTotal > overUnder {
+					colorClass = "pick-status-winning"
+				} else if currentTotal == overUnder {
+					colorClass = "pick-status-push"
+				} else {
+					colorClass = "pick-status-pace"
+				}
+			} else { // UNDER
+				if currentTotal < overUnder {
+					colorClass = "pick-status-winning"
+				} else if currentTotal == overUnder {
+					colorClass = "pick-status-push"
+				} else {
+					colorClass = "pick-status-pace"
+				}
+			}
+			statusValue = fmt.Sprintf("%d", currentTotal)
+		} else {
+			// Spread pick logic - determine if picked team is covering
+			var differential int
+			if pick.TeamName == game.Away || strings.Contains(pick.TeamName, game.Away) {
+				differential = game.AwayScore - game.HomeScore
+			} else {
+				differential = game.HomeScore - game.AwayScore
+			}
+
+			// Check if covering the spread (using same logic as template)
+			if differential > 0 {
+				colorClass = "pick-status-winning"
+			} else if differential == 0 {
+				colorClass = "pick-status-push"
+			} else {
+				colorClass = "pick-status-losing"
+			}
+
+			if differential == 0 {
+				statusValue = "TIE"
+			} else if differential > 0 {
+				statusValue = fmt.Sprintf("+%d", differential)
+			} else {
+				statusValue = fmt.Sprintf("%d", differential)
+			}
+		}
+	} else if game.State == "completed" {
+		// Final status for completed games
+		// Similar logic but with final determination
+		// TODO: Implement final status logic when game is completed
+		return // Skip for now, handle in-play updates first
+	} else {
+		// Game not started yet
+		return
+	}
+
+	// Create targeted update HTML for the current-value span using pick ID
+	pickStatusHTML := fmt.Sprintf(
+		`<span class="current-value %s" id="pick-status-%s" hx-swap-oob="true">%s</span>`,
+		colorClass, pick.ID.Hex(), statusValue,
+	)
+
+	h.BroadcastStructuredUpdate("pick-status-update", pickStatusHTML)
+	logger.Debugf("Broadcasted pick status update for pick %s (game %d): %s (%s)",
+		pick.ID.Hex(), game.ID, statusValue, colorClass)
 }

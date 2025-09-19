@@ -78,8 +78,9 @@ type AuthConfig struct {
 
 // AppConfig holds application-specific configuration
 type AppConfig struct {
-	CurrentSeason int  `json:"current_season"`
-	IsDevelopment bool `json:"is_development"`
+	CurrentSeason            int  `json:"current_season"`
+	IsDevelopment            bool `json:"is_development"`
+	BackgroundUpdaterEnabled bool `json:"background_updater_enabled"`
 }
 
 // Load loads configuration from environment variables and .env file
@@ -125,8 +126,9 @@ func Load() (*Config, error) {
 			JWTSecret: getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 		},
 		App: AppConfig{
-			CurrentSeason: getIntEnv("CURRENT_SEASON", 2025),
-			IsDevelopment: strings.ToLower(getEnv("ENVIRONMENT", "development")) == "development",
+			CurrentSeason:            getIntEnv("CURRENT_SEASON", 2025),
+			IsDevelopment:            strings.ToLower(getEnv("ENVIRONMENT", "development")) == "development",
+			BackgroundUpdaterEnabled: getBoolEnv("BACKGROUND_UPDATER_ENABLED", true),
 		},
 	}
 
@@ -211,6 +213,11 @@ func (c *Config) GetMongoURI() string {
 		c.Database.Host, c.Database.Port, c.Database.Database)
 }
 
+func (c *Config) IsBackgroundUpdaterEnabled() bool {
+	logging.Warnf("IsBackgroundUpdaterEnabled() => %t", c.App.BackgroundUpdaterEnabled)
+	return c.App.BackgroundUpdaterEnabled
+}
+
 // LogConfiguration logs the current configuration (without sensitive data)
 func (c *Config) LogConfiguration() {
 	logging.Info("=== Application Configuration ===")
@@ -223,8 +230,8 @@ func (c *Config) LogConfiguration() {
 		c.Logging.Level, c.Logging.Prefix, c.Logging.EnableColor)
 	logging.Infof("Email: Configured=%t, Host=%s, From=%s",
 		c.IsEmailConfigured(), c.Email.SMTPHost, c.Email.FromEmail)
-	logging.Infof("App: Season=%d, Development=%t",
-		c.App.CurrentSeason, c.App.IsDevelopment)
+	logging.Infof("App: Season=%d, Development=%t, BackgroundUpdater=%t",
+		c.App.CurrentSeason, c.App.IsDevelopment, c.App.BackgroundUpdaterEnabled)
 	logging.Info("================================")
 }
 

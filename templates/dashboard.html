@@ -81,7 +81,20 @@
         <!-- Parlay score updates listener -->
         <div sse-swap="parlay-scores-updated"
              hx-swap="none"></div>
-             
+
+        <!-- Targeted live update listeners -->
+        <div sse-swap="live-pick-expansion"
+             hx-swap="none"></div>
+
+        <div sse-swap="game-clock-update"
+             hx-swap="none"></div>
+
+        <div sse-swap="possession-update"
+             hx-swap="none"></div>
+
+        <div sse-swap="pick-status-update"
+             hx-swap="none"></div>
+
     </div>
          
     <div class="dashboard-container">        
@@ -561,7 +574,7 @@
         {{$games := .Games}}
         {{$isCurrentUser := .IsCurrentUser}}
         {{$game := findGameByID $games $pick.GameID}}
-        <div class="pick-item {{getResultClass $pick $game}}" id="pick-item-{{$pick.GameID}}-{{$pick.UserID}}">
+        <div class="pick-item {{getResultClass $pick $game}}" id="pick-item-{{$pick.ID.Hex}}">
             <div class="pick-matchup">
                 {{if $game}}
                     <!-- Away team -->
@@ -615,7 +628,7 @@
                                                 {{$colorClass = "pick-status-pace"}}
                                             {{end}}
                                         {{end}}
-                                        <span class="current-value {{$colorClass}}">{{$currentTotal}}</span>
+                                        <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{$currentTotal}}</span>
                                         <span class="separator">/</span>
                                         <span class="target-value">{{$overUnder}}</span>
                                     {{else}}
@@ -646,7 +659,7 @@
                                                 {{$colorClass = "pick-status-pace"}}
                                             {{end}}
                                         {{end}}
-                                        <span class="current-value {{$colorClass}}">{{$currentTotal}}</span>
+                                        <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{$currentTotal}}</span>
                                         <span class="separator">/</span>
                                         <span class="target-value">{{$overUnder}}</span>
                                     {{else}}
@@ -673,7 +686,7 @@
                                             {{$colorClass = "pick-status-losing"}}
                                         {{end}}
                                     {{end}}
-                                    <span class="current-value {{$colorClass}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
                                     <span class="separator">/</span>
                                     <span class="target-value">{{$game.FormatAwaySpread}}</span>
                                 {{else}}
@@ -696,7 +709,7 @@
                                             {{$colorClass = "pick-status-losing"}}
                                         {{end}}
                                     {{end}}
-                                    <span class="current-value {{$colorClass}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
                                     <span class="separator">/</span>
                                     <span class="target-value">{{$game.FormatHomeSpread}}</span>
                                 {{else}}
@@ -720,14 +733,14 @@
             </div>
         </div>
         {{if and $game (eq $game.State "in_play")}}
-            <div class="live-pick-expansion">
-                <span class="game-clock" id="game-time-{{$game.ID}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
+            <div class="live-pick-expansion" id="live-expansion-{{$pick.ID.Hex}}">
+                <span class="game-clock" id="game-time-{{$pick.ID.Hex}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
                 
                 {{if $game.HasStatus}}
                     {{$possessionStr := $game.GetPossessionString}}
                     {{if ne $possessionStr ""}}
                         <span class="status-divider"> || </span>
-                        <span class="game-possession" id="possession-{{$game.ID}}">{{$possessionStr}}</span>
+                        <span class="game-possession" id="possession-{{$pick.ID.Hex}}">{{$possessionStr}}</span>
                     {{end}}
                     {{if and $game.HasStatus $game.Status.IsRedZone}}
                         <span class="status-divider"> || </span>
@@ -1011,7 +1024,7 @@
         });
 
         // SSE Message ID tracking for missed updates detection
-        let expectedMessageId = 1;
+        let expectedMessageId = null; // Will be set from first message received
         let isReconnecting = false;
         let lastMessageTime = Date.now();
         let messageTimeoutId = null;
@@ -1031,6 +1044,13 @@
             const lastEventId = e.detail.lastEventId;
             if (lastEventId) {
                 const messageId = parseInt(lastEventId);
+
+                // Initialize expected message ID from first message
+                if (expectedMessageId === null) {
+                    expectedMessageId = messageId + 1;
+                    console.log(`SSE: Initialized message sequence starting from ${messageId}`);
+                    return;
+                }
 
                 // Check for gaps in message sequence
                 if (messageId > expectedMessageId && !isReconnecting) {
@@ -1067,7 +1087,7 @@
             clearMessageTimeout();
             isReconnecting = true;
             // Reset expected message ID on connection error (server may have restarted)
-            expectedMessageId = 1;
+            expectedMessageId = null;
         });
 
         // Handle page visibility changes (tab focus/blur)

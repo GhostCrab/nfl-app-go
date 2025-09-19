@@ -1,7 +1,7 @@
 package services
 
 import (
-	"log"
+	"nfl-app-go/logging"
 	"nfl-app-go/models"
 	"time"
 )
@@ -57,22 +57,22 @@ func (s *UserSeeder) SeedUsers() error {
 
 		// Hash the password
 		if err := user.HashPassword(userData.Password); err != nil {
-			log.Printf("UserSeeder: Failed to hash password for %s: %v", userData.Email, err)
+			logging.Errorf("Failed to hash password for %s: %v", userData.Email, err)
 			continue
 		}
 
 		// Create user in database
 		if err := s.userRepo.CreateUser(user); err != nil {
-			log.Printf("UserSeeder: Failed to create user %s: %v", userData.Email, err)
+			logging.Errorf("Failed to create user %s: %v", userData.Email, err)
 			continue
 		}
 
-		log.Printf("UserSeeder: Created user %s (%s) with ID %d", userData.Name, userData.Email, userData.ID)
+		logging.Infof("Created user %s (%s) with ID %d", userData.Name, userData.Email, userData.ID)
 		createdCount++
 	}
 
 	if existingCount > 0 || createdCount > 0 {
-		log.Printf("UserSeeder: Completed - %d existing, %d created", existingCount, createdCount)
+		logging.Infof("Completed Seeding Users - %d existing, %d created", existingCount, createdCount)
 	}
 	return nil
 }
@@ -92,25 +92,25 @@ func (s *UserSeeder) ResetUserPasswords(newPassword string) error {
 	for _, email := range users {
 		user, err := s.userRepo.GetUserByEmail(email)
 		if err != nil {
-			log.Printf("UserSeeder: User %s not found for password reset: %v", email, err)
+			logging.Errorf("User %s not found for password reset: %v", email, err)
 			continue
 		}
 
 		// Hash new password
 		if err := user.HashPassword(newPassword); err != nil {
-			log.Printf("UserSeeder: Failed to hash new password for %s: %v", email, err)
+			logging.Errorf("Failed to hash new password for %s: %v", email, err)
 			continue
 		}
 
 		// Update user in database
 		if err := s.userRepo.UpdateUser(user); err != nil {
-			log.Printf("UserSeeder: Failed to update password for %s: %v", email, err)
+			logging.Errorf("Failed to update password for %s: %v", email, err)
 			continue
 		}
 
-		log.Printf("UserSeeder: Reset password for %s", email)
+		logging.Infof("Reset password for %s", email)
 	}
 
-	log.Println("UserSeeder: Password reset completed")
+	logging.Infof("Password reset completed")
 	return nil
 }
