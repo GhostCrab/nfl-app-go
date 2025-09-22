@@ -29,7 +29,7 @@ func (r *MongoParlayRepository) GetUserSeasonRecord(ctx context.Context, userID,
 		"user_id": userID,
 		"season":  season,
 	}
-	
+
 	err := r.collection.FindOne(ctx, filter).Decode(&record)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -44,10 +44,6 @@ func (r *MongoParlayRepository) GetUserSeasonRecord(ctx context.Context, userID,
 // UpsertUserSeasonRecord creates or updates a user's season record for parlay scores
 // This method supports parlay service scoring operations
 func (r *MongoParlayRepository) UpsertUserSeasonRecord(ctx context.Context, record *models.ParlaySeasonRecord) error {
-	// DEBUG: Log season record operations
-	log.Printf("PARLAY_DEBUG: UpsertUserSeasonRecord called - UserID=%d, Season=%d",
-		record.UserID, record.Season)
-
 	// Check for invalid data
 	if record.Season == 0 {
 		log.Printf("PARLAY_ERROR: Invalid UpsertUserSeasonRecord data - Season=%d, UserID=%d",
@@ -66,30 +62,30 @@ func (r *MongoParlayRepository) UpsertUserSeasonRecord(ctx context.Context, reco
 		"user_id": record.UserID,
 		"season":  record.Season,
 	}
-	
+
 	// Update timestamps
 	now := time.Now()
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = now
 	}
 	record.UpdatedAt = now
-	
+
 	// Upsert operation - update if exists, insert if not
 	update := bson.M{"$set": record}
 	opts := options.Update().SetUpsert(true)
-	
+
 	result, err := r.collection.UpdateOne(ctx, filter, update, opts)
 	if err != nil {
 		return fmt.Errorf("failed to upsert parlay season record for user %d, season %d: %w", record.UserID, record.Season, err)
 	}
-	
+
 	// Set the ID if this was an insert
 	if result.UpsertedCount > 0 && result.UpsertedID != nil {
 		if oid, ok := result.UpsertedID.(primitive.ObjectID); ok {
 			record.ID = oid
 		}
 	}
-	
+
 	return nil
 }
 
@@ -103,12 +99,12 @@ func (r *MongoParlayRepository) CountUsersWithScoresForWeek(ctx context.Context,
 		"season": season,
 		"week":   week,
 	}
-	
+
 	count, err := r.collection.CountDocuments(ctx, filter)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count users with parlay scores for season %d, week %d: %w", season, week, err)
 	}
-	
+
 	return count, nil
 }
 
@@ -119,20 +115,20 @@ func (r *MongoParlayRepository) GetWeeklyScoresForSeason(ctx context.Context, se
 	defer cancel()
 
 	filter := bson.M{"season": season}
-	
+
 	// Sort by week, then by total points descending for leaderboard order
 	opts := options.Find().SetSort(bson.D{
 		{Key: "week", Value: 1},
 		{Key: "total_points", Value: -1},
 		{Key: "user_id", Value: 1},
 	})
-	
+
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find weekly parlay scores for season %d: %w", season, err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var scores []models.ParlayScore
 	for cursor.Next(ctx) {
 		var score models.ParlayScore
@@ -141,7 +137,7 @@ func (r *MongoParlayRepository) GetWeeklyScoresForSeason(ctx context.Context, se
 		}
 		scores = append(scores, score)
 	}
-	
+
 	return scores, nil
 }
 
@@ -155,18 +151,18 @@ func (r *MongoParlayRepository) GetTopScorersForWeek(ctx context.Context, season
 		"season": season,
 		"week":   week,
 	}
-	
+
 	// Sort by total points descending for leaderboard
 	opts := options.Find().
 		SetSort(bson.D{{Key: "total_points", Value: -1}}).
 		SetLimit(int64(limit))
-	
+
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find top parlay scorers for season %d, week %d: %w", season, week, err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var scores []models.ParlayScore
 	for cursor.Next(ctx) {
 		var score models.ParlayScore
@@ -175,7 +171,7 @@ func (r *MongoParlayRepository) GetTopScorersForWeek(ctx context.Context, season
 		}
 		scores = append(scores, score)
 	}
-	
+
 	return scores, nil
 }
 
@@ -189,16 +185,16 @@ func (r *MongoParlayRepository) GetUserWeeklyScoresForSeason(ctx context.Context
 		"user_id": userID,
 		"season":  season,
 	}
-	
+
 	// Sort by week for chronological order
 	opts := options.Find().SetSort(bson.D{{Key: "week", Value: 1}})
-	
+
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find weekly parlay scores for user %d, season %d: %w", userID, season, err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var scores []models.ParlayScore
 	for cursor.Next(ctx) {
 		var score models.ParlayScore
@@ -207,17 +203,13 @@ func (r *MongoParlayRepository) GetUserWeeklyScoresForSeason(ctx context.Context
 		}
 		scores = append(scores, score)
 	}
-	
+
 	return scores, nil
 }
 
 // UpdateWeekScore updates a specific week's score in a user's season record
 // This method supports parlay service score management operations
 func (r *MongoParlayRepository) UpdateWeekScore(ctx context.Context, userID, season, week int, weekScore models.ParlayWeekScore) error {
-	// DEBUG: Log every week score update to identify bad data sources
-	log.Printf("PARLAY_DEBUG: UpdateWeekScore called - UserID=%d, Season=%d, Week=%d",
-		userID, season, week)
-
 	// Check for invalid data
 	if season == 0 || week == 0 {
 		log.Printf("PARLAY_ERROR: Invalid UpdateWeekScore data - Season=%d, Week=%d, UserID=%d",
@@ -236,23 +228,23 @@ func (r *MongoParlayRepository) UpdateWeekScore(ctx context.Context, userID, sea
 		"user_id": userID,
 		"season":  season,
 	}
-	
+
 	// Use dot notation to update the specific week in the week_scores map
 	update := bson.M{
 		"$set": bson.M{
 			fmt.Sprintf("week_scores.%d", week): weekScore,
-			"updated_at": time.Now(),
+			"updated_at":                        time.Now(),
 		},
 	}
-	
+
 	result, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return fmt.Errorf("failed to update week score for user %d, season %d, week %d: %w", userID, season, week, err)
 	}
-	
+
 	if result.MatchedCount == 0 {
 		return fmt.Errorf("no parlay season record found for user %d, season %d", userID, season)
 	}
-	
+
 	return nil
 }

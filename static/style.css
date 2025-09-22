@@ -50,6 +50,11 @@
     box-sizing: border-box;
 }
 
+/* Utility classes */
+.hidden {
+    display: none !important;
+}
+
 body {
     font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background-color: var(--bg-color);

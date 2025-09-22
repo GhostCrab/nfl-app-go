@@ -25,16 +25,16 @@ type MongoParlayRepository struct {
 
 func NewMongoParlayRepository(db *MongoDB) *MongoParlayRepository {
 	collection := db.GetCollection("parlay_scores")
-	
+
 	// Create compound index on user_id, season, week for faster lookups
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	indexModel := mongo.IndexModel{
-		Keys: bson.D{{"user_id", 1}, {"season", 1}, {"week", 1}},
+		Keys:    bson.D{{"user_id", 1}, {"season", 1}, {"week", 1}},
 		Options: options.Index().SetUnique(true),
 	}
-	
+
 	_, err := collection.Indexes().CreateOne(ctx, indexModel)
 	if err != nil {
 		log.Printf("Failed to create index on parlay_scores collection: %v", err)
@@ -47,10 +47,6 @@ func NewMongoParlayRepository(db *MongoDB) *MongoParlayRepository {
 
 // UpsertParlayScore creates or updates a parlay score entry
 func (r *MongoParlayRepository) UpsertParlayScore(ctx context.Context, score *models.ParlayScore) error {
-	// DEBUG: Log every parlay_scores update to identify bad data sources
-	log.Printf("PARLAY_DEBUG: UpsertParlayScore called - UserID=%d, Season=%d, Week=%d, TotalPoints=%d",
-		score.UserID, score.Season, score.Week, score.TotalPoints)
-
 	// Check for invalid data
 	if score.Season == 0 || score.Week == 0 {
 		log.Printf("PARLAY_ERROR: Invalid data detected - Season=%d, Week=%d, UserID=%d",
@@ -67,22 +63,22 @@ func (r *MongoParlayRepository) UpsertParlayScore(ctx context.Context, score *mo
 		"season":  score.Season,
 		"week":    score.Week,
 	}
-	
+
 	// Update timestamp
 	score.UpdatedAt = time.Now()
-	
+
 	// For modern seasons (2025+), don't recalculate total - use the provided TotalPoints
 	// For legacy seasons, calculate total from category breakdown
 	if score.Season < 2025 {
 		score.CalculateTotal()
 	}
-	
+
 	opts := options.Replace().SetUpsert(true)
 	_, err := r.collection.ReplaceOne(ctx, filter, score, opts)
 	if err != nil {
 		return fmt.Errorf("failed to upsert parlay score: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -93,7 +89,7 @@ func (r *MongoParlayRepository) GetUserParlayScore(ctx context.Context, userID, 
 		"user_id": userID,
 		"season":  season,
 	}
-	
+
 	var seasonRecord models.ParlaySeasonRecord
 	err := r.collection.FindOne(ctx, filter).Decode(&seasonRecord)
 	if err != nil {
@@ -102,13 +98,13 @@ func (r *MongoParlayRepository) GetUserParlayScore(ctx context.Context, userID, 
 		}
 		return nil, fmt.Errorf("failed to get season record: %w", err)
 	}
-	
+
 	// Get the specific week's score
 	weekScore, exists := seasonRecord.WeekScores[week]
 	if !exists {
 		return nil, nil // No score for this week
 	}
-	
+
 	// Convert to ParlayScore format for compatibility
 	score := &models.ParlayScore{
 		UserID:              userID,
@@ -119,7 +115,7 @@ func (r *MongoParlayRepository) GetUserParlayScore(ctx context.Context, userID, 
 		BonusFridayPoints:   weekScore.FridayPoints,
 		TotalPoints:         weekScore.TotalPoints,
 	}
-	
+
 	return score, nil
 }
 
@@ -135,13 +131,13 @@ func (r *MongoParlayRepository) GetUserSeasonTotal(ctx context.Context, userID, 
 			{Key: "total", Value: bson.D{{"$sum", "$total_points"}}},
 		}}},
 	}
-	
+
 	cursor, err := r.collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return 0, fmt.Errorf("failed to aggregate season total: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	if cursor.Next(ctx) {
 		var result struct {
 			Total int `bson:"total"`
@@ -151,7 +147,7 @@ func (r *MongoParlayRepository) GetUserSeasonTotal(ctx context.Context, userID, 
 		}
 		return result.Total, nil
 	}
-	
+
 	return 0, nil // No scores found
 }
 
@@ -166,13 +162,13 @@ func (r *MongoParlayRepository) GetAllUsersSeasonTotals(ctx context.Context, sea
 			{Key: "total", Value: bson.D{{"$sum", "$total_points"}}},
 		}}},
 	}
-	
+
 	cursor, err := r.collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, fmt.Errorf("failed to aggregate all users season totals: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	totals := make(map[int]int)
 	for cursor.Next(ctx) {
 		var result struct {
@@ -184,7 +180,7 @@ func (r *MongoParlayRepository) GetAllUsersSeasonTotals(ctx context.Context, sea
 		}
 		totals[result.UserID] = result.Total
 	}
-	
+
 	return totals, nil
 }
 
@@ -195,12 +191,12 @@ func (r *MongoParlayRepository) DeleteUserWeekScore(ctx context.Context, userID,
 		"season":  season,
 		"week":    week,
 	}
-	
+
 	_, err := r.collection.DeleteOne(ctx, filter)
 	if err != nil {
 		return fmt.Errorf("failed to delete parlay score: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -210,13 +206,13 @@ func (r *MongoParlayRepository) GetWeekScores(ctx context.Context, season, week 
 		"season": season,
 		"week":   week,
 	}
-	
+
 	cursor, err := r.collection.Find(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find week scores: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var scores []*models.ParlayScore
 	for cursor.Next(ctx) {
 		var score models.ParlayScore
@@ -225,7 +221,7 @@ func (r *MongoParlayRepository) GetWeekScores(ctx context.Context, season, week 
 		}
 		scores = append(scores, &score)
 	}
-	
+
 	return scores, nil
 }
 
@@ -236,7 +232,7 @@ func (r *MongoParlayRepository) GetUserCumulativeScoreUpToWeek(ctx context.Conte
 		"user_id": userID,
 		"season":  season,
 	}
-	
+
 	var seasonRecord models.ParlaySeasonRecord
 	err := r.collection.FindOne(ctx, filter).Decode(&seasonRecord)
 	if err != nil {
@@ -245,7 +241,7 @@ func (r *MongoParlayRepository) GetUserCumulativeScoreUpToWeek(ctx context.Conte
 		}
 		return 0, fmt.Errorf("failed to get season record: %w", err)
 	}
-	
+
 	// Sum up points through the specified week
 	total := 0
 	for w := 1; w <= week; w++ {
@@ -253,7 +249,7 @@ func (r *MongoParlayRepository) GetUserCumulativeScoreUpToWeek(ctx context.Conte
 			total += weekScore.TotalPoints
 		}
 	}
-	
+
 	return total, nil
 }
 
@@ -269,13 +265,13 @@ func (r *MongoParlayRepository) GetAllUsersCumulativeScoresUpToWeek(ctx context.
 			{Key: "total", Value: bson.D{{"$sum", "$total_points"}}},
 		}}},
 	}
-	
+
 	cursor, err := r.collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, fmt.Errorf("failed to aggregate all users cumulative scores: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	totals := make(map[int]int)
 	for cursor.Next(ctx) {
 		var result struct {
@@ -287,7 +283,6 @@ func (r *MongoParlayRepository) GetAllUsersCumulativeScoresUpToWeek(ctx context.
 		}
 		totals[result.UserID] = result.Total
 	}
-	
+
 	return totals, nil
 }
-

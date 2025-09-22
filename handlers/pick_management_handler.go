@@ -182,7 +182,7 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 	}
 
 	// Check if picks can still be submitted (before kickoff)
-	canSubmitPicks := h.canSubmitPicksForWeek(games)
+	canSubmitPicks := h.canSubmitPicksArray(games)
 
 	// Prepare template data
 	data := struct {
@@ -191,8 +191,8 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		ExistingPicks  map[int]*models.Pick
 		CurrentSeason  int
 		CurrentWeek    int
-		CanSubmitPicks bool
-		PickState      map[int]map[int]bool // Proper structure for template
+		CanSubmitPicks map[int]bool
+		PickState      map[int]map[int]bool
 	}{
 		User:           user,
 		Games:          games,
@@ -416,15 +416,23 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 // canSubmitPicksForWeek checks if picks can still be submitted for the given games
 func (h *PickManagementHandler) canSubmitPicksForWeek(games []models.Game) bool {
 	now := time.Now()
-
 	// Allow pick submission if any game hasn't started yet
 	for _, game := range games {
 		if game.Date.After(now) {
 			return true
 		}
 	}
-
 	return false
+}
+
+func (h *PickManagementHandler) canSubmitPicksArray(games []models.Game) map[int]bool {
+	canPickArr := make(map[int]bool)
+	now := time.Now()
+	// Allow pick submission if any game hasn't started yet
+	for _, game := range games {
+		canPickArr[game.ID] = game.Date.After(now)
+	}
+	return canPickArr
 }
 
 // getCurrentWeek determines the current NFL week based on game dates

@@ -1,15 +1,15 @@
 {{define "pick-game-row"}}
-{{$game := .Game}}{{$pickState := .PickState -}}
-<div class="pick-game-row {{if ne $game.State "scheduled"}}game-disabled{{end}}" data-game-id="{{$game.ID}}">
+{{$game := .Game}}{{$pickState := .PickState}}{{$canSubmit := index .CanSubmitPicks $game.ID -}}
+<div class="pick-game-row {{if not $canSubmit}}game-disabled{{end}}" data-game-id="{{$game.ID}}">
     
     <!-- Away Team Pick -->
     <div class="pick-team-option">
-        <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+        <label class="pick-checkbox-label {{if not $canSubmit}}disabled{{end}}">
             <input type="checkbox" 
                    name="pick-{{$game.ID}}-away" 
                    value="1"
                    class="pick-checkbox"
-                   {{if ne $game.State "scheduled"}}disabled{{end}}
+                   {{if not $canSubmit}}disabled{{end}}
                    {{if index (index $pickState $game.ID) 1}}checked{{end}}>
             <img class="pick-team-img" src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/{{$game.Away | lower}}.png" alt="{{$game.Away}}" onerror="this.style.display='none'">
             <div class="pick-text-container">
@@ -23,12 +23,12 @@
     
     <!-- Home Team Pick -->
     <div class="pick-team-option">
-        <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+        <label class="pick-checkbox-label {{if not $canSubmit}}disabled{{end}}">
             <input type="checkbox" 
                    name="pick-{{$game.ID}}-home" 
                    value="1"
                    class="pick-checkbox"
-                   {{if ne $game.State "scheduled"}}disabled{{end}}
+                   {{if not $canSubmit}}disabled{{end}}
                    {{if index (index $pickState $game.ID) 2}}checked{{end}}>
             <img class="pick-team-img" src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/{{$game.Home | lower}}.png" alt="{{$game.Home}}" onerror="this.style.display='none'">
             <div class="pick-text-container">
@@ -47,12 +47,12 @@
     
     <!-- Under Pick -->
     <div class="pick-team-option">
-        <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+        <label class="pick-checkbox-label {{if not $canSubmit}}disabled{{end}}">
             <input type="checkbox" 
                    name="pick-{{$game.ID}}-98" 
                    value="1"
                    class="pick-checkbox"
-                   {{if ne $game.State "scheduled"}}disabled{{end}}
+                   {{if not $canSubmit}}disabled{{end}}
                    {{if index (index $pickState $game.ID) 98}}checked{{end}}>
             <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND">
         </label>
@@ -60,12 +60,12 @@
     
     <!-- Over Pick -->
     <div class="pick-team-option">
-        <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
+        <label class="pick-checkbox-label {{if not $canSubmit}}disabled{{end}}">
             <input type="checkbox" 
                    name="pick-{{$game.ID}}-99" 
                    value="1"
                    class="pick-checkbox"
-                   {{if ne $game.State "scheduled"}}disabled{{end}}
+                   {{if not $canSubmit}}disabled{{end}}
                    {{if index (index $pickState $game.ID) 99}}checked{{end}}>
             <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR">
         </label>

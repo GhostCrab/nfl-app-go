@@ -1,0 +1,24 @@
+{{/* Club Scores Content Template - Displays club parlay scores */}}
+{{define "club-scores-content"}}
+{{if .UserPicks}}
+    {{$sortedUsers := sortUsersByScore .UserPicks}}
+    {{range $sortedUsers}}
+        <div class="score-item">
+            <span class="user-name">{{.UserName}}</span>
+            <span class="user-score">
+                {{.Record.ParlayPoints}}
+                {{if .Record.WeeklyPoints}}
+                    <span class="weekly-gain">(+{{.Record.WeeklyPoints}})</span>
+                {{end}}
+            </span>
+        </div>
+    {{end}}
+{{else}}
+    {{range .Users}}
+        <div class="score-item">
+            <span class="user-name">{{.Name}}</span>
+            <span class="user-score">0</span>
+        </div>
+    {{end}}
+{{end}}
+{{end}}

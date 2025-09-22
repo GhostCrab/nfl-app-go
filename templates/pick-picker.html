@@ -17,12 +17,12 @@
                         {{/* Check if this is a modern season (2025+) for daily grouping */}}
                         {{if ge .CurrentSeason 2025}}
                             {{/* MODERN: 2025+ Daily Picker with Day Sections */}}
-                            {{template "modern-daily-picker" dict "Games" .Games "PickState" .PickState "CurrentSeason" .CurrentSeason}}
+                            {{template "modern-daily-picker" dict "Games" .Games "PickState" .PickState "CurrentSeason" .CurrentSeason "CanSubmitPicks" .CanSubmitPicks}}
                         {{else}}
                             {{/* LEGACY: 2023-2024 All Games in One List */}}
                             <div class="pick-picker-grid">
                                 {{range .Games}}
-                                    {{template "pick-game-row" dict "Game" . "PickState" $.PickState}}
+                                    {{template "pick-game-row" dict "Game" . "PickState" $.PickState "CanSubmitPicks" $.CanSubmitPicks}}
                                 {{end}}
                             </div>
                         {{end}}

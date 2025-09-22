@@ -61,11 +61,15 @@
              hx-get="/"
              hx-target="#dashboard-content"></div>
              
-        <!-- Game status updates listener - OOB approach -->
-        <div sse-swap="gameStatus" 
+        <!-- Game state transition updates listener - handles widget show/hide -->
+        <div sse-swap="game-state-update"
              hx-swap="none"></div>
-             
-        <!-- Game scores updates listener - OOB approach -->  
+
+        <!-- Game status updates listener - OOB approach -->
+        <div sse-swap="gameStatus"
+             hx-swap="none"></div>
+
+        <!-- Game scores updates listener - OOB approach -->
         <div sse-swap="gameScores"
              hx-swap="none"></div>
              
@@ -95,6 +99,14 @@
         <div sse-swap="pick-status-update"
              hx-swap="none"></div>
 
+        <!-- Individual pick item updates listener -->
+        <div sse-swap="pick-item-updated"
+             hx-swap="none"></div>
+
+        <!-- Heartbeat listener - needed to trigger htmx:sseMessage event -->
+        <div sse-swap="heartbeat"
+             hx-swap="none"></div>
+
     </div>
          
     <div class="dashboard-container">        
@@ -108,95 +120,6 @@
         </div>
     </div>
 
-    <!-- Template for game grid that will be updated via SSE - Inline Grid Structure -->
-    {{define "game-grid"}}
-        <div class="games-list-container" id="games-container">
-            {{range .Games}}
-                <div class="game-row inline-game {{if eq .State "in_play"}}in-progress{{else}}{{.State}}{{end}}" id="game-{{.ID}}">
-                    <div class="game-matchup">
-                        <div class="matchup-team">
-                            <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
-                            <div class="team-name-spread">
-                                <span class="team-name-container">
-                                    <span class="team-abbr">{{.Away}}</span>
-                                </span>
-                                {{if .HasOdds}}<span class="team-spread">{{.FormatAwaySpread}}</span>{{end}}
-                            </div>
-                            {{if ne .State "scheduled"}}
-                                <span class="team-score" id="away-score-{{.ID}}-{{.Season}}-{{.Week}}">{{.AwayScore}}</span>
-                            {{else}}
-                                <span class="team-score" id="away-score-{{.ID}}-{{.Season}}-{{.Week}}"></span>
-                            {{end}}
-                        </div>
-                        <div class="matchup-team">
-                            <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
-                            <div class="team-name-spread">
-                                <span class="team-name-container">
-                                    <span class="team-abbr">{{.Home}}</span>
-                                </span>
-                                {{if .HasOdds}}<span class="team-spread">{{.FormatHomeSpread}}</span>{{end}}
-                            </div>
-                            {{if ne .State "scheduled"}}
-                                <span class="team-score" id="home-score-{{.ID}}-{{.Season}}-{{.Week}}">{{.HomeScore}}</span>
-                            {{else}}
-                                <span class="team-score" id="home-score-{{.ID}}-{{.Season}}-{{.Week}}"></span>
-                            {{end}}
-                        </div>
-                    </div>
-                    <div class="game-details">
-                        {{if .HasOdds}}
-                            <span class="ou-value">+{{.Odds.OU}}</span>
-                        {{else}}
-                            <span class="ou-value">-</span>
-                        {{end}}
-                    </div>
-                    <div class="game-status-section" id="game-status-{{.ID}}-{{.Season}}-{{.Week}}">
-                        {{if eq .State "scheduled"}}
-                            <div class="game-time">{{.FormatGameTime}}</div>
-                        {{else if eq .State "in_play"}}
-                            {{template "game-results-display" .}}
-                        {{else if eq .State "completed"}}
-                            {{template "game-results-display" .}}
-                        {{end}}
-                    </div>
-                </div>
-                {{if eq .State "in_play"}}
-                    <!-- Always visible game expansion -->
-                    <div class="live-game-expansion">
-                        <!-- Game Clock and Quarter -->
-                        <span class="status-item game-clock" id="game-time-{{.ID}}-{{.Season}}-{{.Week}}">
-                            {{if eq .Quarter 5}}OT{{else if eq .Quarter 6}}2OT{{else}}Q{{.Quarter}}{{end}}
-                            {{if .HasStatus}}{{if ne .GetGameClock ""}} {{.GetGameClock}}{{end}}{{end}}
-                        </span>
-                        
-                        <!-- Game Status and Possession -->
-                        {{if .HasStatus}}
-                            {{$possessionStr := .GetPossessionString}}
-                            {{if ne $possessionStr ""}}
-                                <span class="status-divider"> || </span>
-                                <span class="status-item" id="possession-{{.ID}}">{{$possessionStr}}</span>
-                            {{end}}
-                        {{end}}
-                        
-                        {{if or (.HasOdds) (.HasStatus)}}
-                            <span class="status-divider"> || </span>
-                        {{end}}
-                        
-                        <!-- O/U Status with tracking -->
-                        {{template "ou-projection-status" .}}
-                        
-                        <!-- Red Zone Indicator -->
-                        {{if .HasStatus}}
-                            {{if .Status.IsRedZone}}
-                                <span class="status-divider"> || </span>
-                                <span class="status-item" style="color: #e74c3c; font-weight: bold;">RED ZONE</span>
-                            {{end}}
-                        {{end}}
-                    </div>
-                {{end}}
-            {{end}}
-        </div>
-    {{end}}
 
     <!-- Dashboard Content Template (for HTMX partial updates) -->
     {{define "dashboard-content"}}
@@ -284,7 +207,7 @@
 {{define "user-picks-block"}}
 {{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
 {{$season := .Season -}}{{$week := .Week -}}
-<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}" hx-swap-oob="true">
+<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}">
 <div class="user-picks-header">
 {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
 </div>
@@ -407,165 +330,180 @@
 </div>
     {{end}}
 
-    <!-- Modern Daily Picker Template (2025+) -->
-    {{define "modern-daily-picker"}}
-    {{$games := .Games}}{{$pickState := .PickState -}}
-    
-    {{/* Thursday Games */}}
-    {{$hasThursdayGames := false -}}
-    {{range $games -}}{{if eq (.GetGameDayName) "Thursday"}}{{$hasThursdayGames = true}}{{end}}{{end -}}
-    {{if $hasThursdayGames -}}
-    <div class="pick-day-section">
-        <div class="pick-day-header">THURSDAY GAMES</div>
-        <div class="pick-picker-grid">
-            {{range $games -}}
-                {{if eq (.GetGameDayName) "Thursday" -}}
-                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
-                {{end -}}
-            {{end -}}
-        </div>
-    </div>
-    {{end -}}
-    
-    {{/* Friday Games */}}
-    {{$hasFridayGames := false -}}
-    {{range $games -}}{{if eq (.GetGameDayName) "Friday"}}{{$hasFridayGames = true}}{{end}}{{end -}}
-    {{if $hasFridayGames -}}
-    <div class="pick-day-section">
-        <div class="pick-day-header">FRIDAY GAMES</div>
-        <div class="pick-picker-grid">
-            {{range $games -}}
-                {{if eq (.GetGameDayName) "Friday" -}}
-                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
-                {{end -}}
-            {{end -}}
-        </div>
-    </div>
-    {{end -}}
-    
-    {{/* Saturday Games */}}
-    {{$hasSaturdayGames := false -}}
-    {{range $games -}}{{if eq (.GetGameDayName) "Saturday"}}{{$hasSaturdayGames = true}}{{end}}{{end -}}
-    {{if $hasSaturdayGames -}}
-    <div class="pick-day-section">
-        <div class="pick-day-header">SATURDAY GAMES</div>
-        <div class="pick-picker-grid">
-            {{range $games -}}
-                {{if eq (.GetGameDayName) "Saturday" -}}
-                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
-                {{end -}}
-            {{end -}}
-        </div>
-    </div>
-    {{end -}}
-    
-    {{/* Sunday Games */}}
-    {{$hasSundayGames := false -}}
-    {{range $games -}}{{if eq (.GetGameDayName) "Sunday"}}{{$hasSundayGames = true}}{{end}}{{end -}}
-    {{if $hasSundayGames -}}
-    <div class="pick-day-section">
-        <div class="pick-day-header">SUNDAY GAMES</div>
-        <div class="pick-picker-grid">
-            {{range $games -}}
-                {{if eq (.GetGameDayName) "Sunday" -}}
-                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
-                {{end -}}
-            {{end -}}
-        </div>
-    </div>
-    {{end -}}
-    
-    {{/* Monday Games */}}
-    {{$hasMondayGames := false -}}
-    {{range $games -}}{{if eq (.GetGameDayName) "Monday"}}{{$hasMondayGames = true}}{{end}}{{end -}}
-    {{if $hasMondayGames -}}
-    <div class="pick-day-section">
-        <div class="pick-day-header">MONDAY GAMES</div>
-        <div class="pick-picker-grid">
-            {{range $games -}}
-                {{if eq (.GetGameDayName) "Monday" -}}
-                    {{template "pick-game-row" dict "Game" . "PickState" $pickState}}
-                {{end -}}
-            {{end -}}
-        </div>
-    </div>
-    {{end -}}
-    {{end}}
 
-    <!-- Pick Game Row Template (Reusable) -->
-    {{define "pick-game-row"}}
-    {{$game := .Game}}{{$pickState := .PickState -}}
-    <div class="pick-game-row {{if ne $game.State "scheduled"}}game-disabled{{end}}" data-game-id="{{$game.ID}}">
-        
-        <!-- Away Team Pick -->
-        <div class="pick-team-option">
-            <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
-                <input type="checkbox" 
-                       name="pick-{{$game.ID}}-away" 
-                       value="1"
-                       class="pick-checkbox"
-                       {{if ne $game.State "scheduled"}}disabled{{end}}
-                       {{if index (index $pickState $game.ID) 1}}checked{{end}}>
-                <img class="pick-team-img" src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/{{$game.Away | lower}}.png" alt="{{$game.Away}}" onerror="this.style.display='none'">
-                <div class="pick-text-container">
-                    <span class="pick-team-name">{{$game.Away}}</span>
-                    {{if $game.Odds}}
-                        <span class="pick-spread">{{formatAwaySpread $game.Odds}}</span>
+
+    <!-- Pick Item Update Template - For SSE updates that handle pick state transitions -->
+    {{define "pick-item-update"}}
+        {{$pick := .Pick}}
+        {{$games := .Games}}
+        {{$isCurrentUser := .IsCurrentUser}}
+        {{$game := findGameByID $games $pick.GameID}}
+        <div class="pick-item {{getResultClass $pick $game}}" id="pick-item-{{$pick.ID.Hex}}" hx-swap-oob="true">
+            {{/* Use the inner content of unified-pick-item without the wrapper div */}}
+            <div class="pick-matchup">
+                {{if $game}}
+                    <!-- Away team -->
+                    <img class="team-img" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>
+                    <div class="team-info{{if and (or (contains $pick.TeamName $game.Away) (eq $pick.TeamName $game.Away)) (ne $pick.PickType "over_under")}} picked{{end}}">
+                        <span class="team-abbr">{{$game.Away}}</span>
+                        <span class="team-score">{{if ne $game.State "scheduled"}}{{$game.AwayScore}}{{end}}</span>
+                    </div>
+
+                    <!-- Home team -->
+                    <img class="team-img" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
+                    <div class="team-info{{if and (or (contains $pick.TeamName $game.Home) (eq $pick.TeamName $game.Home)) (ne $pick.PickType "over_under")}} picked{{end}}">
+                        <span class="team-abbr">{{$game.Home}}</span>
+                        <span class="team-score">{{if ne $game.State "scheduled"}}{{$game.HomeScore}}{{end}}</span>
+                    </div>
+                {{end}}
+            </div>
+
+            <div class="pick-details">
+                {{if eq $pick.PickType "over_under"}}
+                    <!-- Over/Under pick display -->
+                    {{if eq $pick.TeamName "Over"}}
+                        <img class="team-img" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR"/>
+                        {{if and $game $game.HasOdds}}
+                            <div class="pick-value">
+                                {{if ne $game.State "scheduled"}}
+                                    {{$currentTotal := add $game.AwayScore $game.HomeScore}}
+                                    {{$currentTotalFloat := float64 $currentTotal}}
+                                    {{$overUnder := $game.Odds.OU}}
+                                    {{$colorClass := ""}}
+                                    {{if eq $game.State "in_play"}}
+                                        {{if ge $currentTotalFloat $overUnder}}
+                                            {{$colorClass = "pick-status-winning"}}
+                                        {{else if $game.HasStatus}}
+                                            {{$projectedTotal := projectFinalScore $game.HomeScore $game.AwayScore $game.Quarter $game.GetGameClock}}
+                                            {{if ge $projectedTotal $overUnder}}
+                                                {{$colorClass = "pick-status-pace"}}
+                                            {{else}}
+                                                {{$colorClass = "pick-status-failing"}}
+                                            {{end}}
+                                        {{else}}
+                                            {{$colorClass = "pick-status-pace"}}
+                                        {{end}}
+                                    {{end}}
+                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{$currentTotal}}</span>
+                                    <span class="separator">/</span>
+                                    <span class="target-value">{{$overUnder}}</span>
+                                {{else}}
+                                    <span class="target-value">+{{$game.Odds.OU}}</span>
+                                {{end}}
+                            </div>
+                        {{end}}
+                    {{else}}
+                        <img class="team-img" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND"/>
+                        {{if and $game $game.HasOdds}}
+                            <div class="pick-value">
+                                {{if ne $game.State "scheduled"}}
+                                    {{$currentTotal := add $game.AwayScore $game.HomeScore}}
+                                    {{$currentTotalFloat := float64 $currentTotal}}
+                                    {{$overUnder := $game.Odds.OU}}
+                                    {{$colorClass := ""}}
+                                    {{if eq $game.State "in_play"}}
+                                        {{if ge $currentTotalFloat $overUnder}}
+                                            {{$colorClass = "pick-status-losing"}}
+                                        {{else if $game.HasStatus}}
+                                            {{$projectedTotal := projectFinalScore $game.HomeScore $game.AwayScore $game.Quarter $game.GetGameClock}}
+                                            {{if lt $projectedTotal $overUnder}}
+                                                {{$colorClass = "pick-status-pace"}}
+                                            {{else}}
+                                                {{$colorClass = "pick-status-failing"}}
+                                            {{end}}
+                                        {{else}}
+                                            {{$colorClass = "pick-status-pace"}}
+                                        {{end}}
+                                    {{end}}
+                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{$currentTotal}}</span>
+                                    <span class="separator">/</span>
+                                    <span class="target-value">{{$overUnder}}</span>
+                                {{else}}
+                                    <span class="target-value">+{{$game.Odds.OU}}</span>
+                                {{end}}
+                            </div>
+                        {{end}}
                     {{end}}
-                </div>
-            </label>
-        </div>
-        
-        <!-- Home Team Pick -->
-        <div class="pick-team-option">
-            <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
-                <input type="checkbox" 
-                       name="pick-{{$game.ID}}-home" 
-                       value="1"
-                       class="pick-checkbox"
-                       {{if ne $game.State "scheduled"}}disabled{{end}}
-                       {{if index (index $pickState $game.ID) 2}}checked{{end}}>
-                <img class="pick-team-img" src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/{{$game.Home | lower}}.png" alt="{{$game.Home}}" onerror="this.style.display='none'">
-                <div class="pick-text-container">
-                    <span class="pick-team-name">{{$game.Home}}</span>
-                    {{if $game.Odds}}
-                        <span class="pick-spread">{{formatHomeSpread $game.Odds}}</span>
+                {{else}}
+                    <!-- Spread pick display -->
+                    {{if and $game (or (contains $pick.TeamName $game.Away) (eq $pick.TeamName $game.Away))}}
+                        <img class="team-img" src="{{$game.GetAwayTeamIconURL}}" alt="{{$game.Away}}" onerror="this.style.display='none'"/>
+                        <div class="pick-value">
+                            {{if ne $game.State "scheduled"}}
+                                {{$differential := minus $game.HomeScore $game.AwayScore}}
+                                {{$colorClass := ""}}
+                                {{if eq $game.State "in_play"}}
+                                    {{$coverStatus := isPickedTeamCovering $pick $game}}
+                                    {{if eq $coverStatus "covering"}}
+                                        {{$colorClass = "pick-status-winning"}}
+                                    {{else if eq $coverStatus "push"}}
+                                        {{$colorClass = "pick-status-push"}}
+                                    {{else}}
+                                        {{$colorClass = "pick-status-losing"}}
+                                    {{end}}
+                                {{end}}
+                                <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                                <span class="separator">/</span>
+                                <span class="target-value">{{$game.FormatAwaySpread}}</span>
+                            {{else}}
+                                <span class="target-value">{{$game.FormatAwaySpread}}</span>
+                            {{end}}
+                        </div>
+                    {{else if and $game (or (contains $pick.TeamName $game.Home) (eq $pick.TeamName $game.Home))}}
+                        <img class="team-img" src="{{$game.GetHomeTeamIconURL}}" alt="{{$game.Home}}" onerror="this.style.display='none'"/>
+                        <div class="pick-value">
+                            {{if ne $game.State "scheduled"}}
+                                {{$differential := minus $game.AwayScore $game.HomeScore}}
+                                {{$colorClass := ""}}
+                                {{if eq $game.State "in_play"}}
+                                    {{$coverStatus := isPickedTeamCovering $pick $game}}
+                                    {{if eq $coverStatus "covering"}}
+                                        {{$colorClass = "pick-status-winning"}}
+                                    {{else if eq $coverStatus "push"}}
+                                        {{$colorClass = "pick-status-push"}}
+                                    {{else}}
+                                        {{$colorClass = "pick-status-losing"}}
+                                    {{end}}
+                                {{end}}
+                                <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                                <span class="separator">/</span>
+                                <span class="target-value">{{$game.FormatHomeSpread}}</span>
+                            {{else}}
+                                <span class="target-value">{{$game.FormatHomeSpread}}</span>
+                            {{end}}
+                        </div>
+                    {{else}}
+                        <!-- Fallback for unknown team -->
+                        <img class="team-img" src="https://api.iconify.design/mdi/help.svg" alt="?"/>
+                        <div class="pick-value">
+                            <span class="target-value">{{$pick.TeamName}}</span>
+                        </div>
                     {{end}}
-                </div>
-            </label>
+                {{end}}
+            </div>
         </div>
-        
-        <!-- O/U Display -->
-        <div class="pick-ou-display">
-            {{if $game.Odds}}+{{$game.Odds.OU}}{{else}}-{{end}}
+        <!-- Always present pick expansion, visibility controlled by state -->
+        <div class="live-pick-expansion {{if ne $game.State "in_play"}}hidden{{end}}" id="live-expansion-{{$pick.ID.Hex}}">
+            <span class="game-clock" id="game-time-{{$pick.ID.Hex}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
+
+            {{if $game.HasStatus}}
+                {{$possessionStr := $game.GetPossessionString}}
+                {{if ne $possessionStr ""}}
+                    <span class="status-divider"> || </span>
+                    <span class="game-possession" id="possession-{{$pick.ID.Hex}}">{{$possessionStr}}</span>
+                {{end}}
+                {{if and $game.HasStatus $game.Status.IsRedZone}}
+                    <span class="status-divider"> || </span>
+                    <span class="red-zone-indicator">RED ZONE</span>
+                {{end}}
+            {{end}}
+
+            {{/* Show O/U projection for O/U picks only */}}
+            {{if isOverUnder $pick}}
+                <span class="status-divider"> || </span>
+                {{template "ou-projection-status" $game}}
+            {{end}}
         </div>
-        
-        <!-- Under Pick -->
-        <div class="pick-team-option">
-            <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
-                <input type="checkbox" 
-                       name="pick-{{$game.ID}}-98" 
-                       value="1"
-                       class="pick-checkbox"
-                       {{if ne $game.State "scheduled"}}disabled{{end}}
-                       {{if index (index $pickState $game.ID) 98}}checked{{end}}>
-                <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="UND">
-            </label>
-        </div>
-        
-        <!-- Over Pick -->
-        <div class="pick-team-option">
-            <label class="pick-checkbox-label {{if ne $game.State "scheduled"}}disabled{{end}}">
-                <input type="checkbox" 
-                       name="pick-{{$game.ID}}-99" 
-                       value="1"
-                       class="pick-checkbox"
-                       {{if ne $game.State "scheduled"}}disabled{{end}}
-                       {{if index (index $pickState $game.ID) 99}}checked{{end}}>
-                <img class="pick-team-img" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="OVR">
-            </label>
-        </div>
-    </div>
     {{end}}
 
     <!-- Unified Pick Item Template -->
@@ -601,7 +539,6 @@
                 {{end}}
             </div>
             <div class="pick-details">
-                <!-- DEBUG: TeamName='{{$pick.TeamName}}' PickType='{{$pick.PickType}}' TeamID={{$pick.TeamID}} -->
                 {{if $pick.TeamName}}
                     {{if eq $pick.PickType "over_under"}}
                         <!-- Over/Under pick display -->
@@ -732,74 +669,30 @@
                 {{end}}
             </div>
         </div>
-        {{if and $game (eq $game.State "in_play")}}
-            <div class="live-pick-expansion" id="live-expansion-{{$pick.ID.Hex}}">
-                <span class="game-clock" id="game-time-{{$pick.ID.Hex}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
-                
-                {{if $game.HasStatus}}
-                    {{$possessionStr := $game.GetPossessionString}}
-                    {{if ne $possessionStr ""}}
-                        <span class="status-divider"> || </span>
-                        <span class="game-possession" id="possession-{{$pick.ID.Hex}}">{{$possessionStr}}</span>
-                    {{end}}
-                    {{if and $game.HasStatus $game.Status.IsRedZone}}
-                        <span class="status-divider"> || </span>
-                        <span class="red-zone-indicator">RED ZONE</span>
-                    {{end}}
-                {{end}}
-                
-                {{/* Show O/U projection for O/U picks only */}}
-                {{if isOverUnder $pick}}
-                    <span class="status-divider"> || </span>
-                    {{template "ou-projection-status" $game}}
-                {{end}}
-            </div>
-        {{end}}
-    {{end}}
+        <!-- Always present pick expansion, visibility controlled by state -->
+        <div class="live-pick-expansion {{if ne $game.State "in_play"}}hidden{{end}}" id="live-expansion-{{$pick.ID.Hex}}">
+            <span class="game-clock" id="game-time-{{$pick.ID.Hex}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
 
-    <!-- Pick Picker Modal Template -->
-    {{define "pick-picker"}}
-        <div id="pick-picker-overlay" class="pick-picker-overlay">
-            <div class="pick-picker-modal">
-                <div class="pick-picker-header">
-                    <h2>Week {{.CurrentWeek}}</h2>
-                    <button class="close-picker">×</button>
-                </div>
-                <form id="pick-form" 
-                      hx-post="/submit-picks" 
-                      hx-target="#pick-result" 
-                      hx-swap="innerHTML">
-                    <input type="hidden" name="week" value="{{.CurrentWeek}}">
-                    <input type="hidden" name="season" value="{{.CurrentSeason}}">
-                    
-                    <div class="pick-picker-content">
-                        {{if .Games}}
-                            {{/* Check if this is a modern season (2025+) for daily grouping */}}
-                            {{if ge .CurrentSeason 2025}}
-                                {{/* MODERN: 2025+ Daily Picker with Day Sections */}}
-                                {{template "modern-daily-picker" dict "Games" .Games "PickState" .PickState "CurrentSeason" .CurrentSeason}}
-                            {{else}}
-                                {{/* LEGACY: 2023-2024 All Games in One List */}}
-                                <div class="pick-picker-grid">
-                                    {{range .Games}}
-                                        {{template "pick-game-row" dict "Game" . "PickState" $.PickState}}
-                                    {{end}}
-                                </div>
-                            {{end}}
-                        {{else}}
-                            <p>No games available for picking this week.</p>
-                        {{end}}
-                    </div>
-                    
-                    <div class="pick-picker-footer">
-                        <div id="pick-result"></div>
-                        <button type="submit" class="submit-picks-btn">Submit Picks</button>
-                        <button type="button" class="cancel-picks-btn">Cancel</button>
-                    </div>
-                </form>
-            </div>
+            {{if $game.HasStatus}}
+                {{$possessionStr := $game.GetPossessionString}}
+                {{if ne $possessionStr ""}}
+                    <span class="status-divider"> || </span>
+                    <span class="game-possession" id="possession-{{$pick.ID.Hex}}">{{$possessionStr}}</span>
+                {{end}}
+                {{if and $game.HasStatus $game.Status.IsRedZone}}
+                    <span class="status-divider"> || </span>
+                    <span class="red-zone-indicator">RED ZONE</span>
+                {{end}}
+            {{end}}
+
+            {{/* Show O/U projection for O/U picks only */}}
+            {{if isOverUnder $pick}}
+                <span class="status-divider"> || </span>
+                {{template "ou-projection-status" $game}}
+            {{end}}
         </div>
     {{end}}
+
 
     <script>
         // SSE events now use week-specific IDs, so cross-week contamination is prevented automatically
@@ -1335,144 +1228,11 @@
 </body>
 </html>
 
-{{define "sse-game-clock"}}
-<span class="status-item game-clock" id="game-time-{{.ID}}" hx-swap-oob="true">{{if eq .Quarter 5}}OT{{else if eq .Quarter 6}}2OT{{else}}Q{{.Quarter}}{{end}}{{if .HasStatus}}{{if ne .GetGameClock ""}} {{.GetGameClock}}{{end}}{{end}}</span>
-{{end}}
-
-{{define "sse-possession-info"}}
-{{if .HasStatus}}{{$possessionStr := .GetPossessionString}}{{if ne $possessionStr ""}}<span class="status-item" id="possession-{{.ID}}" hx-swap-oob="true">{{$possessionStr}}</span>{{end}}{{end}}
-{{end}}
-
-{{define "ou-projection-status"}}
-{{if .HasOdds}}
-    {{$currentTotal := add .HomeScore .AwayScore}}
-    {{$currentTotalFloat := float64 $currentTotal}}
-    {{$overUnder := .Odds.OU}}
-    {{if ge $currentTotalFloat $overUnder}}
-        <span class="status-item ou-current" style="color: #e74c3c; font-weight: bold;">OVER</span>
-    {{else}}
-        {{/* Check if game is trending over or under based on projection */}}
-        {{if .HasStatus}}
-            {{$projectedTotal := projectFinalScore .HomeScore .AwayScore .Quarter .GetGameClock}}
-            {{if ge $projectedTotal $overUnder}}
-                <span class="status-item ou-current" style="color: #ff9800; font-weight: bold;">trending OVER ({{printf "%.0f" $projectedTotal}})</span>
-            {{else}}
-                <span class="status-item ou-current">trending UNDER ({{printf "%.0f" $projectedTotal}})</span>
-            {{end}}
-        {{else}}
-            {{/* Without game status, assume trending under if below total */}}
-            <span class="status-item ou-current">trending UNDER ({{$overUnder}})</span>
-        {{end}}
-    {{end}}
-{{end}}
-{{end}}
-
-{{define "club-scores-content"}}
-{{if .UserPicks}}
-    {{$sortedUsers := sortUsersByScore .UserPicks}}
-    {{range $sortedUsers}}
-        <div class="score-item">
-            <span class="user-name">{{.UserName}}</span>
-            <span class="user-score">
-                {{.Record.ParlayPoints}}
-                {{if .Record.WeeklyPoints}}
-                    <span class="weekly-gain">(+{{.Record.WeeklyPoints}})</span>
-                {{end}}
-            </span>
-        </div>
-    {{end}}
-{{else}}
-    {{range .Users}}
-        <div class="score-item">
-            <span class="user-name">{{.Name}}</span>
-            <span class="user-score">0</span>
-        </div>
-    {{end}}
-{{end}}
-{{end}}
 
 
 
 
-{{define "game-results-display"}}
-<div class="game-time completed-game-grid">
-    <div class="spread-result-column">
-        {{$spreadResult := .SpreadResult}}
-        {{/* For in-progress games, calculate spread result in template since model method only works for completed games */}}
-        {{if eq $spreadResult ""}}
-            {{if .HasOdds}}
-                {{$calculatedResult := calculateSpreadResult .HomeScore .AwayScore .Odds.Spread}}
-                {{if eq $calculatedResult "home-covered"}}
-                    {{$differential := minus .AwayScore .HomeScore}}
-                    <span class="covering-pick">
-                        <img class="covering-icon" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'">
-                        <span class="covering-team-text">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
-                        <span class="covering-team-mobile">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
-                    </span>
-                {{else if eq $calculatedResult "away-covered"}}
-                    {{$differential := minus .HomeScore .AwayScore}}
-                    <span class="covering-pick">
-                        <img class="covering-icon" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'">
-                        <span class="covering-team-text">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
-                        <span class="covering-team-mobile">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
-                    </span>
-                {{else if eq $calculatedResult "push"}}
-                    <span class="covering-pick push-pick">
-                        <span class="covering-team-text">PUSH</span>
-                        <span class="covering-team-mobile">PUSH</span>
-                    </span>
-                {{end}}
-            {{end}}
-        {{else}}
-            {{/* Use existing spread result for completed games */}}
-            {{if eq $spreadResult "home-covered"}}
-                {{$differential := minus .AwayScore .HomeScore}}
-                <span class="covering-pick">
-                    <img class="covering-icon" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'">
-                    <span class="covering-team-text">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
-                    <span class="covering-team-mobile">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
-                </span>
-            {{else if eq $spreadResult "away-covered"}}
-                {{$differential := minus .HomeScore .AwayScore}}
-                <span class="covering-pick">
-                    <img class="covering-icon" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'">
-                    <span class="covering-team-text">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
-                    <span class="covering-team-mobile">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
-                </span>
-            {{else if eq $spreadResult "push"}}
-                <span class="covering-pick push-pick">
-                    <span class="covering-team-text">PUSH</span>
-                    <span class="covering-team-mobile">PUSH</span>
-                </span>
-            {{end}}
-        {{end}}
-    </div>
-    <div class="ou-result-column">
-        {{if .HasOdds}}
-            {{$totalPoints := add .HomeScore .AwayScore}}
-            {{$totalPointsFloat := float64 $totalPoints}}
-            {{if gt $totalPointsFloat .Odds.OU}}
-                <span class="covering-pick ou-pick">
-                    <img class="covering-icon" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="Over">
-                    <span class="covering-ou-text">{{$totalPoints}}</span>
-                    <span class="covering-ou-mobile">{{$totalPoints}}</span>
-                </span>
-            {{else if lt $totalPointsFloat .Odds.OU}}
-                <span class="covering-pick ou-pick">
-                    <img class="covering-icon" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="Under">
-                    <span class="covering-ou-text">{{$totalPoints}}</span>
-                    <span class="covering-ou-mobile">{{$totalPoints}}</span>
-                </span>
-            {{else}}
-                <span class="covering-pick push-pick">
-                    <span class="covering-ou-text">{{$totalPoints}}</span>
-                    <span class="covering-ou-mobile">{{$totalPoints}}</span>
-                </span>
-            {{end}}
-        {{end}}
-    </div>
-</div>
-{{end}}
+
 
 {{define "modern-daily-picks"}}
 {{$dailyPickGroups := .DailyPickGroups}}

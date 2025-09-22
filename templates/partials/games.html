@@ -1,0 +1,277 @@
+{{/* Game Grid Template - Displays the main games grid with inline structure */}}
+{{define "game-grid"}}
+    <div class="games-list-container" id="games-container">
+        {{range .Games}}
+            <div class="game-row inline-game {{if eq .State "in_play"}}in-progress{{else}}{{.State}}{{end}}" id="game-{{.ID}}">
+                <div class="game-matchup">
+                    <div class="matchup-team">
+                        <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
+                        <div class="team-name-spread">
+                            <span class="team-name-container">
+                                <span class="team-abbr">{{.Away}}</span>
+                            </span>
+                            {{if .HasOdds}}<span class="team-spread">{{.FormatAwaySpread}}</span>{{end}}
+                        </div>
+                        {{if ne .State "scheduled"}}
+                            <span class="team-score" id="away-score-{{.ID}}-{{.Season}}-{{.Week}}">{{.AwayScore}}</span>
+                        {{else}}
+                            <span class="team-score" id="away-score-{{.ID}}-{{.Season}}-{{.Week}}"></span>
+                        {{end}}
+                    </div>
+                    <div class="matchup-team">
+                        <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
+                        <div class="team-name-spread">
+                            <span class="team-name-container">
+                                <span class="team-abbr">{{.Home}}</span>
+                            </span>
+                            {{if .HasOdds}}<span class="team-spread">{{.FormatHomeSpread}}</span>{{end}}
+                        </div>
+                        {{if ne .State "scheduled"}}
+                            <span class="team-score" id="home-score-{{.ID}}-{{.Season}}-{{.Week}}">{{.HomeScore}}</span>
+                        {{else}}
+                            <span class="team-score" id="home-score-{{.ID}}-{{.Season}}-{{.Week}}"></span>
+                        {{end}}
+                    </div>
+                </div>
+                <div class="game-details">
+                    {{if .HasOdds}}
+                        <span class="ou-value">+{{.Odds.OU}}</span>
+                    {{else}}
+                        <span class="ou-value">-</span>
+                    {{end}}
+                </div>
+                <div class="game-status-section" id="game-status-{{.ID}}-{{.Season}}-{{.Week}}">
+                    {{if eq .State "scheduled"}}
+                        <div class="game-time">{{.FormatGameTime}}</div>
+                    {{else if eq .State "in_play"}}
+                        {{template "game-results-display" .}}
+                    {{else if eq .State "completed"}}
+                        {{template "game-results-display" .}}
+                    {{end}}
+                </div>
+            </div>
+            <!-- Always present game expansion, visibility controlled by state -->
+            <div class="live-game-expansion {{if ne .State "in_play"}}hidden{{end}}" id="game-expansion-{{.ID}}">
+                <!-- Game Clock and Quarter -->
+                <span class="status-item game-clock" id="game-time-{{.ID}}">
+                    {{if eq .Quarter 5}}OT{{else if eq .Quarter 6}}2OT{{else}}Q{{.Quarter}}{{end}}
+                    {{if .HasStatus}}{{if ne .GetGameClock ""}} {{.GetGameClock}}{{end}}{{end}}
+                </span>
+
+                <!-- Game Status and Possession -->
+                {{if .HasStatus}}
+                    {{$possessionStr := .GetPossessionString}}
+                    {{if ne $possessionStr ""}}
+                        <span class="status-divider"> || </span>
+                        <span class="status-item" id="possession-{{.ID}}">{{$possessionStr}}</span>
+                    {{end}}
+                {{end}}
+
+                {{if or (.HasOdds) (.HasStatus)}}
+                    <span class="status-divider"> || </span>
+                {{end}}
+
+                <!-- O/U Status with tracking -->
+                {{template "ou-projection-status" .}}
+
+                <!-- Red Zone Indicator -->
+                {{if .HasStatus}}
+                    {{if .Status.IsRedZone}}
+                        <span class="status-divider"> || </span>
+                        <span class="status-item" style="color: #e74c3c; font-weight: bold;">RED ZONE</span>
+                    {{end}}
+                {{end}}
+            </div>
+        {{end}}
+    </div>
+{{end}}
+
+{{/* Single Game Row Template - For SSE updates that need to handle state transitions */}}
+{{define "game-row-update"}}
+<div class="game-row inline-game {{if eq .State "in_play"}}in-progress{{else}}{{.State}}{{end}}" id="game-{{.ID}}" hx-swap-oob="true">
+    <div class="game-matchup">
+        <div class="matchup-team">
+            <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
+            <div class="team-name-spread">
+                <span class="team-name-container">
+                    <span class="team-abbr">{{.Away}}</span>
+                </span>
+                {{if .HasOdds}}<span class="team-spread">{{.FormatAwaySpread}}</span>{{end}}
+            </div>
+            {{if ne .State "scheduled"}}
+                <span class="team-score" id="away-score-{{.ID}}-{{.Season}}-{{.Week}}">{{.AwayScore}}</span>
+            {{else}}
+                <span class="team-score" id="away-score-{{.ID}}-{{.Season}}-{{.Week}}"></span>
+            {{end}}
+        </div>
+        <div class="matchup-team">
+            <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
+            <div class="team-name-spread">
+                <span class="team-name-container">
+                    <span class="team-abbr">{{.Home}}</span>
+                </span>
+                {{if .HasOdds}}<span class="team-spread">{{.FormatHomeSpread}}</span>{{end}}
+            </div>
+            {{if ne .State "scheduled"}}
+                <span class="team-score" id="home-score-{{.ID}}-{{.Season}}-{{.Week}}">{{.HomeScore}}</span>
+            {{else}}
+                <span class="team-score" id="home-score-{{.ID}}-{{.Season}}-{{.Week}}"></span>
+            {{end}}
+        </div>
+    </div>
+    <div class="game-details">
+        {{if .HasOdds}}
+            <span class="ou-value">+{{.Odds.OU}}</span>
+        {{else}}
+            <span class="ou-value">-</span>
+        {{end}}
+    </div>
+    <div class="game-status-section" id="game-status-{{.ID}}-{{.Season}}-{{.Week}}">
+        {{if eq .State "scheduled"}}
+            <div class="game-time">{{.FormatGameTime}}</div>
+        {{else if eq .State "in_play"}}
+            {{template "game-results-display" .}}
+        {{else if eq .State "completed"}}
+            {{template "game-results-display" .}}
+        {{end}}
+    </div>
+</div>
+<!-- Always present game expansion, visibility controlled by state -->
+<div class="live-game-expansion {{if ne .State "in_play"}}hidden{{end}}" id="game-expansion-{{.ID}}" hx-swap-oob="true">
+    <!-- Game Clock and Quarter -->
+    <span class="status-item game-clock" id="game-time-{{.ID}}">
+        {{if eq .Quarter 5}}OT{{else if eq .Quarter 6}}2OT{{else}}Q{{.Quarter}}{{end}}
+        {{if .HasStatus}}{{if ne .GetGameClock ""}} {{.GetGameClock}}{{end}}{{end}}
+    </span>
+
+    <!-- Game Status and Possession -->
+    {{if .HasStatus}}
+        {{$possessionStr := .GetPossessionString}}
+        {{if ne $possessionStr ""}}
+            <span class="status-divider"> || </span>
+            <span class="status-item" id="possession-{{.ID}}">{{$possessionStr}}</span>
+        {{end}}
+    {{end}}
+
+    {{if or (.HasOdds) (.HasStatus)}}
+        <span class="status-divider"> || </span>
+    {{end}}
+
+    <!-- O/U Status with tracking -->
+    {{template "ou-projection-status" .}}
+
+    <!-- Red Zone Indicator -->
+    {{if .HasStatus}}
+        {{if .Status.IsRedZone}}
+            <span class="status-divider"> || </span>
+            <span class="status-item" style="color: #e74c3c; font-weight: bold;">RED ZONE</span>
+        {{end}}
+    {{end}}
+</div>
+{{end}}
+
+{{/* Game Results Display Template - Shows spread/over-under results for completed/in-progress games */}}
+{{define "game-results-display"}}
+<div class="game-time completed-game-grid">
+    <div class="spread-result-column">
+        {{$spreadResult := .SpreadResult}}
+        {{/* For in-progress games, calculate spread result in template since model method only works for completed games */}}
+        {{if eq $spreadResult ""}}
+            {{if .HasOdds}}
+                {{$calculatedResult := calculateSpreadResult .HomeScore .AwayScore .Odds.Spread}}
+                {{if eq $calculatedResult "home-covered"}}
+                    {{$differential := minus .AwayScore .HomeScore}}
+                    <span class="covering-pick">
+                        <img class="covering-icon" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'">
+                        <span class="covering-team-text">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                        <span class="covering-team-mobile">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                    </span>
+                {{else if eq $calculatedResult "away-covered"}}
+                    {{$differential := minus .HomeScore .AwayScore}}
+                    <span class="covering-pick">
+                        <img class="covering-icon" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'">
+                        <span class="covering-team-text">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                        <span class="covering-team-mobile">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                    </span>
+                {{else if eq $calculatedResult "push"}}
+                    <span class="covering-pick push-pick">
+                        <span class="covering-team-text">PUSH</span>
+                        <span class="covering-team-mobile">PUSH</span>
+                    </span>
+                {{end}}
+            {{end}}
+        {{else}}
+            {{/* Use existing spread result for completed games */}}
+            {{if eq $spreadResult "home-covered"}}
+                {{$differential := minus .AwayScore .HomeScore}}
+                <span class="covering-pick">
+                    <img class="covering-icon" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'">
+                    <span class="covering-team-text">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                    <span class="covering-team-mobile">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                </span>
+            {{else if eq $spreadResult "away-covered"}}
+                {{$differential := minus .HomeScore .AwayScore}}
+                <span class="covering-pick">
+                    <img class="covering-icon" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'">
+                    <span class="covering-team-text">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                    <span class="covering-team-mobile">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                </span>
+            {{else if eq $spreadResult "push"}}
+                <span class="covering-pick push-pick">
+                    <span class="covering-team-text">PUSH</span>
+                    <span class="covering-team-mobile">PUSH</span>
+                </span>
+            {{end}}
+        {{end}}
+    </div>
+    <div class="ou-result-column">
+        {{if .HasOdds}}
+            {{$totalPoints := add .HomeScore .AwayScore}}
+            {{$totalPointsFloat := float64 $totalPoints}}
+            {{if gt $totalPointsFloat .Odds.OU}}
+                <span class="covering-pick ou-pick">
+                    <img class="covering-icon" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="Over">
+                    <span class="covering-ou-text">{{$totalPoints}}</span>
+                    <span class="covering-ou-mobile">{{$totalPoints}}</span>
+                </span>
+            {{else if lt $totalPointsFloat .Odds.OU}}
+                <span class="covering-pick ou-pick">
+                    <img class="covering-icon" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="Under">
+                    <span class="covering-ou-text">{{$totalPoints}}</span>
+                    <span class="covering-ou-mobile">{{$totalPoints}}</span>
+                </span>
+            {{else}}
+                <span class="covering-pick push-pick">
+                    <span class="covering-ou-text">{{$totalPoints}}</span>
+                    <span class="covering-ou-mobile">{{$totalPoints}}</span>
+                </span>
+            {{end}}
+        {{end}}
+    </div>
+</div>
+{{end}}
+
+{{/* Over/Under Projection Status Template - Shows O/U trending status */}}
+{{define "ou-projection-status"}}
+{{if .HasOdds}}
+    {{$currentTotal := add .HomeScore .AwayScore}}
+    {{$currentTotalFloat := float64 $currentTotal}}
+    {{$overUnder := .Odds.OU}}
+    {{if ge $currentTotalFloat $overUnder}}
+        <span class="status-item ou-current" style="color: #e74c3c; font-weight: bold;">OVER</span>
+    {{else}}
+        {{/* Check if game is trending over or under based on projection */}}
+        {{if .HasStatus}}
+            {{$projectedTotal := projectFinalScore .HomeScore .AwayScore .Quarter .GetGameClock}}
+            {{if ge $projectedTotal $overUnder}}
+                <span class="status-item ou-current" style="color: #ff9800; font-weight: bold;">trending OVER ({{printf "%.0f" $projectedTotal}})</span>
+            {{else}}
+                <span class="status-item ou-current">trending UNDER ({{printf "%.0f" $projectedTotal}})</span>
+            {{end}}
+        {{else}}
+            {{/* Without game status, assume trending under if below total */}}
+            <span class="status-item ou-current">trending UNDER ({{$overUnder}})</span>
+        {{end}}
+    {{end}}
+{{end}}
+{{end}}

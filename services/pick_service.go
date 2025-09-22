@@ -205,8 +205,6 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 // GetAllUserPicksForWeek retrieves all users' picks for a specific week
 func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week int) ([]*models.UserPicks, error) {
 	logger := logging.WithPrefix("PickService")
-	// DEBUG: Log all calls to this function to identify bad data sources
-	logger.Debugf("GetAllUserPicksForWeek called - Season=%d, Week=%d", season, week)
 
 	// Check for invalid data and print stack trace
 	if season == 0 || week == 0 {

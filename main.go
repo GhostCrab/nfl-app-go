@@ -45,6 +45,11 @@ func main() {
 		if err != nil {
 			logging.Fatal("Error parsing templates:", err)
 		}
+		// Parse partial templates
+		templates, err = templates.ParseGlob("templates/partials/*.html")
+		if err != nil {
+			logging.Fatal("Error parsing templates:", err)
+		}
 
 		// Create demo service as fallback
 		gameService := services.NewDemoGameService()
@@ -104,6 +109,11 @@ func main() {
 	templateFuncs := templates.GetTemplateFuncs()
 
 	templates, err := template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html")
+	if err != nil {
+		logging.Fatal("Error parsing templates:", err)
+	}
+	// Parse partial templates
+	templates, err = templates.ParseGlob("templates/partials/*.html")
 	if err != nil {
 		logging.Fatal("Error parsing templates:", err)
 	}

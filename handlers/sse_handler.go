@@ -154,7 +154,12 @@ func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
 	}
 }
 
-// BroadcastToAllClientsWithID sends a message with sequence ID to all connected SSE clients
+// getNextMessageID returns the next atomic message ID for SSE ordering
+func (h *SSEHandler) getNextMessageID() uint64 {
+	return atomic.AddUint64(&h.messageCounter, 1)
+}
+
+// BroadcastToAllClients sends a message with sequence ID to all connected SSE clients
 func (h *SSEHandler) BroadcastToAllClients(eventType, data string) {
 	clientCount := len(h.sseClients)
 	if clientCount == 0 {
@@ -162,7 +167,7 @@ func (h *SSEHandler) BroadcastToAllClients(eventType, data string) {
 	}
 
 	// Generate next message ID
-	msgID := atomic.AddUint64(&h.messageCounter, 1)
+	msgID := h.getNextMessageID()
 
 	// Add message ID to the SSE message
 	messageWithID := fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", msgID, eventType, compactHTMLForSSE(data))
@@ -300,6 +305,9 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		return
 	}
 
+	// Get a single message ID for all clients to maintain message ordering
+	msgID := h.getNextMessageID()
+
 	sentCount := 0
 	for client := range h.sseClients {
 		// Apply visibility filtering for this specific viewing user
@@ -345,9 +353,9 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		// Send personalized content to this specific client using proper SSE format
 		htmlContent := htmlBuffer.String()
 
-		// Create proper SSE message with HTML content (no JSON wrapping)
+		// Create proper SSE message with HTML content and message ID for proper ordering
 		// HTMX SSE extension expects event: and data: lines with raw HTML
-		message := fmt.Sprintf("event: user-picks-updated\ndata: %s\n\n", compactHTMLForSSE(htmlContent))
+		message := fmt.Sprintf("id: %d\nevent: user-picks-updated\ndata: %s\n\n", msgID, compactHTMLForSSE(htmlContent))
 
 		// Send to this specific client only
 		if h.sendMessageToClient(client, message) {
@@ -498,69 +506,53 @@ func (h *SSEHandler) broadcastConsolidatedGameUpdate(game *models.Game) {
 
 	logger := logging.WithPrefix("SSE")
 
-	// Send game status and scores as single consolidated update
+	// Use the complete game-row-update template for state transitions
 	htmlBuffer := &strings.Builder{}
-
-	// Game status section
-	fmt.Fprintf(htmlBuffer, `<div class="game-status-section" id="game-status-%d-%d-%d" hx-swap-oob="true">`, game.ID, game.Season, game.Week)
-	if game.State == "scheduled" {
-		fmt.Fprintf(htmlBuffer, `<div class="game-time">%s</div>`, game.FormatGameTime())
-	} else if game.State == "in_play" || game.State == "completed" {
-		htmlBuffer.WriteString(`<span class="live-indicator">LIVE</span><br>`)
-		if game.Quarter == 5 {
-			htmlBuffer.WriteString(`OT`)
-		} else if game.Quarter == 6 {
-			htmlBuffer.WriteString(`2OT`)
-		} else {
-			fmt.Fprintf(htmlBuffer, `Q%d`, game.Quarter)
-		}
+	if err := h.templates.ExecuteTemplate(htmlBuffer, "game-row-update", game); err != nil {
+		logger.Errorf("Error rendering game-row-update template for game %d: %v", game.ID, err)
+		return
 	}
-	htmlBuffer.WriteString(`</div>`)
 
-	// Team scores
-	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="away-score-%d-%d-%d" hx-swap-oob="true">%d</span>`,
-		game.ID, game.Season, game.Week, game.AwayScore)
-	fmt.Fprintf(htmlBuffer, `<span class="team-score" id="home-score-%d-%d-%d" hx-swap-oob="true">%d</span>`,
-		game.ID, game.Season, game.Week, game.HomeScore)
+	// Send the complete game row update
+	h.BroadcastToAllClients("game-state-update", htmlBuffer.String())
+	logger.Debugf("Broadcasted complete game state update for game %d (state: %s)", game.ID, game.State)
 
-	// Global game clock (if live)
-	if game.State == "in_play" {
-		clockText := game.GetGameClock()
-		if game.Quarter == 5 {
-			clockText += " OT"
-		} else if game.Quarter == 6 {
-			clockText += " 2OT"
-		} else if game.Quarter > 0 {
-			clockText += fmt.Sprintf(" Q%d", game.Quarter)
-		}
-		fmt.Fprintf(htmlBuffer, `<span class="status-item game-clock" id="game-time-%d-%d-%d" hx-swap-oob="true">%s</span>`,
-			game.ID, game.Season, game.Week, clockText)
+	// Send pick item updates for all affected picks when game state changes
+	h.broadcastPickUpdatesForGame(game)
+}
 
-		// Global possession
-		if game.HasStatus() {
-			possessionStr := game.GetPossessionString()
-			if possessionStr != "" {
-				fmt.Fprintf(htmlBuffer, `<span class="game-possession" id="possession-%d" hx-swap-oob="true">%s</span>`,
-					game.ID, possessionStr)
+// broadcastPickUpdatesForGame broadcasts pick item updates for all picks associated with a game
+func (h *SSEHandler) broadcastPickUpdatesForGame(game *models.Game) {
+	if game == nil || h.pickService == nil {
+		return
+	}
+
+	logger := logging.WithPrefix("SSE:PickGameUpdate")
+
+	// Get all user picks for this week to find picks for this game
+	ctx := context.Background()
+	allUserPicks, err := h.pickService.GetAllUserPicksForWeek(ctx, game.Season, game.Week)
+	if err != nil {
+		logger.Errorf("Failed to get picks for game %d: %v", game.ID, err)
+		return
+	}
+
+	// Find and broadcast updates for all picks associated with this game
+	pickCount := 0
+	for _, userPicks := range allUserPicks {
+		for _, pick := range userPicks.Picks {
+			if pick.GameID == game.ID {
+				// Broadcast pick item update for each client's perspective
+				for client := range h.sseClients {
+					h.BroadcastPickItemUpdate(game, &pick, client.UserID)
+				}
+				pickCount++
 			}
 		}
 	}
 
-	// Send consolidated update
-	h.BroadcastToAllClients("dashboard-update", htmlBuffer.String())
-	logger.Debugf("Broadcasted consolidated game update for game %d", game.ID)
-
-	// Send live pick expansion updates separately (but only for live games)
-	if game.State == "in_play" {
-		// Small delay to prevent overwhelming HTMX
-		time.Sleep(50 * time.Millisecond)
-
-		// Send targeted pick updates
-		for client := range h.sseClients {
-			if client.UserID > 0 {
-				h.BroadcastLivePickExpansionForUser(game, client.UserID)
-			}
-		}
+	if pickCount > 0 {
+		logger.Debugf("Broadcasted pick updates for %d picks associated with game %d", pickCount, game.ID)
 	}
 }
 
@@ -718,6 +710,53 @@ func (h *SSEHandler) handleGameCompletion(season, week int, gameID string) {
 	if updatedCount > 0 {
 		h.BroadcastParlayScoreUpdate(season, week)
 	}
+}
+
+// BroadcastPickItemUpdate broadcasts complete pick item updates for state transitions
+func (h *SSEHandler) BroadcastPickItemUpdate(game *models.Game, pick *models.Pick, viewingUserID int) {
+	if game == nil || pick == nil {
+		return
+	}
+
+	logger := logging.WithPrefix("SSE:PickItem")
+
+	// Get games array for template compatibility (unified-pick-item expects this)
+	games, err := h.gameService.GetGamesBySeason(game.Season)
+	if err != nil {
+		logger.Errorf("Error fetching games for pick item update: %v", err)
+		return
+	}
+
+	// Create template data for the pick item update
+	templateData := map[string]interface{}{
+		"Pick":          pick,
+		"Games":         games,
+		"IsCurrentUser": viewingUserID == pick.UserID,
+	}
+
+	// Render the pick-item-update template
+	htmlBuffer := &strings.Builder{}
+	if err := h.templates.ExecuteTemplate(htmlBuffer, "pick-item-update", templateData); err != nil {
+		logger.Errorf("Error rendering pick-item-update template for pick %s: %v", pick.ID.Hex(), err)
+		return
+	}
+
+	// Get message ID for consistent ordering
+	msgID := h.getNextMessageID()
+
+	// Send personalized update to specific client
+	message := fmt.Sprintf("id: %d\nevent: pick-item-updated\ndata: %s\n\n", msgID, compactHTMLForSSE(htmlBuffer.String()))
+
+	// Send to all clients (they'll filter based on visibility on their end)
+	sentCount := 0
+	for client := range h.sseClients {
+		if h.sendMessageToClient(client, message) {
+			sentCount++
+		}
+	}
+
+	logger.Debugf("Broadcasted pick item update for pick %s (game %d, state: %s) to %d clients",
+		pick.ID.Hex(), game.ID, game.State, sentCount)
 }
 
 // BroadcastPickStatusUpdate broadcasts targeted pick status updates when game results change

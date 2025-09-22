@@ -1,0 +1,9 @@
+{{/* SSE Game Clock Template - Updates game clock via OOB swap */}}
+{{define "sse-game-clock"}}
+<span class="status-item game-clock" id="game-time-{{.ID}}" hx-swap-oob="true">{{if eq .Quarter 5}}OT{{else if eq .Quarter 6}}2OT{{else}}Q{{.Quarter}}{{end}}{{if .HasStatus}}{{if ne .GetGameClock ""}} {{.GetGameClock}}{{end}}{{end}}</span>
+{{end}}
+
+{{/* SSE Possession Info Template - Updates possession info via OOB swap */}}
+{{define "sse-possession-info"}}
+{{if .HasStatus}}{{$possessionStr := .GetPossessionString}}{{if ne $possessionStr ""}}<span class="status-item" id="possession-{{.ID}}" hx-swap-oob="true">{{$possessionStr}}</span>{{end}}{{end}}
+{{end}}
