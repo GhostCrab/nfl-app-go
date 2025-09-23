@@ -53,7 +53,7 @@ func main() {
 
 		// Create demo service as fallback
 		gameService := services.NewDemoGameService()
-		gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService)
+		gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService, cfg)
 		// Note: Demo mode doesn't support parlay scoring
 
 		// Setup routes without database
@@ -158,10 +158,10 @@ func main() {
 	authMiddleware := middleware.NewAuthMiddleware(authService)
 
 	// Create new specialized handlers
-	sseHandler := handlers.NewSSEHandler(templates, gameService)
+	sseHandler := handlers.NewSSEHandler(templates, gameService, cfg)
 	sseHandler.SetServices(pickService, authService, visibilityService, memoryScorer)
 
-	gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService)
+	gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService, cfg)
 	gameDisplayHandler.SetServices(pickService, authService, visibilityService, userRepo)
 	pickManagementHandler := handlers.NewPickManagementHandler(templates, gameService, pickService, authService, visibilityService, sseHandler)
 	dashboardHandler := handlers.NewDashboardHandler(templates, gameService, pickService, authService, visibilityService, nil, dataLoader)

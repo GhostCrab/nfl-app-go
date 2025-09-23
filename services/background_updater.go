@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
 	"nfl-app-go/database"
+	"nfl-app-go/logging"
 	"nfl-app-go/models"
 	"time"
 )
@@ -29,10 +29,13 @@ type BackgroundUpdater struct {
 	lastOddsUpdate      time.Time             // Track when we last fetched odds
 	processedWeeks      map[int]bool          // Track which weeks have already been scored
 	processedCategories map[WeekCategory]bool // Track which categories have already been scored
+	logger              *logging.Logger       // Structured logger for background operations
 }
 
 // NewBackgroundUpdater creates a new background updater service
 func NewBackgroundUpdater(espnService *ESPNService, gameRepo *database.MongoGameRepository, pickService *PickService, parlayService *ParlayService, currentSeason int) *BackgroundUpdater {
+	logger := logging.WithPrefix("background_updater")
+
 	return &BackgroundUpdater{
 		espnService:         espnService,
 		gameRepo:            gameRepo,
@@ -43,17 +46,18 @@ func NewBackgroundUpdater(espnService *ESPNService, gameRepo *database.MongoGame
 		running:             false,
 		processedWeeks:      make(map[int]bool),
 		processedCategories: make(map[WeekCategory]bool),
+		logger:              logger,
 	}
 }
 
 // Start begins the background updating process
 func (bu *BackgroundUpdater) Start() {
 	if bu.running {
-		log.Println("BackgroundUpdater: Already running")
+		bu.logger.Info("Already running")
 		return
 	}
 
-	log.Println("BackgroundUpdater: Starting intelligent background ESPN API polling")
+	bu.logger.Info("Starting intelligent background ESPN API polling")
 	bu.running = true
 
 	// Do an initial update
@@ -69,7 +73,7 @@ func (bu *BackgroundUpdater) Stop() {
 		return
 	}
 
-	log.Println("BackgroundUpdater: Stopping...")
+	bu.logger.Info("Stopping...")
 	bu.running = false
 
 	if bu.ticker != nil {
@@ -84,17 +88,17 @@ func (bu *BackgroundUpdater) updateGames() {
 	ctx := context.Background()
 	startTime := time.Now()
 
-	log.Printf("BackgroundUpdater: Starting ESPN API update for season %d", bu.currentSeason)
+	bu.logger.Infof("Starting ESPN API update for season %d", bu.currentSeason)
 
 	// Fetch games from ESPN
 	games, err := bu.espnService.GetScoreboardForYear(bu.currentSeason)
 	if err != nil {
-		log.Printf("BackgroundUpdater: Failed to fetch ESPN data: %v", err)
+		bu.logger.Errorf("Failed to fetch ESPN data: %v", err)
 		return
 	}
 
 	if len(games) == 0 {
-		log.Printf("BackgroundUpdater: No games received from ESPN API")
+		bu.logger.Warn("No games received from ESPN API")
 		return
 	}
 
@@ -104,7 +108,7 @@ func (bu *BackgroundUpdater) updateGames() {
 	// Get existing games from database for comparison
 	existingGames, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
 	if err != nil {
-		log.Printf("BackgroundUpdater: Failed to get existing games: %v", err)
+		bu.logger.Errorf("Failed to get existing games: %v", err)
 		return
 	}
 
@@ -140,9 +144,9 @@ func (bu *BackgroundUpdater) updateGames() {
 
 	// Log state changes to help debug game transitions
 	if len(stateChanges) > 0 {
-		log.Printf("BackgroundUpdater: Game state changes detected:")
+		bu.logger.Info("Game state changes detected:")
 		for _, change := range stateChanges {
-			log.Printf("  %s", change)
+			bu.logger.Infof("  %s", change)
 		}
 	}
 
@@ -150,7 +154,7 @@ func (bu *BackgroundUpdater) updateGames() {
 	// Removed verbose "Writing X games to database" log for cleaner monitoring
 	err = bu.gameRepo.BulkUpsertGames(gamesToUpdate)
 	if err != nil {
-		log.Printf("BackgroundUpdater: Failed to update games in database: %v", err)
+		bu.logger.Errorf("Failed to update games in database: %v", err)
 		return
 	}
 
@@ -166,10 +170,10 @@ func (bu *BackgroundUpdater) updateGames() {
 
 		if !models.IsModernSeason(bu.currentSeason) {
 			// LEGACY: 2023-2024 use category-based scoring
-			log.Printf("BackgroundUpdater: LEGACY parlay category completed for Season %d Week %d Category %s, triggering immediate scoring",
+			bu.logger.Infof("LEGACY parlay category completed for Season %d Week %d Category %s, triggering immediate scoring",
 				bu.currentSeason, weekCategory.Week, weekCategory.Category)
 			if err := bu.parlayService.ProcessParlayCategory(ctx, bu.currentSeason, weekCategory.Week, weekCategory.Category); err != nil {
-				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d Category %s: %v",
+				bu.logger.Errorf("Failed to process LEGACY parlay scoring for Season %d Week %d Category %s: %v",
 					bu.currentSeason, weekCategory.Week, weekCategory.Category, err)
 			} else {
 				// Mark category as processed
@@ -178,10 +182,10 @@ func (bu *BackgroundUpdater) updateGames() {
 		} else {
 			// MODERN: 2025+ use daily parlay scoring for completed days
 			dayName := bu.categoryToDayName(weekCategory.Category)
-			log.Printf("BackgroundUpdater: MODERN daily parlay completed for Season %d Week %d Day %s, triggering immediate daily scoring",
+			bu.logger.Infof("MODERN daily parlay completed for Season %d Week %d Day %s, triggering immediate daily scoring",
 				bu.currentSeason, weekCategory.Week, dayName)
 			if err := bu.parlayService.ProcessDailyParlayScoring(ctx, bu.currentSeason, weekCategory.Week); err != nil {
-				log.Printf("BackgroundUpdater: Failed to process MODERN daily parlay scoring for Season %d Week %d Day %s: %v",
+				bu.logger.Errorf("Failed to process MODERN daily parlay scoring for Season %d Week %d Day %s: %v",
 					bu.currentSeason, weekCategory.Week, dayName, err)
 			} else {
 				// Mark category as processed
@@ -204,29 +208,29 @@ func (bu *BackgroundUpdater) updateGames() {
 		// If scores exist, skip processing to avoid duplicate scoring
 		hasExistingScores, err := bu.parlayService.CheckWeekHasParlayScores(ctx, bu.currentSeason, week)
 		if err != nil {
-			log.Printf("BackgroundUpdater: Error checking existing scores for Season %d Week %d: %v", bu.currentSeason, week, err)
+			bu.logger.Errorf("Error checking existing scores for Season %d Week %d: %v", bu.currentSeason, week, err)
 			continue
 		}
 		if hasExistingScores {
-			log.Printf("BackgroundUpdater: Season %d Week %d already has parlay scores, skipping automatic scoring", bu.currentSeason, week)
+			bu.logger.Infof("Season %d Week %d already has parlay scores, skipping automatic scoring", bu.currentSeason, week)
 			bu.processedWeeks[week] = true // Mark as processed to avoid repeated checks
 			continue
 		}
 
 		if models.IsModernSeason(bu.currentSeason) {
 			// MODERN: 2025+ use daily parlay scoring
-			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering MODERN daily parlay scoring", bu.currentSeason, week)
+			bu.logger.Infof("All games complete for Season %d Week %d, triggering MODERN daily parlay scoring", bu.currentSeason, week)
 			if err := bu.parlayService.ProcessDailyParlayScoring(ctx, bu.currentSeason, week); err != nil {
-				log.Printf("BackgroundUpdater: Failed to process MODERN daily parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
+				bu.logger.Errorf("Failed to process MODERN daily parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
 			} else {
 				// Mark week as processed
 				bu.processedWeeks[week] = true
 			}
 		} else {
 			// LEGACY: 2023-2024 use traditional week-based scoring
-			log.Printf("BackgroundUpdater: All games complete for Season %d Week %d, triggering LEGACY week parlay scoring", bu.currentSeason, week)
+			bu.logger.Infof("All games complete for Season %d Week %d, triggering LEGACY week parlay scoring", bu.currentSeason, week)
 			if err := bu.parlayService.ProcessWeekParlayScoring(ctx, bu.currentSeason, week); err != nil {
-				log.Printf("BackgroundUpdater: Failed to process LEGACY parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
+				bu.logger.Errorf("Failed to process LEGACY parlay scoring for Season %d Week %d: %v", bu.currentSeason, week, err)
 			} else {
 				// Mark week as processed
 				bu.processedWeeks[week] = true
@@ -242,7 +246,7 @@ func (bu *BackgroundUpdater) updateGames() {
 	// }
 
 	duration := time.Since(startTime)
-	log.Printf("BackgroundUpdater: Update completed in %v - %d games processed, %d weeks completed",
+	bu.logger.Infof("Update completed in %v - %d games processed, %d weeks completed",
 		duration, len(games), len(completedWeeks))
 }
 
@@ -333,14 +337,14 @@ func (bu *BackgroundUpdater) intelligentScheduler() {
 	for {
 		select {
 		case <-bu.stopChan:
-			log.Println("BackgroundUpdater: Stopping intelligent scheduler")
+			bu.logger.Info("Stopping intelligent scheduler")
 			return
 		default:
 			// Determine next update interval based on game states
 			interval, updateType := bu.getIntelligentUpdateInterval()
 
 			if updateType != bu.lastUpdateType {
-				log.Printf("BackgroundUpdater: Switching to %s polling (interval: %v)", updateType, interval)
+				bu.logger.Infof("Switching to %s polling (interval: %v)", updateType, interval)
 				bu.lastUpdateType = updateType
 			}
 
@@ -352,7 +356,7 @@ func (bu *BackgroundUpdater) intelligentScheduler() {
 				go bu.updateGames()
 			case <-bu.stopChan:
 				timer.Stop()
-				log.Println("BackgroundUpdater: Stopping intelligent scheduler")
+				bu.logger.Info("Stopping intelligent scheduler")
 				return
 			}
 		}
@@ -364,7 +368,7 @@ func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, stri
 	// Get current games from database to analyze their states
 	games, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
 	if err != nil {
-		log.Printf("BackgroundUpdater: Error fetching games for intelligent scheduling: %v", err)
+		bu.logger.Errorf("Error fetching games for intelligent scheduling: %v", err)
 		// Fallback to 2-minute intervals if we can't determine game states
 		return 2 * time.Minute, "fallback"
 	}
@@ -437,7 +441,7 @@ func (bu *BackgroundUpdater) isAfterOddsCutoff(week int) bool {
 	// Load Pacific timezone
 	pacificLoc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
-		log.Printf("BackgroundUpdater: Failed to load Pacific timezone: %v", err)
+		bu.logger.Errorf("Failed to load Pacific timezone: %v", err)
 		// Fallback to UTC-8 (PST)
 		pacificLoc = time.FixedZone("PST", -8*3600)
 	}
@@ -479,7 +483,7 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 	// Get all games from database for current season
 	dbGames, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
 	if err != nil {
-		log.Printf("BackgroundUpdater: Failed to get games for odds enrichment: %v", err)
+		bu.logger.Errorf("Failed to get games for odds enrichment: %v", err)
 		return
 	}
 
@@ -500,23 +504,23 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 
 	// Log cutoff information
 	if len(gamesSkippedByCutoff) > 0 {
-		log.Printf("BackgroundUpdater: ODDS CUTOFF - Skipped %d games past Wednesday 10 PM Pacific deadline:", len(gamesSkippedByCutoff))
+		bu.logger.Warnf("ODDS CUTOFF - Skipped %d games past Wednesday 10 PM Pacific deadline:", len(gamesSkippedByCutoff))
 		for _, game := range gamesSkippedByCutoff {
-			log.Printf("  Week %d: Game %d (%s vs %s) - odds locked",
+			bu.logger.Warnf("  Week %d: Game %d (%s vs %s) - odds locked",
 				game.Week, game.ID, game.Away, game.Home)
 		}
 	}
 
 	if len(gamesNeedingOdds) == 0 {
 		if len(gamesSkippedByCutoff) > 0 {
-			log.Printf("BackgroundUpdater: No odds updates needed - all eligible games past cutoff")
+			bu.logger.Info("No odds updates needed - all eligible games past cutoff")
 		}
 		return // No games need odds or all are past cutoff
 	}
 
-	log.Printf("BackgroundUpdater: Found %d games eligible for odds enrichment (before cutoff)", len(gamesNeedingOdds))
+	bu.logger.Infof("Found %d games eligible for odds enrichment (before cutoff)", len(gamesNeedingOdds))
 	for _, game := range gamesNeedingOdds {
-		log.Printf("  Week %d: Game %d (%s vs %s) - attempting odds fetch",
+		bu.logger.Infof("  Week %d: Game %d (%s vs %s) - attempting odds fetch",
 			game.Week, game.ID, game.Away, game.Home)
 	}
 
@@ -535,13 +539,13 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 			pacificTime, _ := time.LoadLocation("America/Los_Angeles")
 			gameTimePacific := game.Date.In(pacificTime)
 
-			log.Printf("BackgroundUpdater: ODDS UPDATE for Game %d (Week %d: %s vs %s)",
+			bu.logger.Infof("ODDS UPDATE for Game %d (Week %d: %s vs %s)",
 				game.ID, game.Week, game.Away, game.Home)
-			log.Printf("  Game Time: %s Pacific", gameTimePacific.Format("Mon 1/2/2006 3:04 PM MST"))
-			log.Printf("  BEFORE: Odds = nil (no odds available)")
-			log.Printf("  AFTER:  Odds = Spread: %.1f, O/U: %.1f",
+			bu.logger.Infof("  Game Time: %s Pacific", gameTimePacific.Format("Mon 1/2/2006 3:04 PM MST"))
+			bu.logger.Info("  BEFORE: Odds = nil (no odds available)")
+			bu.logger.Infof("  AFTER:  Odds = Spread: %.1f, O/U: %.1f",
 				game.Odds.Spread, game.Odds.OU)
-			log.Printf("  STATUS: SUCCESS - Added new odds to database")
+			bu.logger.Info("  STATUS: SUCCESS - Added new odds to database")
 		}
 	}
 
@@ -555,7 +559,7 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 			if bu.isAfterOddsCutoff(game.Week) {
 				// Block this odds update - past cutoff
 				blockedByPolicy = append(blockedByPolicy, *game)
-				log.Printf("BackgroundUpdater: 🚫 SANITY CHECK BLOCK - Game %d (%s vs %s) Week %d odds update blocked (past Wednesday 10 PM Pacific cutoff)",
+				bu.logger.Warnf("🚫 SANITY CHECK BLOCK - Game %d (%s vs %s) Week %d odds update blocked (past Wednesday 10 PM Pacific cutoff)",
 					game.ID, game.Away, game.Home, game.Week)
 			} else {
 				// Safe to update - before cutoff
@@ -564,18 +568,18 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 		}
 
 		if len(blockedByPolicy) > 0 {
-			log.Printf("BackgroundUpdater: 🚫 SANITY CHECK blocked %d games from odds updates due to cutoff policy", len(blockedByPolicy))
+			bu.logger.Warnf("🚫 SANITY CHECK blocked %d games from odds updates due to cutoff policy", len(blockedByPolicy))
 		}
 
 		if len(safeToUpdate) > 0 {
 			err = bu.gameRepo.BulkUpsertGames(safeToUpdate)
 			if err != nil {
-				log.Printf("BackgroundUpdater: Failed to update games with odds: %v", err)
+				bu.logger.Errorf("Failed to update games with odds: %v", err)
 				return
 			}
-			log.Printf("BackgroundUpdater: Successfully added odds to %d games", len(safeToUpdate))
+			bu.logger.Infof("Successfully added odds to %d games", len(safeToUpdate))
 		} else {
-			log.Printf("BackgroundUpdater: No odds updates processed - all games blocked by sanity check")
+			bu.logger.Warn("No odds updates processed - all games blocked by sanity check")
 		}
 	}
 
@@ -585,10 +589,10 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 	totalFailed := totalAttempted - totalSuccessful
 
 	if totalAttempted > 0 {
-		log.Printf("BackgroundUpdater: ODDS ENRICHMENT SUMMARY:")
-		log.Printf("  Total games needing odds: %d", totalAttempted)
-		log.Printf("  Successful odds fetches: %d (%.1f%%)", totalSuccessful, float64(totalSuccessful)/float64(totalAttempted)*100)
-		log.Printf("  Failed odds fetches: %d (%.1f%%)", totalFailed, float64(totalFailed)/float64(totalAttempted)*100)
+		bu.logger.Info("ODDS ENRICHMENT SUMMARY:")
+		bu.logger.Infof("  Total games needing odds: %d", totalAttempted)
+		bu.logger.Infof("  Successful odds fetches: %d (%.1f%%)", totalSuccessful, float64(totalSuccessful)/float64(totalAttempted)*100)
+		bu.logger.Infof("  Failed odds fetches: %d (%.1f%%)", totalFailed, float64(totalFailed)/float64(totalAttempted)*100)
 
 		// Group failed games by week for better analysis
 		failedByWeek := make(map[int]int)
@@ -599,9 +603,9 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 		}
 
 		if len(failedByWeek) > 0 {
-			log.Printf("  Failed odds by week:")
+			bu.logger.Info("  Failed odds by week:")
 			for week, count := range failedByWeek {
-				log.Printf("    Week %d: %d failed", week, count)
+				bu.logger.Infof("    Week %d: %d failed", week, count)
 			}
 		}
 	}

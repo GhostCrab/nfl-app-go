@@ -82,6 +82,7 @@ type AppConfig struct {
 	IsDevelopment            bool `json:"is_development"`
 	BackgroundUpdaterEnabled bool `json:"background_updater_enabled"`
 	MockUpdaterEnabled       bool `json:"mock_updater_enabled"`
+	DisplayIDTooltips        bool `json:"display_id_tooltips"`
 }
 
 // Load loads configuration from environment variables and .env file
@@ -131,6 +132,7 @@ func Load() (*Config, error) {
 			IsDevelopment:            strings.ToLower(getEnv("ENVIRONMENT", "development")) == "development",
 			BackgroundUpdaterEnabled: getBoolEnv("BACKGROUND_UPDATER_ENABLED", true),
 			MockUpdaterEnabled:       getBoolEnv("MOCK_UPDATER_ENABLED", false),
+			DisplayIDTooltips:        getBoolEnv("DISPLAY_ID_TOOLTIPS", false),
 		},
 	}
 
@@ -236,8 +238,8 @@ func (c *Config) LogConfiguration() {
 		c.Logging.Level, c.Logging.Prefix, c.Logging.EnableColor)
 	logging.Infof("Email: Configured=%t, Host=%s, From=%s",
 		c.IsEmailConfigured(), c.Email.SMTPHost, c.Email.FromEmail)
-	logging.Infof("App: Season=%d, Development=%t, BackgroundUpdater=%t, MockUpdater=%t",
-		c.App.CurrentSeason, c.App.IsDevelopment, c.App.BackgroundUpdaterEnabled, c.App.MockUpdaterEnabled)
+	logging.Infof("App: Season=%d, Development=%t, BackgroundUpdater=%t, MockUpdater=%t, DisplayIDTooltips=%t",
+		c.App.CurrentSeason, c.App.IsDevelopment, c.App.BackgroundUpdaterEnabled, c.App.MockUpdaterEnabled, c.App.DisplayIDTooltips)
 	logging.Info("================================")
 }
 

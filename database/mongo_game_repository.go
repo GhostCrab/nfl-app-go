@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
-	"log"
+	"nfl-app-go/logging"
 	"nfl-app-go/models"
 	"time"
 
@@ -14,10 +14,12 @@ import (
 
 type MongoGameRepository struct {
 	collection *mongo.Collection
+	logger     *logging.Logger
 }
 
 func NewMongoGameRepository(db *MongoDB) *MongoGameRepository {
 	collection := db.GetCollection("games")
+	logger := logging.WithPrefix("mongo_game_repo")
 
 	// Create compound index on game ID and season for faster upserts across seasons
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -30,11 +32,12 @@ func NewMongoGameRepository(db *MongoDB) *MongoGameRepository {
 
 	_, err := collection.Indexes().CreateOne(ctx, indexModel)
 	if err != nil {
-		log.Printf("Failed to create index on games collection: %v", err)
+		logger.Errorf("Failed to create index on games collection: %v", err)
 	}
 
 	return &MongoGameRepository{
 		collection: collection,
+		logger:     logger,
 	}
 }
 
@@ -152,8 +155,8 @@ func (r *MongoGameRepository) BulkUpsertGames(games []*models.Game) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// log.Printf("Upserting %d games in MongoDB", len(games))
-	// log.Printf("Collection name: %s, Database: %s", r.collection.Name(), r.collection.Database().Name())
+	// r.logger.Debugf("Upserting %d games in MongoDB", len(games))
+	// r.logger.Debugf("Collection name: %s, Database: %s", r.collection.Name(), r.collection.Database().Name())
 
 	// MongoDB bulk write operations using $set to only update changed fields
 	var operations []mongo.WriteModel
@@ -189,15 +192,15 @@ func (r *MongoGameRepository) BulkUpsertGames(games []*models.Game) error {
 	}
 
 	opts := options.BulkWrite().SetOrdered(false)
-	// log.Printf("Executing bulk write with %d operations", len(operations))
+	// r.logger.Debugf("Executing bulk write with %d operations", len(operations))
 	result, err := r.collection.BulkWrite(ctx, operations, opts)
 	if err != nil {
-		log.Printf("Bulk write error details: %v", err)
-		log.Printf("Error type: %T", err)
+		r.logger.Errorf("Bulk write error details: %v", err)
+		r.logger.Errorf("Error type: %T", err)
 		return fmt.Errorf("bulk upsert failed: %w", err)
 	}
 
-	log.Printf("Successfully processed %d games: %d upserted, %d modified",
+	r.logger.Infof("Successfully processed %d games: %d upserted, %d modified",
 		len(games), result.UpsertedCount, result.ModifiedCount)
 
 	return nil
@@ -212,6 +215,6 @@ func (r *MongoGameRepository) ClearAllGames() error {
 		return fmt.Errorf("failed to clear games collection: %w", err)
 	}
 
-	log.Printf("Cleared %d games from MongoDB", result.DeletedCount)
+	r.logger.Infof("Cleared %d games from MongoDB", result.DeletedCount)
 	return nil
 }

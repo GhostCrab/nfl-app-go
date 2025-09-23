@@ -385,19 +385,24 @@ func (s *ParlayService) getPicksForGames(picks []models.Pick, games []models.Gam
 
 // calculateDayParlayScore calculates the parlay score for picks on a specific day
 func (s *ParlayService) calculateDayParlayScore(picks []models.Pick) int {
-	if len(picks) == 0 {
+	if len(picks) < 2 {
 		return 0
 	}
 
+	points := 0
+
 	// All picks must be winners for parlay to pay out
 	for _, pick := range picks {
-		if pick.Result != models.PickResultWin {
+		if pick.Result == models.PickResultLoss || pick.Result == models.PickResultPending {
 			return 0
+		}
+
+		if pick.Result == models.PickResultWin {
+			points += 1
 		}
 	}
 
-	// Calculate payout using original legacy logic
-	return len(picks)
+	return points
 }
 
 // UpdateUserDailyParlayRecord updates user's daily parlay scores

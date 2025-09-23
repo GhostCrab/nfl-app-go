@@ -2,10 +2,10 @@
 {{define "game-grid"}}
     <div class="games-list-container" id="games-container">
         {{range .Games}}
-            <div class="game-row inline-game {{if eq .State "in_play"}}in-progress{{else}}{{.State}}{{end}}" id="game-{{.ID}}">
+            <div class="game-row inline-game {{if eq .State "in_play"}}in-progress{{else}}{{.State}}{{end}}" id="game-{{.ID}}"{{if $.DisplayIDTooltips}} title="Game ID: {{.ID}}"{{end}}>
                 <div class="game-matchup">
                     <div class="matchup-team">
-                        <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
+                        <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"{{if $.DisplayIDTooltips}} title="Away Team: {{.Away}}"{{end}}/>
                         <div class="team-name-spread">
                             <span class="team-name-container">
                                 <span class="team-abbr">{{.Away}}</span>
@@ -19,7 +19,7 @@
                         {{end}}
                     </div>
                     <div class="matchup-team">
-                        <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
+                        <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"{{if $.DisplayIDTooltips}} title="Home Team: {{.Home}}"{{end}}/>
                         <div class="team-name-spread">
                             <span class="team-name-container">
                                 <span class="team-abbr">{{.Home}}</span>
@@ -88,10 +88,10 @@
 
 {{/* Single Game Row Template - For SSE updates that need to handle state transitions */}}
 {{define "game-row-update"}}
-<div class="game-row inline-game {{if eq .State "in_play"}}in-progress{{else}}{{.State}}{{end}}" id="game-{{.ID}}" hx-swap-oob="true">
+<div class="game-row inline-game {{if eq .State "in_play"}}in-progress{{else}}{{.State}}{{end}}" id="game-{{.ID}}" hx-swap-oob="true"{{if $.DisplayIDTooltips}} title="Game ID: {{.ID}}"{{end}}>
     <div class="game-matchup">
         <div class="matchup-team">
-            <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"/>
+            <img class="team-img" src="{{.GetAwayTeamIconURL}}" alt="{{.Away}}" onerror="this.style.display='none'"{{if $.DisplayIDTooltips}} title="Away Team: {{.Away}}"{{end}}/>
             <div class="team-name-spread">
                 <span class="team-name-container">
                     <span class="team-abbr">{{.Away}}</span>
@@ -105,7 +105,7 @@
             {{end}}
         </div>
         <div class="matchup-team">
-            <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"/>
+            <img class="team-img" src="{{.GetHomeTeamIconURL}}" alt="{{.Home}}" onerror="this.style.display='none'"{{if $.DisplayIDTooltips}} title="Home Team: {{.Home}}"{{end}}/>
             <div class="team-name-spread">
                 <span class="team-name-container">
                     <span class="team-abbr">{{.Home}}</span>

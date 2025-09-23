@@ -3,8 +3,8 @@ package services
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+	"nfl-app-go/logging"
 	"nfl-app-go/models"
 	"strconv"
 	"strings"
@@ -13,15 +13,19 @@ import (
 
 // ESPNService handles ESPN API interactions
 type ESPNService struct {
-	client *http.Client
+	client  *http.Client
 	baseURL string
+	logger  *logging.Logger
 }
 
 // NewESPNService creates a new ESPN service
 func NewESPNService() *ESPNService {
+	logger := logging.WithPrefix("espn_service")
+
 	return &ESPNService{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client:  &http.Client{Timeout: 10 * time.Second},
 		baseURL: "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+		logger:  logger,
 	}
 }
 
@@ -202,7 +206,7 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 		// Try alternative format with seconds
 		gameDate, err = time.Parse("2006-01-02T15:04:05Z", event.Date)
 		if err != nil {
-			log.Printf("ESPN API: Failed to parse date '%s' for game %s: %v", event.Date, event.ID, err)
+			e.logger.Errorf("Failed to parse date '%s' for game %s: %v", event.Date, event.ID, err)
 			gameDate = time.Now() // Fallback to current time
 		}
 	}
@@ -227,7 +231,7 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 	state := e.convertGameState(event.Status)
 	
 	// Debug log the parsing result
-	// log.Printf("ESPN API: Game %s (%s vs %s) parsed date from '%s' to '%s'", 
+	// e.logger.Debugf("Game %s (%s vs %s) parsed date from '%s' to '%s'",
 	// 	event.ID, awayTeam, homeTeam, event.Date, gameDate.Format("2006-01-02 15:04:05"))
 	
 	game := models.Game{
@@ -263,8 +267,8 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 		
 		// Debug logging for halftime detection
 		if event.ID == "401772510" {
-			log.Printf("ESPN API: Game %s DEBUG - Period=%d, DisplayClock=%s, StatusName=%s, StatusDesc=%s", 
-				event.ID, event.Status.Period, event.Status.DisplayClock, 
+			e.logger.Debugf("Game %s DEBUG - Period=%d, DisplayClock=%s, StatusName=%s, StatusDesc=%s",
+				event.ID, event.Status.Period, event.Status.DisplayClock,
 				event.Status.Type.Name, event.Status.Type.Description)
 		}
 
@@ -277,7 +281,7 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 				game.Status.Possession = teamAbbr
 			}
 			
-			log.Printf("ESPN API: Game %s live status - %s %s at %s", 
+			e.logger.Infof("Game %s live status - %s %s at %s",
 				event.ID, situation.Possession, situation.ShortDownDistanceText, situation.PossessionText)
 		}
 	}
@@ -300,7 +304,7 @@ func (e *ESPNService) getTeamAbbrFromID(teamIDStr string) string {
 	}
 	
 	// Fallback: return empty string if team not found
-	log.Printf("Warning: Unknown ESPN team ID '%s'", teamIDStr)
+	e.logger.Warnf("Unknown ESPN team ID '%s'", teamIDStr)
 	return ""
 }
 
@@ -375,7 +379,7 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 	enrichedGames := make([]models.Game, len(games))
 	copy(enrichedGames, games)
 
-	log.Printf("ESPN Odds: Starting odds enrichment for up to %d games", maxGames)
+	e.logger.Infof("Starting odds enrichment for up to %d games", maxGames)
 	
 	count := 0
 	successCount := 0
@@ -388,16 +392,16 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 		}
 		
 		if !enrichedGames[i].HasOdds() && enrichedGames[i].State == models.GameStateScheduled {
-			log.Printf("ESPN Odds: Fetching odds for Game %d (%s vs %s)", 
+			e.logger.Infof("Fetching odds for Game %d (%s vs %s)",
 				enrichedGames[i].ID, enrichedGames[i].Away, enrichedGames[i].Home)
-			
+
 			if odds, err := e.GetOdds(enrichedGames[i].ID); err == nil {
-				log.Printf("ESPN Odds: SUCCESS - Game %d got odds: Spread=%.1f, O/U=%.1f", 
+				e.logger.Infof("SUCCESS - Game %d got odds: Spread=%.1f, O/U=%.1f",
 					enrichedGames[i].ID, odds.Spread, odds.OU)
 				enrichedGames[i].Odds = odds
 				successCount++
 			} else {
-				log.Printf("ESPN Odds: FAILED - Game %d odds fetch error: %v", enrichedGames[i].ID, err)
+				e.logger.Errorf("FAILED - Game %d odds fetch error: %v", enrichedGames[i].ID, err)
 				failedCount++
 			}
 			count++
@@ -411,23 +415,23 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 		}
 		
 		if !enrichedGames[i].HasOdds() {
-			log.Printf("ESPN Odds: Fetching odds for Game %d (%s vs %s) [second pass]", 
+			e.logger.Infof("Fetching odds for Game %d (%s vs %s) [second pass]",
 				enrichedGames[i].ID, enrichedGames[i].Away, enrichedGames[i].Home)
-			
+
 			if odds, err := e.GetOdds(enrichedGames[i].ID); err == nil {
-				log.Printf("ESPN Odds: SUCCESS - Game %d got odds: Spread=%.1f, O/U=%.1f", 
+				e.logger.Infof("SUCCESS - Game %d got odds: Spread=%.1f, O/U=%.1f",
 					enrichedGames[i].ID, odds.Spread, odds.OU)
 				enrichedGames[i].Odds = odds
 				successCount++
 			} else {
-				log.Printf("ESPN Odds: FAILED - Game %d odds fetch error: %v", enrichedGames[i].ID, err)
+				e.logger.Errorf("FAILED - Game %d odds fetch error: %v", enrichedGames[i].ID, err)
 				failedCount++
 			}
 			count++
 		}
 	}
 
-	log.Printf("ESPN Odds: Enrichment complete - %d attempts, %d successful, %d failed", 
+	e.logger.Infof("Enrichment complete - %d attempts, %d successful, %d failed",
 		count, successCount, failedCount)
 	return enrichedGames
 }

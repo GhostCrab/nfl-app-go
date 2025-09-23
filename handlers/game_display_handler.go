@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"nfl-app-go/config"
 	"nfl-app-go/database"
 	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
@@ -23,13 +24,15 @@ type GameDisplayHandler struct {
 	authService       *services.AuthService
 	visibilityService *services.PickVisibilityService
 	userRepo          *database.MongoUserRepository
+	config            *config.Config
 }
 
 // NewGameDisplayHandler creates a new game display handler
-func NewGameDisplayHandler(templates *template.Template, gameService services.GameService) *GameDisplayHandler {
+func NewGameDisplayHandler(templates *template.Template, gameService services.GameService, cfg *config.Config) *GameDisplayHandler {
 	return &GameDisplayHandler{
 		templates:   templates,
 		gameService: gameService,
+		config:      cfg,
 	}
 }
 
@@ -185,23 +188,25 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Games         []models.Game
-		Title         string
-		User          *models.User
-		Users         []*models.User
-		UserPicks     []*models.UserPicks
-		Weeks         []int
-		CurrentWeek   int
-		CurrentSeason int
+		Games             []models.Game
+		Title             string
+		User              *models.User
+		Users             []*models.User
+		UserPicks         []*models.UserPicks
+		Weeks             []int
+		CurrentWeek       int
+		CurrentSeason     int
+		DisplayIDTooltips bool
 	}{
-		Games:         games,
-		Title:         fmt.Sprintf("PC '%d - Dashboard", season%100),
-		User:          user,
-		Users:         users,
-		UserPicks:     userPicks,
-		Weeks:         weeks,
-		CurrentWeek:   currentWeek,
-		CurrentSeason: season,
+		Games:             games,
+		Title:             fmt.Sprintf("PC '%d - Dashboard", season%100),
+		User:              user,
+		Users:             users,
+		UserPicks:         userPicks,
+		Weeks:             weeks,
+		CurrentWeek:       currentWeek,
+		CurrentSeason:     season,
+		DisplayIDTooltips: h.config != nil && h.config.App.DisplayIDTooltips,
 	}
 
 	// Check if this is an HTMX request

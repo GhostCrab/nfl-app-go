@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"nfl-app-go/config"
 	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
@@ -34,15 +35,17 @@ type SSEHandler struct {
 	messageCounter    uint64       // Atomic counter for message sequencing
 	heartbeatTicker   *time.Ticker // Heartbeat timer
 	stopHeartbeat     chan bool    // Channel to stop heartbeat
+	config            *config.Config
 }
 
 // NewSSEHandler creates a new SSE handler
-func NewSSEHandler(templates *template.Template, gameService services.GameService) *SSEHandler {
+func NewSSEHandler(templates *template.Template, gameService services.GameService, cfg *config.Config) *SSEHandler {
 	handler := &SSEHandler{
 		templates:     templates,
 		gameService:   gameService,
 		sseClients:    make(map[*SSEClient]bool),
 		stopHeartbeat: make(chan bool),
+		config:        cfg,
 	}
 
 	// Start heartbeat goroutine
@@ -508,7 +511,14 @@ func (h *SSEHandler) broadcastConsolidatedGameUpdate(game *models.Game) {
 
 	// Use the complete game-row-update template for state transitions
 	htmlBuffer := &strings.Builder{}
-	if err := h.templates.ExecuteTemplate(htmlBuffer, "game-row-update", game); err != nil {
+	templateData := struct {
+		*models.Game
+		DisplayIDTooltips bool
+	}{
+		Game:              game,
+		DisplayIDTooltips: h.config != nil && h.config.App.DisplayIDTooltips,
+	}
+	if err := h.templates.ExecuteTemplate(htmlBuffer, "game-row-update", templateData); err != nil {
 		logger.Errorf("Error rendering game-row-update template for game %d: %v", game.ID, err)
 		return
 	}
