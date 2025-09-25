@@ -7,7 +7,9 @@ import (
 	"sort"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"nfl-app-go/database"
 	"nfl-app-go/logging"
@@ -800,17 +802,33 @@ func (s *PickService) UpdateUserPicksForScheduledGames(ctx context.Context, user
 		gameIDsToUpdate[pick.GameID] = true
 	}
 
-	// Delete only picks for scheduled games that are being updated
+	// Build bulk operations for atomic execution (reduces change stream events)
+	var operations []mongo.WriteModel
+
+	// Add delete operations for scheduled games being updated
 	for gameID := range gameIDsToUpdate {
-		if err := s.pickRepo.DeleteByUserGameAndWeek(ctx, userID, gameID, season, week); err != nil {
-			return fmt.Errorf("failed to delete picks for game %d: %w", gameID, err)
+		filter := bson.M{
+			"user_id": userID,
+			"game_id": gameID,
+			"season":  season,
+			"week":    week,
 		}
+		deleteOp := mongo.NewDeleteManyModel().SetFilter(filter)
+		operations = append(operations, deleteOp)
 	}
 
-	// Create new picks for scheduled games
+	// Add insert operations for new picks
 	for _, pick := range newPicks {
-		if err := s.pickRepo.Create(ctx, pick); err != nil {
-			return fmt.Errorf("failed to create pick: %w", err)
+		pick.CreatedAt = time.Now()
+		pick.UpdatedAt = time.Now()
+		insertOp := mongo.NewInsertOneModel().SetDocument(pick)
+		operations = append(operations, insertOp)
+	}
+
+	// Execute all operations in a single bulk write (triggers only 1 change stream event)
+	if len(operations) > 0 {
+		if err := s.pickRepo.BulkWrite(ctx, operations); err != nil {
+			return fmt.Errorf("failed to bulk write picks: %w", err)
 		}
 	}
 

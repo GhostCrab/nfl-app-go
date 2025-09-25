@@ -403,16 +403,16 @@ func (r *MongoPickRepository) CountBySeasonAndWeek(ctx context.Context, season, 
 // FindBySeason retrieves all picks for a specific season
 func (r *MongoPickRepository) FindBySeason(ctx context.Context, season int) ([]*models.Pick, error) {
 	filter := bson.M{"season": season}
-	
+
 	// Limit to first 10 for duplicate check (don't need to load all)
 	opts := options.Find().SetLimit(10)
-	
+
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find picks by season: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var picks []*models.Pick
 	for cursor.Next(ctx) {
 		var pick models.Pick
@@ -421,7 +421,30 @@ func (r *MongoPickRepository) FindBySeason(ctx context.Context, season int) ([]*
 		}
 		picks = append(picks, &pick)
 	}
-	
+
 	return picks, nil
+}
+
+// BulkWrite performs multiple pick operations in a single database transaction
+// This reduces change stream events and improves performance
+func (r *MongoPickRepository) BulkWrite(ctx context.Context, operations []mongo.WriteModel) error {
+	if len(operations) == 0 {
+		return nil // No operations to perform
+	}
+
+	opts := options.BulkWrite().SetOrdered(true) // Ordered execution: deletes first, then inserts
+
+	result, err := r.collection.BulkWrite(ctx, operations, opts)
+	if err != nil {
+		return fmt.Errorf("bulk write failed: %w", err)
+	}
+
+	// Log the results for debugging
+	if result.DeletedCount > 0 || result.InsertedCount > 0 {
+		fmt.Printf("Bulk pick operation completed: %d deleted, %d inserted\n",
+			result.DeletedCount, result.InsertedCount)
+	}
+
+	return nil
 }
 

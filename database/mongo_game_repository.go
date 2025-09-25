@@ -124,8 +124,8 @@ func (r *MongoGameRepository) GetGamesByWeekSeason(week, season int) ([]*models.
 
 	// Sort by game start time (date) first, then alphabetically by home team name
 	sortOptions := options.Find().SetSort(bson.D{
-		{Key: "date", Value: 1},  // 1 = ascending (earliest games first)
-		{Key: "home", Value: 1},  // 1 = ascending (alphabetical order)
+		{Key: "date", Value: 1}, // 1 = ascending (earliest games first)
+		{Key: "home", Value: 1}, // 1 = ascending (alphabetical order)
 	})
 
 	cursor, err := r.collection.Find(ctx, filter, sortOptions)
@@ -155,8 +155,8 @@ func (r *MongoGameRepository) BulkUpsertGames(games []*models.Game) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// r.logger.Debugf("Upserting %d games in MongoDB", len(games))
-	// r.logger.Debugf("Collection name: %s, Database: %s", r.collection.Name(), r.collection.Database().Name())
+	r.logger.Debugf("Upserting %d games in MongoDB", len(games))
+	r.logger.Debugf("Collection name: %s, Database: %s", r.collection.Name(), r.collection.Database().Name())
 
 	// MongoDB bulk write operations using $set to only update changed fields
 	var operations []mongo.WriteModel

@@ -207,7 +207,7 @@
 {{define "user-picks-block"}}
 {{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
 {{$season := .Season -}}{{$week := .Week -}}
-<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}">
+<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}" hx-swap-oob="true">
 <div class="user-picks-header">
 {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
 </div>

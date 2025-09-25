@@ -144,9 +144,10 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 	}
 
 	// Create a map for quick lookup of existing picks by game ID
-	picksByGame := make(map[int]*models.Pick)
+	// Note: Users can have multiple picks per game (spread + over/under)
+	picksByGame := make(map[int][]*models.Pick)
 	for _, pick := range existingPicks {
-		picksByGame[pick.GameID] = pick
+		picksByGame[pick.GameID] = append(picksByGame[pick.GameID], pick)
 	}
 
 	// Build PickState structure expected by template: map[gameID]map[teamID]bool
@@ -160,20 +161,22 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		gameState[98] = false // under
 		gameState[99] = false // over
 
-		// Set existing picks to true
-		if existingPick, exists := picksByGame[game.ID]; exists {
-			// For Over/Under picks, use the TeamID directly (98/99)
-			if existingPick.TeamID == 98 || existingPick.TeamID == 99 {
-				gameState[existingPick.TeamID] = true
-			} else {
-				// For spread picks, convert ESPN team ID back to positional key (1=away, 2=home)
-				awayTeamID := h.getTeamIDFromAbbreviation(game.Away)
-				homeTeamID := h.getTeamIDFromAbbreviation(game.Home)
+		// Set existing picks to true - iterate through all picks for this game
+		if existingPicks, exists := picksByGame[game.ID]; exists {
+			for _, existingPick := range existingPicks {
+				// For Over/Under picks, use the TeamID directly (98/99)
+				if existingPick.TeamID == 98 || existingPick.TeamID == 99 {
+					gameState[existingPick.TeamID] = true
+				} else {
+					// For spread picks, convert ESPN team ID back to positional key (1=away, 2=home)
+					awayTeamID := h.getTeamIDFromAbbreviation(game.Away)
+					homeTeamID := h.getTeamIDFromAbbreviation(game.Home)
 
-				if existingPick.TeamID == awayTeamID {
-					gameState[1] = true // away team
-				} else if existingPick.TeamID == homeTeamID {
-					gameState[2] = true // home team
+					if existingPick.TeamID == awayTeamID {
+						gameState[1] = true // away team
+					} else if existingPick.TeamID == homeTeamID {
+						gameState[2] = true // home team
+					}
 				}
 			}
 		}
@@ -188,7 +191,7 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 	data := struct {
 		User           *models.User
 		Games          []models.Game
-		ExistingPicks  map[int]*models.Pick
+		ExistingPicks  map[int][]*models.Pick
 		CurrentSeason  int
 		CurrentWeek    int
 		CanSubmitPicks map[int]bool
