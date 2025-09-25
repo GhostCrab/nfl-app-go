@@ -50,12 +50,12 @@ func (w *ChangeStreamWatcher) ForceRestart() {
 	}
 }
 
-// StartWatching begins watching for changes in games and picks collections
+// StartWatching begins watching for changes in games and weekly_picks collections
 func (w *ChangeStreamWatcher) StartWatching() {
 	// Start watching games collection
 	go w.watchCollection("games")
-	// Start watching picks collection
-	go w.watchCollection("picks")
+	// Start watching new weekly_picks collection (instead of individual picks)
+	go w.watchCollection("weekly_picks")
 }
 
 // watchCollection watches a specific collection for changes
@@ -257,8 +257,21 @@ func (w *ChangeStreamWatcher) extractChangeInfo(event bson.M, collection, operat
 			} else if gameID, ok := doc["id"].(int32); ok {
 				changeEvent.GameID = fmt.Sprintf("%d", gameID)
 			}
+		} else if collection == "weekly_picks" {
+			// Extract season, week, user_id from weekly picks document
+			if season, ok := doc["season"].(int32); ok {
+				changeEvent.Season = int(season)
+			}
+			if week, ok := doc["week"].(int32); ok {
+				changeEvent.Week = int(week)
+			}
+			if userID, ok := doc["user_id"].(int32); ok {
+				changeEvent.UserID = int(userID)
+			}
+			// For weekly picks, we don't have a single game ID since it contains multiple picks
+			// GameID will remain empty for weekly_picks collection changes
 		} else if collection == "picks" {
-			// Extract season, week, user_id, and game_id from picks document
+			// Legacy: Extract season, week, user_id, and game_id from individual picks document
 			if season, ok := doc["season"].(int32); ok {
 				changeEvent.Season = int(season)
 			}

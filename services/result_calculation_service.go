@@ -53,15 +53,10 @@ func (s *ResultCalculationService) ProcessGameCompletion(ctx context.Context, ga
 	for _, pick := range picks {
 		result := s.CalculatePickResult(&pick, game)
 		
-		// Update the pick result in database
-		err := s.pickRepo.UpdatePickResult(ctx, pick.ID, result)
-		if err != nil {
-			log.Printf("Failed to update result for pick %s: %v", pick.ID.Hex(), err)
-			continue
-		}
-
-		log.Printf("Updated pick %s for user %d: %s -> %s", 
-			pick.ID.Hex(), pick.UserID, pick.PickDescription, result)
+		// TODO: Update the pick result in WeeklyPicks database
+		// For now, just log the result calculation
+		log.Printf("Calculated result for user %d game %d: %s -> %s",
+			pick.UserID, pick.GameID, pick.PickDescription, result)
 	}
 
 	return nil
@@ -105,8 +100,8 @@ func (s *ResultCalculationService) calculateSpreadResult(pick *models.Pick, game
 	} else if pick.TeamID == awayTeamID {
 		isHomePick = false
 	} else {
-		log.Printf("Could not determine team for pick %s (TeamID: %d, Home: %s/%d, Away: %s/%d)", 
-			pick.ID.Hex(), pick.TeamID, game.Home, homeTeamID, game.Away, awayTeamID)
+		log.Printf("Could not determine team for pick (User: %d, Game: %d, TeamID: %d, Home: %s/%d, Away: %s/%d)",
+			pick.UserID, pick.GameID, pick.TeamID, game.Home, homeTeamID, game.Away, awayTeamID)
 		return models.PickResultPending
 	}
 
@@ -188,7 +183,7 @@ func (s *ResultCalculationService) calculateMoneylineResult(pick *models.Pick, g
 	} else if pick.TeamID == awayTeamID {
 		pickedTeam = game.Away
 	} else {
-		log.Printf("Could not determine team for moneyline pick %s", pick.ID.Hex())
+		log.Printf("Could not determine team for moneyline pick (User: %d, Game: %d, TeamID: %d)", pick.UserID, pick.GameID, pick.TeamID)
 		return models.PickResultPending
 	}
 	

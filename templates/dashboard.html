@@ -338,7 +338,7 @@
         {{$games := .Games}}
         {{$isCurrentUser := .IsCurrentUser}}
         {{$game := findGameByID $games $pick.GameID}}
-        <div class="pick-item {{getResultClass $pick $game}}" id="pick-item-{{$pick.ID.Hex}}" hx-swap-oob="true">
+        <div class="pick-item {{getResultClass $pick $game}}" id="pick-item-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}" hx-swap-oob="true">
             {{/* Use the inner content of unified-pick-item without the wrapper div */}}
             <div class="pick-matchup">
                 {{if $game}}
@@ -384,7 +384,7 @@
                                             {{$colorClass = "pick-status-pace"}}
                                         {{end}}
                                     {{end}}
-                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{$currentTotal}}</span>
+                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{$currentTotal}}</span>
                                     <span class="separator">/</span>
                                     <span class="target-value">{{$overUnder}}</span>
                                 {{else}}
@@ -415,7 +415,7 @@
                                             {{$colorClass = "pick-status-pace"}}
                                         {{end}}
                                     {{end}}
-                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{$currentTotal}}</span>
+                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{$currentTotal}}</span>
                                     <span class="separator">/</span>
                                     <span class="target-value">{{$overUnder}}</span>
                                 {{else}}
@@ -442,7 +442,7 @@
                                         {{$colorClass = "pick-status-losing"}}
                                     {{end}}
                                 {{end}}
-                                <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                                <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
                                 <span class="separator">/</span>
                                 <span class="target-value">{{$game.FormatAwaySpread}}</span>
                             {{else}}
@@ -465,7 +465,7 @@
                                         {{$colorClass = "pick-status-losing"}}
                                     {{end}}
                                 {{end}}
-                                <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                                <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
                                 <span class="separator">/</span>
                                 <span class="target-value">{{$game.FormatHomeSpread}}</span>
                             {{else}}
@@ -483,14 +483,14 @@
             </div>
         </div>
         <!-- Always present pick expansion, visibility controlled by state -->
-        <div class="live-pick-expansion {{if ne $game.State "in_play"}}hidden{{end}}" id="live-expansion-{{$pick.ID.Hex}}">
-            <span class="game-clock" id="game-time-{{$pick.ID.Hex}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
+        <div class="live-pick-expansion {{if ne $game.State "in_play"}}hidden{{end}}" id="live-expansion-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">
+            <span class="game-clock" id="game-time-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
 
             {{if $game.HasStatus}}
                 {{$possessionStr := $game.GetPossessionString}}
                 {{if ne $possessionStr ""}}
                     <span class="status-divider"> || </span>
-                    <span class="game-possession" id="possession-{{$pick.ID.Hex}}">{{$possessionStr}}</span>
+                    <span class="game-possession" id="possession-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{$possessionStr}}</span>
                 {{end}}
                 {{if and $game.HasStatus $game.Status.IsRedZone}}
                     <span class="status-divider"> || </span>
@@ -512,7 +512,7 @@
         {{$games := .Games}}
         {{$isCurrentUser := .IsCurrentUser}}
         {{$game := findGameByID $games $pick.GameID}}
-        <div class="pick-item {{getResultClass $pick $game}}" id="pick-item-{{$pick.ID.Hex}}">
+        <div class="pick-item {{getResultClass $pick $game}}" id="pick-item-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">
             <div class="pick-matchup">
                 {{if $game}}
                     <!-- Away team -->
@@ -565,7 +565,7 @@
                                                 {{$colorClass = "pick-status-pace"}}
                                             {{end}}
                                         {{end}}
-                                        <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{$currentTotal}}</span>
+                                        <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{$currentTotal}}</span>
                                         <span class="separator">/</span>
                                         <span class="target-value">{{$overUnder}}</span>
                                     {{else}}
@@ -596,7 +596,7 @@
                                                 {{$colorClass = "pick-status-pace"}}
                                             {{end}}
                                         {{end}}
-                                        <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{$currentTotal}}</span>
+                                        <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{$currentTotal}}</span>
                                         <span class="separator">/</span>
                                         <span class="target-value">{{$overUnder}}</span>
                                     {{else}}
@@ -623,7 +623,7 @@
                                             {{$colorClass = "pick-status-losing"}}
                                         {{end}}
                                     {{end}}
-                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
                                     <span class="separator">/</span>
                                     <span class="target-value">{{$game.FormatAwaySpread}}</span>
                                 {{else}}
@@ -646,7 +646,7 @@
                                             {{$colorClass = "pick-status-losing"}}
                                         {{end}}
                                     {{end}}
-                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.ID.Hex}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
+                                    <span class="current-value {{$colorClass}}" id="pick-status-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{if eq $differential 0}}TIE{{else if gt $differential 0}}+{{$differential}}{{else}}{{$differential}}{{end}}</span>
                                     <span class="separator">/</span>
                                     <span class="target-value">{{$game.FormatHomeSpread}}</span>
                                 {{else}}
@@ -670,14 +670,14 @@
             </div>
         </div>
         <!-- Always present pick expansion, visibility controlled by state -->
-        <div class="live-pick-expansion {{if ne $game.State "in_play"}}hidden{{end}}" id="live-expansion-{{$pick.ID.Hex}}">
-            <span class="game-clock" id="game-time-{{$pick.ID.Hex}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
+        <div class="live-pick-expansion {{if ne $game.State "in_play"}}hidden{{end}}" id="live-expansion-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">
+            <span class="game-clock" id="game-time-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{$game.GetGameClock}} {{if eq $game.Quarter 5}}OT{{else if eq $game.Quarter 6}}2OT{{else}}Q{{$game.Quarter}}{{end}}</span>
 
             {{if $game.HasStatus}}
                 {{$possessionStr := $game.GetPossessionString}}
                 {{if ne $possessionStr ""}}
                     <span class="status-divider"> || </span>
-                    <span class="game-possession" id="possession-{{$pick.ID.Hex}}">{{$possessionStr}}</span>
+                    <span class="game-possession" id="possession-{{$pick.UserID}}-{{$pick.GameID}}-{{$pick.TeamID}}">{{$possessionStr}}</span>
                 {{end}}
                 {{if and $game.HasStatus $game.Status.IsRedZone}}
                     <span class="status-divider"> || </span>

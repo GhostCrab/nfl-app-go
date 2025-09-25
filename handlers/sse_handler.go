@@ -141,8 +141,8 @@ func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
 		h.BroadcastGameUpdate(event.GameID, event.Season, event.Week)
 	}
 
-	// Handle pick collection changes
-	if event.Collection == "picks" && event.UserID > 0 {
+	// Handle pick collection changes (both legacy "picks" and new "weekly_picks")
+	if (event.Collection == "picks" || event.Collection == "weekly_picks") && event.UserID > 0 {
 		h.BroadcastPickUpdate(event.UserID, event.Season, event.Week)
 	}
 
@@ -201,7 +201,7 @@ func (h *SSEHandler) sendMessageToClient(client *SSEClient, messageData string) 
 
 // startHeartbeat starts sending periodic heartbeat messages
 func (h *SSEHandler) startHeartbeat() {
-	h.heartbeatTicker = time.NewTicker(3 * time.Second) // Heartbeat every 30 seconds
+	h.heartbeatTicker = time.NewTicker(30 * time.Second) // Heartbeat every 30 seconds
 
 	go func() {
 		for {
@@ -412,10 +412,10 @@ func (h *SSEHandler) BroadcastLivePickExpansionForPick(game *models.Game, pick *
 	htmlBuffer := &strings.Builder{}
 
 	// Target the specific live-pick-expansion div for this pick
-	fmt.Fprintf(htmlBuffer, `<div class="live-pick-expansion" id="live-expansion-%s" hx-swap-oob="true">`, pick.ID.Hex())
+	fmt.Fprintf(htmlBuffer, `<div class="live-pick-expansion" id="live-expansion-%d-%d" hx-swap-oob="true">`, pick.UserID, pick.GameID)
 
 	// Game clock (pick-specific)
-	fmt.Fprintf(htmlBuffer, `<span class="game-clock" id="game-time-%s">%s`, pick.ID.Hex(), game.GetGameClock())
+	fmt.Fprintf(htmlBuffer, `<span class="game-clock" id="game-time-%d-%d">%s`, pick.UserID, pick.GameID, game.GetGameClock())
 	if game.Quarter == 5 {
 		htmlBuffer.WriteString(` OT`)
 	} else if game.Quarter == 6 {
@@ -429,14 +429,14 @@ func (h *SSEHandler) BroadcastLivePickExpansionForPick(game *models.Game, pick *
 	if game.HasStatus() {
 		possessionStr := game.GetPossessionString()
 		if possessionStr != "" {
-			fmt.Fprintf(htmlBuffer, `<span class="status-divider"> || </span><span class="game-possession" id="possession-%s">%s</span>`, pick.ID.Hex(), possessionStr)
+			fmt.Fprintf(htmlBuffer, `<span class="status-divider"> || </span><span class="game-possession" id="possession-%d-%d">%s</span>`, pick.UserID, pick.GameID, possessionStr)
 		}
 	}
 
 	htmlBuffer.WriteString(`</div>`)
 
 	h.BroadcastToAllClients("live-pick-expansion", htmlBuffer.String())
-	logger.Debugf("Broadcasted live pick expansion update for pick %s (game %d)", pick.ID.Hex(), game.ID)
+	logger.Debugf("Broadcasted live pick expansion update for pick %d-%d (game %d)", pick.UserID, pick.GameID, game.ID)
 }
 
 // BroadcastGameClockUpdate broadcasts targeted game clock updates
@@ -747,7 +747,7 @@ func (h *SSEHandler) BroadcastPickItemUpdate(game *models.Game, pick *models.Pic
 	// Render the pick-item-update template
 	htmlBuffer := &strings.Builder{}
 	if err := h.templates.ExecuteTemplate(htmlBuffer, "pick-item-update", templateData); err != nil {
-		logger.Errorf("Error rendering pick-item-update template for pick %s: %v", pick.ID.Hex(), err)
+		logger.Errorf("Error rendering pick-item-update template for pick %d-%d: %v", pick.UserID, pick.GameID, err)
 		return
 	}
 
@@ -765,8 +765,8 @@ func (h *SSEHandler) BroadcastPickItemUpdate(game *models.Game, pick *models.Pic
 		}
 	}
 
-	logger.Debugf("Broadcasted pick item update for pick %s (game %d, state: %s) to %d clients",
-		pick.ID.Hex(), game.ID, game.State, sentCount)
+	logger.Debugf("Broadcasted pick item update for pick %d-%d (game %d, state: %s) to %d clients",
+		pick.UserID, pick.GameID, game.ID, game.State, sentCount)
 }
 
 // BroadcastPickStatusUpdate broadcasts targeted pick status updates when game results change
@@ -840,13 +840,13 @@ func (h *SSEHandler) BroadcastPickStatusUpdate(game *models.Game, pick *models.P
 
 	// Create targeted update HTML for the current-value span using pick ID
 	pickStatusHTML := fmt.Sprintf(
-		`<span class="current-value %s" id="pick-status-%s" hx-swap-oob="true">%s</span>`,
-		colorClass, pick.ID.Hex(), statusValue,
+		`<span class="current-value %s" id="pick-status-%d-%d" hx-swap-oob="true">%s</span>`,
+		colorClass, pick.UserID, pick.GameID, statusValue,
 	)
 
 	h.BroadcastToAllClients("pick-status-update", pickStatusHTML)
-	logger.Debugf("Broadcasted pick status update for pick %s (game %d): %s (%s)",
-		pick.ID.Hex(), game.ID, statusValue, colorClass)
+	logger.Debugf("Broadcasted pick status update for pick %d-%d (game %d): %s (%s)",
+		pick.UserID, pick.GameID, game.ID, statusValue, colorClass)
 }
 
 func compactHTMLForSSE(data string) string {

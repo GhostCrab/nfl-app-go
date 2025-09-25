@@ -82,6 +82,7 @@ func main() {
 	gameRepo := database.NewMongoGameRepository(db)
 	userRepo := database.NewMongoUserRepository(db)
 	parlayRepo := database.NewMongoParlayRepository(db)
+	weeklyPicksRepo := database.NewMongoWeeklyPicksRepository(db)
 
 	// Create ESPN service and data loader
 	espnService := services.NewESPNService()
@@ -137,8 +138,8 @@ func main() {
 	// Create services using centralized config
 	authService := services.NewAuthService(userRepo, cfg.Auth.JWTSecret)
 	gameService := services.NewDatabaseGameService(gameRepo)
-	pickRepo := database.NewMongoPickRepository(db)
-	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
+	pickRepo := database.NewMongoPickRepository(db) // Keep for legacy compatibility during transition
+	pickService := services.NewPickService(weeklyPicksRepo, gameRepo, userRepo, parlayRepo)
 	parlayService := services.NewParlayService(pickRepo, gameRepo, parlayRepo)
 	resultCalcService := services.NewResultCalculationService(pickRepo, gameRepo)
 	analyticsService := services.NewAnalyticsService(pickRepo, gameRepo, userRepo)

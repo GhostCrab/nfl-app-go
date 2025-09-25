@@ -69,15 +69,13 @@ func NewMongoPickRepository(db *MongoDB) *MongoPickRepository {
 
 // Create inserts a new pick
 func (r *MongoPickRepository) Create(ctx context.Context, pick *models.Pick) error {
-	pick.CreatedAt = time.Now()
-	pick.UpdatedAt = time.Now()
-	
 	result, err := r.collection.InsertOne(ctx, pick)
 	if err != nil {
 		return fmt.Errorf("failed to create pick: %w", err)
 	}
-	
-	pick.ID = result.InsertedID.(primitive.ObjectID)
+
+	// Note: Pick model no longer has ID field - using WeeklyPicks storage instead
+	_ = result // Suppress unused variable warning
 	return nil
 }
 
@@ -86,18 +84,12 @@ func (r *MongoPickRepository) CreateMany(ctx context.Context, picks []*models.Pi
 	if len(picks) == 0 {
 		return nil
 	}
-	
+
 	// Convert to interface slice for MongoDB
 	docs := make([]interface{}, len(picks))
-	now := time.Now()
-	
+
 	for i, pick := range picks {
-		if pick.CreatedAt.IsZero() {
-			pick.CreatedAt = now
-		}
-		if pick.UpdatedAt.IsZero() {
-			pick.UpdatedAt = now
-		}
+		// Note: Timestamps now managed at WeeklyPicks document level
 		docs[i] = pick
 	}
 	
@@ -228,16 +220,17 @@ func (r *MongoPickRepository) FindByUserAndSeason(ctx context.Context, userID, s
 
 // Update modifies an existing pick
 func (r *MongoPickRepository) Update(ctx context.Context, pick *models.Pick) error {
-	pick.UpdatedAt = time.Now()
-	
-	filter := bson.M{"_id": pick.ID}
+	// Note: Pick model no longer has ID field - this method may not work with new model
+	// Consider using WeeklyPicksRepository.Upsert instead
+
+	filter := bson.M{"user_id": pick.UserID, "game_id": pick.GameID}
 	update := bson.M{"$set": pick}
-	
+
 	result, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return fmt.Errorf("failed to update pick: %w", err)
 	}
-	
+
 	if result.MatchedCount == 0 {
 		return fmt.Errorf("pick not found")
 	}

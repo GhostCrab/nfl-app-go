@@ -240,10 +240,10 @@ func (bu *BackgroundUpdater) updateGames() {
 
 	// Separate step: Enrich games with odds data (independent of scoreboard updates)
 	// Only run odds enrichment every 30 minutes to avoid excessive API calls
-	if time.Since(bu.lastOddsUpdate) >= 30*time.Minute {
-		bu.enrichOddsForMissingGames()
-		bu.lastOddsUpdate = time.Now()
-	}
+	// if time.Since(bu.lastOddsUpdate) >= 30*time.Minute {
+	// 	bu.enrichOddsForMissingGames()
+	// 	bu.lastOddsUpdate = time.Now()
+	// }
 
 	duration := time.Since(startTime)
 	bu.logger.Infof("Update completed in %v - %d games processed, %d weeks completed",
