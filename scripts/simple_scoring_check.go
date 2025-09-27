@@ -46,31 +46,33 @@ func main() {
 
 	ctx := context.Background()
 
-	// Check picks collection - specifically look at results distribution
-	picksCollection := db.GetCollection("picks")
+	// Check weekly_picks collection - specifically look at results distribution
+	weeklyPicksCollection := db.GetCollection("weekly_picks")
 
-	// Count total picks
-	totalPicks, err := picksCollection.CountDocuments(ctx, bson.M{})
+	// Count total weekly picks documents
+	totalWeeklyDocs, err := weeklyPicksCollection.CountDocuments(ctx, bson.M{})
 	if err != nil {
-		log.Fatalf("Failed to count picks: %v", err)
+		log.Fatalf("Failed to count weekly picks documents: %v", err)
 	}
-	log.Printf("Total picks: %d", totalPicks)
+	log.Printf("Total weekly picks documents: %d", totalWeeklyDocs)
 
-	// Count picks by result
+	// Count total individual picks and their results distribution using aggregation
 	pipeline := []bson.M{
+		{"$unwind": "$picks"},                                    // Flatten picks array
 		{"$group": bson.M{
-			"_id":   "$result",
+			"_id":   "$picks.result",
 			"count": bson.M{"$sum": 1},
 		}},
 	}
 
-	cursor, err := picksCollection.Aggregate(ctx, pipeline)
+	cursor, err := weeklyPicksCollection.Aggregate(ctx, pipeline)
 	if err != nil {
 		log.Fatalf("Failed to aggregate picks by result: %v", err)
 	}
 	defer cursor.Close(ctx)
 
 	log.Println("\nPick results distribution:")
+	totalIndividualPicks := 0
 	for cursor.Next(ctx) {
 		var result struct {
 			ID    string `bson:"_id"`
@@ -81,38 +83,58 @@ func main() {
 			continue
 		}
 		log.Printf("  %s: %d picks", result.ID, result.Count)
+		totalIndividualPicks += result.Count
 	}
+	log.Printf("Total individual picks: %d", totalIndividualPicks)
 
-	// Sample a few picks from 2024 Week 1 to see their structure
-	log.Println("\nSample picks from 2024 Week 1:")
-	sampleCursor, err := picksCollection.Find(ctx, bson.M{
-		"season": 2024,
-		"week":   1,
+	// Sample a few picks from 2025 Week 4 to see their structure
+	log.Println("\nSample picks from 2025 Week 4:")
+	sampleCursor, err := weeklyPicksCollection.Find(ctx, bson.M{
+		"season": 2025,
+		"week":   4,
 	}, nil)
 	if err != nil {
-		log.Fatalf("Failed to find sample picks: %v", err)
+		log.Fatalf("Failed to find sample weekly picks: %v", err)
 	}
 	defer sampleCursor.Close(ctx)
 
 	count := 0
-	for sampleCursor.Next(ctx) && count < 10 {
-		var pick bson.M
-		if err := sampleCursor.Decode(&pick); err != nil {
-			log.Printf("Error decoding pick: %v", err)
+	for sampleCursor.Next(ctx) && count < 3 {
+		var weeklyPicks bson.M
+		if err := sampleCursor.Decode(&weeklyPicks); err != nil {
+			log.Printf("Error decoding weekly picks: %v", err)
 			continue
 		}
-		log.Printf("  User %v, Game %v, Team %v, Result: %v", 
-			pick["user_id"], pick["game_id"], pick["team_id"], pick["result"])
+
+		picks, ok := weeklyPicks["picks"].(bson.A)
+		if !ok {
+			log.Printf("Error: picks field is not a bson.A array")
+			continue
+		}
+
+		log.Printf("  User %v (Season %v, Week %v) has %d picks:",
+			weeklyPicks["user_id"], weeklyPicks["season"], weeklyPicks["week"], len(picks))
+
+		// Show first few picks for this user
+		for i, pickInterface := range picks {
+			if i >= 3 { // Limit to first 3 picks per user
+				break
+			}
+			if pick, ok := pickInterface.(bson.M); ok {
+				log.Printf("    Pick %d: Game %v, Team %v, Type %v, Result: %v",
+					i+1, pick["game_id"], pick["team_id"], pick["pick_type"], pick["result"])
+			}
+		}
 		count++
 	}
 
 	// Check games collection - see if scores are populated
 	gamesCollection := db.GetCollection("games")
 	
-	log.Println("\nSample games from 2024 Week 1:")
+	log.Println("\nSample games from 2025 Week 4:")
 	gamesCursor, err := gamesCollection.Find(ctx, bson.M{
-		"season": 2024,
-		"week":   1,
+		"season": 2025,
+		"week":   4,
 	}, nil)
 	if err != nil {
 		log.Fatalf("Failed to find sample games: %v", err)

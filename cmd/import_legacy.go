@@ -52,10 +52,10 @@ func main() {
 	// Create repositories
 	gameRepo := database.NewMongoGameRepository(db)
 	userRepo := database.NewMongoUserRepository(db)
-	pickRepo := database.NewMongoPickRepository(db)
+	weeklyPicksRepo := database.NewMongoWeeklyPicksRepository(db)
 
-	// Create import service (now includes pick repository)
-	importService := services.NewLegacyImportService(gameRepo, userRepo, pickRepo)
+	// Create import service (now uses WeeklyPicksRepository)
+	importService := services.NewLegacyImportService(gameRepo, userRepo, weeklyPicksRepo)
 
 	// Get current working directory
 	cwd, err := os.Getwd()

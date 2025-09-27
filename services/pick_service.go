@@ -24,7 +24,6 @@ type PickService struct {
 	weeklyPicksRepo *database.MongoWeeklyPicksRepository
 	gameRepo        *database.MongoGameRepository
 	userRepo        *database.MongoUserRepository
-	parlayRepo      *database.MongoParlayRepository
 	broadcaster     SSEBroadcaster
 
 	// Specialized services for delegation
@@ -34,12 +33,11 @@ type PickService struct {
 }
 
 // NewPickService creates a new pick service
-func NewPickService(weeklyPicksRepo *database.MongoWeeklyPicksRepository, gameRepo *database.MongoGameRepository, userRepo *database.MongoUserRepository, parlayRepo *database.MongoParlayRepository) *PickService {
+func NewPickService(weeklyPicksRepo *database.MongoWeeklyPicksRepository, gameRepo *database.MongoGameRepository, userRepo *database.MongoUserRepository) *PickService {
 	return &PickService{
 		weeklyPicksRepo: weeklyPicksRepo,
 		gameRepo:        gameRepo,
 		userRepo:        userRepo,
-		parlayRepo:      parlayRepo,
 	}
 }
 
@@ -266,19 +264,15 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 
 	// Categorize picks for each user
 	for _, userPicksData := range userPicksList {
-		// Get cumulative parlay points up to the current week (not entire season)
-		cumulativeParlayTotal, err := s.parlayRepo.GetUserCumulativeScoreUpToWeek(ctx, userPicksData.UserID, season, week)
-		if err != nil {
-			logger.Warnf("Failed to get cumulative parlay total for user %d season %d week %d: %v", userPicksData.UserID, season, week, err)
-		} else {
-			userPicksData.Record.ParlayPoints = cumulativeParlayTotal
-		}
+		// TODO: Replace with MemoryParlayScorer calls when needed
+		// Parlay scores are now managed in-memory by MemoryParlayScorer
+		// Database reads removed to prevent dual tracking
+		userPicksData.Record.ParlayPoints = 0
 
+		// TODO: Replace with MemoryParlayScorer calls when needed
 		// Get parlay points for this specific week
-		weekParlayScore, err := s.parlayRepo.GetUserParlayScore(ctx, userPicksData.UserID, season, week)
-		if err != nil {
-			logger.Warnf("Failed to get weekly parlay score for user %d week %d: %v", userPicksData.UserID, week, err)
-		} else if weekParlayScore != nil {
+		weekParlayScore := (*models.ParlayScore)(nil) // Placeholder
+		if false { // Disabled database read
 			userPicksData.Record.WeeklyPoints = weekParlayScore.TotalPoints
 		}
 
@@ -345,6 +339,12 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 					s.sortPicksByGameTime(dayPicks, gameMap)
 					userPicks.DailyPickGroups[date] = dayPicks
 					logger.Debugf("User %s - Date %s has %d picks (sorted)", userPicks.UserName, date, len(dayPicks))
+
+					// Log individual pick details for debugging
+					for _, pick := range dayPicks {
+						logger.Debugf("  Pick: Game %d, Type %s, Result: %s, Description: %s",
+							pick.GameID, pick.PickType, pick.Result, pick.PickDescription)
+					}
 				}
 			}
 		}
@@ -375,6 +375,19 @@ func (s *PickService) UpdatePickResultsByGame(ctx context.Context, season, week,
 	}
 
 	logger.Infof("Updated pick results for game %d: %d users affected", gameID, len(pickResults))
+	return nil
+}
+
+// UpdateIndividualPickResults updates individual pick results for a game
+func (s *PickService) UpdateIndividualPickResults(ctx context.Context, season, week, gameID int, pickUpdates []database.PickUpdate) error {
+	logger := logging.WithPrefix("PickService")
+
+	// Use the WeeklyPicksRepository's UpdateIndividualPickResults method
+	if err := s.weeklyPicksRepo.UpdateIndividualPickResults(ctx, season, week, gameID, pickUpdates); err != nil {
+		return fmt.Errorf("failed to update individual pick results for game %d: %w", gameID, err)
+	}
+
+	logger.Infof("Updated %d individual pick results for game %d", len(pickUpdates), gameID)
 	return nil
 }
 
@@ -447,7 +460,6 @@ func (s *PickService) GetPickStats(ctx context.Context) (map[string]interface{},
 
 // EnrichPickWithGameData populates the display fields of a pick with game information
 func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
-	logger := logging.WithPrefix("PickService")
 	// Get the game information
 	game, err := s.gameRepo.FindByESPNID(context.Background(), pick.GameID)
 	if err != nil {
@@ -514,22 +526,16 @@ func (s *PickService) EnrichPickWithGameData(pick *models.Pick) error {
 	default:
 	}
 
-	// Update pick result based on game status
-	if game.State == models.GameStateCompleted {
-		calculatedResult := s.calculatePickResult(pick, game)
-		if calculatedResult != pick.Result {
-			// TODO: Update result in WeeklyPicks repository
-			logger.Infof("Pick result calculated: %s -> %s (not updated in DB yet)", pick.Result, calculatedResult)
-			pick.Result = calculatedResult
-		}
-	} else if game.State == models.GameStateInPlay {
-		pick.Result = models.PickResultPending
-	} else {
-		pick.Result = models.PickResultPending
-	}
+	// Note: Pick results are calculated and saved via ProcessGameCompletion when games complete
+	// This function only enriches display data, not pick results
 
 	// Set complete pick description
 	pick.PickDescription = fmt.Sprintf("%s - %s", pick.GameDescription, pick.TeamName)
+
+	// Debug logging to track pick results
+	logger := logging.WithPrefix("PickService")
+	logger.Debugf("Pick enriched - Game %d, User %d, PickType %s, Result: %s, GameState: %s",
+		pick.GameID, pick.UserID, pick.PickType, pick.Result, game.State)
 
 	return nil
 }
@@ -635,14 +641,12 @@ func (s *PickService) UpdateUserParlayRecord(ctx context.Context, userID, season
 	// Create parlay score entry
 	parlayScore := models.CreateParlayScore(userID, season, week, weeklyScores)
 
-	// DEBUG: Log before saving parlay score
-	logger.Debugf("UpdateUserParlayRecord about to save - UserID=%d, Season=%d, Week=%d",
+	// DEBUG: Log parlay score calculation
+	logger.Debugf("UpdateUserParlayRecord calculated - UserID=%d, Season=%d, Week=%d",
 		userID, season, week)
 
-	// Save to database
-	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
-		return fmt.Errorf("failed to save parlay score: %w", err)
-	}
+	// Note: Scores are now managed in-memory by MemoryParlayScorer
+	// Database storage removed to prevent dual tracking
 
 	logger.Infof("User %d earned %d parlay points in week %d (Regular: %d, Thu: %d, Fri: %d)",
 		userID, parlayScore.TotalPoints, week,
@@ -717,11 +721,10 @@ func (s *PickService) CalculateUserParlayCategoryScore(ctx context.Context, user
 // UpdateUserParlayCategoryRecord updates a specific category score in the user's parlay record
 func (s *PickService) UpdateUserParlayCategoryRecord(ctx context.Context, userID, season, week int, category models.ParlayCategory, points int) error {
 	logger := logging.WithPrefix("PickService")
-	// Get existing parlay score or create new one
-	existingScore, err := s.parlayRepo.GetUserParlayScore(ctx, userID, season, week)
-	if err != nil && err.Error() != "parlay score not found" {
-		return fmt.Errorf("failed to get existing parlay score: %w", err)
-	}
+	// TODO: Replace with MemoryParlayScorer calls when needed
+	// Parlay scores are now managed in-memory by MemoryParlayScorer
+	// Database reads removed to prevent dual tracking
+	existingScore := (*models.ParlayScore)(nil) // Placeholder
 
 	var parlayScore *models.ParlayScore
 	if existingScore != nil {
@@ -750,14 +753,12 @@ func (s *PickService) UpdateUserParlayCategoryRecord(ctx context.Context, userID
 	parlayScore.CalculateTotal()
 	parlayScore.UpdatedAt = time.Now()
 
-	// DEBUG: Log before saving parlay score in ProcessParlayCategory
-	logger.Debugf("ProcessParlayCategory about to save - UserID=%d, Season=%d, Week=%d",
+	// DEBUG: Log parlay score calculation in ProcessParlayCategory
+	logger.Debugf("ProcessParlayCategory calculated - UserID=%d, Season=%d, Week=%d",
 		userID, season, week)
 
-	// Save to database
-	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
-		return fmt.Errorf("failed to save parlay score: %w", err)
-	}
+	// Note: Scores are now managed in-memory by MemoryParlayScorer
+	// Database storage removed to prevent dual tracking
 
 	// Don't broadcast here - let the caller broadcast once after all users are processed
 
@@ -1033,40 +1034,21 @@ func (s *PickService) UpdateUserDailyParlayRecord(ctx context.Context, userID, s
 	}
 	logger.Debugf("User %d calculated total points: %d", userID, totalPoints)
 
-	// For now, store in the existing ParlayScore structure with total points
-	// Future enhancement: could add a DailyParlayScore model for more granular storage
-	parlayScore := &models.ParlayScore{
-		UserID:      userID,
-		Season:      season,
-		Week:        week,
-		TotalPoints: totalPoints,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-		// MODERN: Store daily breakdown as JSON or separate table
-		// For now, just store total in existing structure
-	}
-
-	// DEBUG: Log before saving daily parlay score
-	logger.Debugf("ProcessUserDailyParlayScoring about to save - UserID=%d, Season=%d, Week=%d",
-		userID, season, week)
-
-	// Save to database
-	if err := s.parlayRepo.UpsertParlayScore(ctx, parlayScore); err != nil {
-		return fmt.Errorf("failed to save daily parlay scores: %w", err)
-	}
+	// Note: Scores are now managed in-memory by MemoryParlayScorer
+	// Database storage removed to prevent dual tracking
+	logger.Debugf("ProcessUserDailyParlayScoring completed - UserID=%d, Season=%d, Week=%d, TotalPoints=%d",
+		userID, season, week, totalPoints)
 
 	return nil
 }
 
 // CheckWeekHasParlayScores checks if parlay scores already exist for a given week
 func (s *PickService) CheckWeekHasParlayScores(ctx context.Context, season, week int) (bool, error) {
-	scores, err := s.parlayRepo.GetWeekScores(ctx, season, week)
-	if err != nil {
-		return false, fmt.Errorf("failed to check week scores: %w", err)
-	}
-
-	// Return true if any scores exist for this week
-	return len(scores) > 0, nil
+	// TODO: Replace with MemoryParlayScorer calls when needed
+	// Parlay scores are now managed in-memory by MemoryParlayScorer
+	// Database reads removed to prevent dual tracking
+	// For now, always return false to indicate no scores in database
+	return false, nil
 }
 
 // sortPicksByGameTime sorts picks by their corresponding game start times

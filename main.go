@@ -81,7 +81,6 @@ func main() {
 	// Create database repositories
 	gameRepo := database.NewMongoGameRepository(db)
 	userRepo := database.NewMongoUserRepository(db)
-	parlayRepo := database.NewMongoParlayRepository(db)
 	weeklyPicksRepo := database.NewMongoWeeklyPicksRepository(db)
 
 	// Create ESPN service and data loader
@@ -138,12 +137,15 @@ func main() {
 	// Create services using centralized config
 	authService := services.NewAuthService(userRepo, cfg.Auth.JWTSecret)
 	gameService := services.NewDatabaseGameService(gameRepo)
-	pickRepo := database.NewMongoPickRepository(db) // Keep for legacy compatibility during transition
-	pickService := services.NewPickService(weeklyPicksRepo, gameRepo, userRepo, parlayRepo)
-	parlayService := services.NewParlayService(pickRepo, gameRepo, parlayRepo)
-	resultCalcService := services.NewResultCalculationService(pickRepo, gameRepo)
-	analyticsService := services.NewAnalyticsService(pickRepo, gameRepo, userRepo)
+	pickService := services.NewPickService(weeklyPicksRepo, gameRepo, userRepo)
 	visibilityService := services.NewPickVisibilityService(gameService)
+
+	// All services are now updated to use WeeklyPicksRepository
+	parlayService := services.NewParlayService(weeklyPicksRepo, gameRepo)
+	analyticsService := services.NewAnalyticsService(weeklyPicksRepo, gameRepo, userRepo)
+
+	// Create ResultCalculationService after PickService since it needs PickService interface
+	resultCalcService := services.NewResultCalculationService(weeklyPicksRepo, gameRepo, pickService)
 
 	// Set up specialized services for delegation BEFORE creating memory scorer
 	pickService.SetSpecializedServices(parlayService, resultCalcService, analyticsService)

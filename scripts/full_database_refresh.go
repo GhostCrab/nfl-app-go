@@ -23,13 +23,13 @@ func getEnv(key, defaultValue string) string {
 func main() {
 	log.Println("=== FULL DATABASE REFRESH ===")
 	log.Println("This script will:")
-	log.Println("  1. Clear all games and picks from MongoDB")
+	log.Println("  1. Clear all games and weekly_picks from MongoDB")
 	log.Println("  2. Re-import all legacy data from JSON files")
 	log.Println("  3. Calculate pick results for completed games")
 	log.Println("  4. Recalculate all parlay scores")
 	log.Println("  5. Verify the final results")
 	log.Println()
-	
+
 	// Load .env file
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: Could not load .env file: %v", err)
@@ -43,9 +43,9 @@ func main() {
 		Password: getEnv("DB_PASSWORD", ""),
 		Database: getEnv("DB_NAME", "nfl_app"),
 	}
-	
+
 	log.Printf("Connecting to MongoDB: %s:%s/%s", dbConfig.Host, dbConfig.Port, dbConfig.Database)
-	
+
 	db, err := database.NewMongoConnection(dbConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
@@ -56,7 +56,7 @@ func main() {
 	if err := db.TestConnection(); err != nil {
 		log.Fatalf("MongoDB connection test failed: %v", err)
 	}
-	
+
 	log.Println("MongoDB connection successful")
 
 	// Get current working directory
@@ -64,10 +64,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to get current directory: %v", err)
 	}
-	
+
 	// Path to legacy-dbs directory
 	legacyDbsPath := filepath.Join(cwd, "legacy-dbs")
-	
+
 	// Check if legacy-dbs directory exists
 	if _, err := os.Stat(legacyDbsPath); os.IsNotExist(err) {
 		log.Fatalf("Legacy-dbs directory not found at: %s", legacyDbsPath)
@@ -77,9 +77,9 @@ func main() {
 	log.Println("\n" + strings.Repeat("=", 50))
 	log.Println("STEP 1: CLEARING DATABASE")
 	log.Println(strings.Repeat("=", 50))
-	
+
 	ctx := context.Background()
-	
+
 	// Clear games collection
 	log.Println("Clearing games collection...")
 	gamesCollection := db.GetCollection("games")
@@ -88,25 +88,17 @@ func main() {
 		log.Fatalf("Failed to clear games collection: %v", err)
 	}
 	log.Printf("✓ Deleted %d games", result.DeletedCount)
-	
-	// Clear picks collection
-	log.Println("Clearing picks collection...")
-	picksCollection := db.GetCollection("picks")
-	result, err = picksCollection.DeleteMany(ctx, bson.M{})
+
+	// Clear weekly_picks collection
+	log.Println("Clearing weekly_picks collection...")
+	weeklyPicksCollection := db.GetCollection("weekly_picks")
+	result, err = weeklyPicksCollection.DeleteMany(ctx, bson.M{})
 	if err != nil {
-		log.Fatalf("Failed to clear picks collection: %v", err)
+		log.Fatalf("Failed to clear weekly_picks collection: %v", err)
 	}
-	log.Printf("✓ Deleted %d picks", result.DeletedCount)
-	
-	// Clear parlay scores collection
-	log.Println("Clearing parlay scores collection...")
-	parlayCollection := db.GetCollection("parlay_scores")
-	result, err = parlayCollection.DeleteMany(ctx, bson.M{})
-	if err != nil {
-		log.Fatalf("Failed to clear parlay scores collection: %v", err)
-	}
-	log.Printf("✓ Deleted %d parlay scores", result.DeletedCount)
-	
+	log.Printf("✓ Deleted %d weekly picks documents", result.DeletedCount)
+
+
 	log.Println("✓ Database cleared successfully")
 
 	// STEP 2: Re-import legacy data
@@ -114,13 +106,17 @@ func main() {
 	log.Println("STEP 2: IMPORTING LEGACY DATA")
 	log.Println(strings.Repeat("=", 50))
 
-	// Create repositories
+	// Create repositories for legacy import (now using WeeklyPicksRepository)
 	gameRepo := database.NewMongoGameRepository(db)
 	userRepo := database.NewMongoUserRepository(db)
-	pickRepo := database.NewMongoPickRepository(db)
+	weeklyPicksRepo := database.NewMongoWeeklyPicksRepository(db)
 
-	// Create import service
-	importService := services.NewLegacyImportService(gameRepo, userRepo, pickRepo)
+	// Create pick service and result calculation service for proper pick enrichment
+	pickService := services.NewPickService(weeklyPicksRepo, gameRepo, userRepo)
+	resultCalcService := services.NewResultCalculationService(weeklyPicksRepo, gameRepo, pickService)
+
+	// Create legacy import service with result calculation service for pick enrichment
+	importService := services.NewLegacyImportService(gameRepo, userRepo, weeklyPicksRepo, resultCalcService)
 
 	// Show what we're about to import
 	log.Printf("Analyzing legacy data in: %s", legacyDbsPath)
@@ -133,106 +129,11 @@ func main() {
 	if err := importService.ImportAllLegacyData(legacyDbsPath); err != nil {
 		log.Fatalf("Failed to import legacy data: %v", err)
 	}
-	log.Println("✓ Legacy data imported successfully")
+	log.Println("✓ Legacy data imported successfully with pick enrichment")
 
-	// STEP 3: Calculate pick results for completed games
+	// STEP 3: Final verification
 	log.Println("\n" + strings.Repeat("=", 50))
-	log.Println("STEP 3: CALCULATING PICK RESULTS")
-	log.Println(strings.Repeat("=", 50))
-
-	// Create result calculation service
-	resultCalcService := services.NewResultCalculationService(pickRepo, gameRepo)
-
-	// Process all completed games for each season
-	for _, season := range []int{2023, 2024, 2025} {
-		log.Printf("Processing pick results for season %d...", season)
-		if err := resultCalcService.ProcessAllCompletedGames(ctx, season); err != nil {
-			log.Printf("Failed to process completed games for season %d: %v", season, err)
-			continue
-		}
-		log.Printf("✓ Completed pick result processing for season %d", season)
-	}
-
-	// STEP 4: Recalculate all parlay scores
-	log.Println("\n" + strings.Repeat("=", 50))
-	log.Println("STEP 4: RECALCULATING PARLAY SCORES")
-	log.Println(strings.Repeat("=", 50))
-
-	// Create parlay repository and specialized services
-	parlayRepo := database.NewMongoParlayRepository(db)
-	parlayService := services.NewParlayService(pickRepo, gameRepo, parlayRepo)
-	pickService := services.NewPickService(pickRepo, gameRepo, userRepo, parlayRepo)
-	
-	// Set specialized services on pick service
-	pickService.SetSpecializedServices(parlayService, nil, nil)
-	
-	// Clear existing parlay scores to avoid double-counting from previous runs
-	log.Println("Clearing existing parlay scores...")
-	result, err = parlayCollection.DeleteMany(ctx, bson.M{})
-	if err != nil {
-		log.Fatalf("Failed to clear parlay scores collection: %v", err)
-	}
-	log.Printf("✓ Deleted %d existing parlay score records", result.DeletedCount)
-
-	// Recalculate all seasons
-	seasons := []int{2023, 2024, 2025}
-	totalWeeksProcessed := 0
-	totalPointsAwarded := 0
-
-	for _, season := range seasons {
-		log.Printf("\n--- SEASON %d ---", season)
-		
-		seasonWeeks := 0
-		seasonPoints := 0
-		
-		// Process weeks 1-18 for each season
-		for week := 1; week <= 18; week++ {
-			// Check if there are picks for this week
-			allPicks, err := pickRepo.FindByWeek(ctx, season, week)
-			if err != nil {
-				log.Printf("Error checking picks for S%d W%d: %v", season, week, err)
-				continue
-			}
-			
-			if len(allPicks) == 0 {
-				continue // Skip weeks with no picks
-			}
-			
-			// Process parlay scoring
-			if err := pickService.ProcessWeekParlayScoring(ctx, season, week); err != nil {
-				log.Printf("Failed to process parlay scoring for S%d W%d: %v", season, week, err)
-				continue
-			}
-			
-			// Get scores for summary
-			scores, err := parlayRepo.GetWeekScores(ctx, season, week)
-			if err != nil {
-				log.Printf("Warning: couldn't fetch scores for S%d W%d: %v", season, week, err)
-				continue
-			}
-			
-			weekTotal := 0
-			usersWithPoints := 0
-			for _, score := range scores {
-				weekTotal += score.TotalPoints
-				if score.TotalPoints > 0 {
-					usersWithPoints++
-				}
-			}
-			
-			log.Printf("Week %2d: %3d points awarded to %d users", week, weekTotal, usersWithPoints)
-			seasonWeeks++
-			seasonPoints += weekTotal
-		}
-		
-		log.Printf("Season %d complete: %d weeks, %d total points", season, seasonWeeks, seasonPoints)
-		totalWeeksProcessed += seasonWeeks
-		totalPointsAwarded += seasonPoints
-	}
-
-	// STEP 5: Final verification
-	log.Println("\n" + strings.Repeat("=", 50))
-	log.Println("STEP 5: VERIFICATION")
+	log.Println("STEP 3: VERIFICATION")
 	log.Println(strings.Repeat("=", 50))
 
 	// Count final totals
@@ -243,26 +144,19 @@ func main() {
 		log.Printf("✓ Total games in database: %d", gamesCount)
 	}
 
-	picksCount, err := picksCollection.CountDocuments(ctx, bson.M{})
+	weeklyPicksCount, err := weeklyPicksCollection.CountDocuments(ctx, bson.M{})
 	if err != nil {
-		log.Printf("Warning: couldn't count picks: %v", err)
+		log.Printf("Warning: couldn't count weekly picks: %v", err)
 	} else {
-		log.Printf("✓ Total picks in database: %d", picksCount)
+		log.Printf("✓ Total weekly picks documents in database: %d", weeklyPicksCount)
 	}
 
-	parlayCount, err := parlayCollection.CountDocuments(ctx, bson.M{})
-	if err != nil {
-		log.Printf("Warning: couldn't count parlay scores: %v", err)
-	} else {
-		log.Printf("✓ Total parlay score records: %d", parlayCount)
-	}
 
 	// Final summary
 	log.Println("\n" + strings.Repeat("=", 60))
 	log.Println("FULL DATABASE REFRESH COMPLETE!")
 	log.Println(strings.Repeat("=", 60))
-	log.Printf("Weeks processed: %d", totalWeeksProcessed)
-	log.Printf("Total points awarded: %d", totalPointsAwarded)
-	log.Println("Database is now fully refreshed with corrected scoring logic!")
+	log.Println("Database is now fully refreshed with corrected pick result calculation!")
+	log.Println("Note: Parlay scores are calculated in-memory on startup via MemoryParlayScorer")
 	log.Println(strings.Repeat("=", 60))
 }

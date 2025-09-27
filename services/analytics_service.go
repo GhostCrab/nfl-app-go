@@ -13,21 +13,21 @@ import (
 // This service provides insights into pick performance, user statistics,
 // team performance, and game analysis.
 type AnalyticsService struct {
-	pickRepo *database.MongoPickRepository
-	gameRepo *database.MongoGameRepository
-	userRepo *database.MongoUserRepository
+	weeklyPicksRepo *database.MongoWeeklyPicksRepository
+	gameRepo        *database.MongoGameRepository
+	userRepo        *database.MongoUserRepository
 }
 
 // NewAnalyticsService creates a new analytics service
 func NewAnalyticsService(
-	pickRepo *database.MongoPickRepository,
+	weeklyPicksRepo *database.MongoWeeklyPicksRepository,
 	gameRepo *database.MongoGameRepository,
 	userRepo *database.MongoUserRepository,
 ) *AnalyticsService {
 	return &AnalyticsService{
-		pickRepo: pickRepo,
-		gameRepo: gameRepo,
-		userRepo: userRepo,
+		weeklyPicksRepo: weeklyPicksRepo,
+		gameRepo:        gameRepo,
+		userRepo:        userRepo,
 	}
 }
 
@@ -119,8 +119,8 @@ func (s *AnalyticsService) GetUserPerformanceStats(ctx context.Context, userID, 
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Get all picks for the user this season
-	picks, err := s.pickRepo.GetUserPicksBySeason(ctx, userID, season)
+	// Get all picks for the user this season from WeeklyPicks documents
+	picks, err := s.getUserPicksBySeason(ctx, userID, season)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user picks: %w", err)
 	}
@@ -538,8 +538,8 @@ func (s *AnalyticsService) getTeamIDFromAbbreviation(abbr string) int {
 
 // GetLeagueStats returns overall league statistics for a season
 func (s *AnalyticsService) GetLeagueStats(ctx context.Context, season int) (*LeagueStats, error) {
-	// Get all picks for the season
-	picks, err := s.pickRepo.GetPicksBySeason(ctx, season)
+	// Get all picks for the season from WeeklyPicks documents
+	picks, err := s.getPicksBySeason(ctx, season)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get picks: %w", err)
 	}
@@ -600,8 +600,8 @@ func (s *AnalyticsService) GetGameAnalytics(ctx context.Context, gameID int) (*G
 		return nil, fmt.Errorf("failed to get game: %w", err)
 	}
 
-	// Get all picks for this game
-	picks, err := s.pickRepo.GetPicksByGameID(ctx, gameID)
+	// Get all picks for this game from WeeklyPicks documents
+	picks, err := s.getPicksByGameID(ctx, gameID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get picks: %w", err)
 	}
@@ -667,4 +667,62 @@ type UserGamePick struct {
 	TeamID   int                `json:"team_id"`
 	TeamName string             `json:"team_name"`
 	Result   models.PickResult  `json:"result"`
+}
+
+// Helper methods to extract picks from WeeklyPicks documents
+
+// getUserPicksBySeason extracts all picks for a specific user and season from WeeklyPicks documents
+func (s *AnalyticsService) getUserPicksBySeason(ctx context.Context, userID, season int) ([]models.Pick, error) {
+	weeklyPicksList, err := s.weeklyPicksRepo.FindByUserAndSeason(ctx, userID, season)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get weekly picks: %w", err)
+	}
+
+	var picks []models.Pick
+	for _, weeklyPicks := range weeklyPicksList {
+		picks = append(picks, weeklyPicks.Picks...)
+	}
+
+	return picks, nil
+}
+
+// getPicksBySeason extracts all picks for a specific season from all WeeklyPicks documents
+func (s *AnalyticsService) getPicksBySeason(ctx context.Context, season int) ([]models.Pick, error) {
+	weeklyPicksList, err := s.weeklyPicksRepo.FindBySeason(ctx, season)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get weekly picks: %w", err)
+	}
+
+	var picks []models.Pick
+	for _, weeklyPicks := range weeklyPicksList {
+		picks = append(picks, weeklyPicks.Picks...)
+	}
+
+	return picks, nil
+}
+
+// getPicksByGameID extracts all picks for a specific game from WeeklyPicks documents
+func (s *AnalyticsService) getPicksByGameID(ctx context.Context, gameID int) ([]models.Pick, error) {
+	// We need to find which season and week this game belongs to first
+	game, err := s.gameRepo.FindByESPNID(ctx, gameID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game: %w", err)
+	}
+
+	// Get all weekly picks for the game's season and week
+	weeklyPicksList, err := s.weeklyPicksRepo.FindAllByWeek(ctx, game.Season, game.Week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get weekly picks for game: %w", err)
+	}
+
+	var picks []models.Pick
+	for _, weeklyPicks := range weeklyPicksList {
+		for _, pick := range weeklyPicks.Picks {
+			if pick.GameID == gameID {
+				picks = append(picks, pick)
+			}
+		}
+	}
+
+	return picks, nil
 }

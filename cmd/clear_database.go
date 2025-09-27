@@ -61,19 +61,22 @@ func main() {
 	}
 	log.Printf("Deleted %d games", result.DeletedCount)
 	
-	// Clear picks collection
-	log.Println("Clearing picks collection...")
-	picksCollection := db.GetCollection("picks")
-	result, err = picksCollection.DeleteMany(ctx, bson.M{})
+	// Clear weekly_picks collection
+	log.Println("Clearing weekly_picks collection...")
+	weeklyPicksCollection := db.GetCollection("weekly_picks")
+	result, err = weeklyPicksCollection.DeleteMany(ctx, bson.M{})
 	if err != nil {
-		log.Fatalf("Failed to clear picks collection: %v", err)
+		log.Fatalf("Failed to clear weekly_picks collection: %v", err)
 	}
-	log.Printf("Deleted %d picks", result.DeletedCount)
+	log.Printf("Deleted %d weekly picks documents", result.DeletedCount)
+
+	// Note: parlay_scores and weekly_scores collections removed
+	// Parlay scores are now managed in-memory by MemoryParlayScorer
 	
 	// Note: We're keeping users collection intact as it contains login credentials
 	log.Println("Users collection preserved (contains login credentials)")
 	
 	log.Println("\n=== DATABASE CLEARED ===")
-	log.Println("All games and picks have been removed from the database.")
+	log.Println("All games and weekly picks have been removed from the database.")
 	log.Println("Ready for fresh import from legacy data files.")
 }

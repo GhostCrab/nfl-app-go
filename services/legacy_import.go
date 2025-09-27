@@ -41,17 +41,19 @@ type LegacyPickData struct {
 
 // LegacyImportService handles importing legacy data
 type LegacyImportService struct {
-	gameRepo *database.MongoGameRepository
-	userRepo *database.MongoUserRepository
-	pickRepo *database.MongoPickRepository
+	gameRepo         *database.MongoGameRepository
+	userRepo         *database.MongoUserRepository
+	weeklyPicksRepo  *database.MongoWeeklyPicksRepository
+	resultCalcService *ResultCalculationService
 }
 
 // NewLegacyImportService creates a new legacy import service
-func NewLegacyImportService(gameRepo *database.MongoGameRepository, userRepo *database.MongoUserRepository, pickRepo *database.MongoPickRepository) *LegacyImportService {
+func NewLegacyImportService(gameRepo *database.MongoGameRepository, userRepo *database.MongoUserRepository, weeklyPicksRepo *database.MongoWeeklyPicksRepository, resultCalcService *ResultCalculationService) *LegacyImportService {
 	return &LegacyImportService{
-		gameRepo: gameRepo,
-		userRepo: userRepo,
-		pickRepo: pickRepo,
+		gameRepo:          gameRepo,
+		userRepo:          userRepo,
+		weeklyPicksRepo:   weeklyPicksRepo,
+		resultCalcService: resultCalcService,
 	}
 }
 
@@ -189,24 +191,23 @@ func (s *LegacyImportService) ImportPicks(filePath string, season int) error {
 	
 	log.Printf("LegacyImport: Found %d picks in %s", len(legacyPicks), filePath)
 	
-	// Check if picks for this season already exist using simple count method
-	// We'll create a helper method to count by season
-	existingPicks, err := s.pickRepo.FindBySeason(ctx, season)
+	// Check if picks for this season already exist by checking WeeklyPicks documents
+	existingWeeklyPicks, err := s.weeklyPicksRepo.FindBySeason(ctx, season)
 	if err != nil {
-		log.Printf("Warning: failed to check existing picks: %v", err)
-	} else if len(existingPicks) > 0 {
-		log.Printf("LegacyImport: Found %d existing picks for season %d. Skipping import to avoid duplicates.", len(existingPicks), season)
+		log.Printf("Warning: failed to check existing weekly picks: %v", err)
+	} else if len(existingWeeklyPicks) > 0 {
+		log.Printf("LegacyImport: Found %d existing weekly picks documents for season %d. Skipping import to avoid duplicates.", len(existingWeeklyPicks), season)
 		return nil
 	}
 	
-	// Convert legacy picks to Pick models with season tracking
-	var picks []*models.Pick
+	// Group legacy picks by user and week for WeeklyPicks storage
 	gameWeekMap := make(map[int]int) // Cache game ID to week mapping
-	
+	userWeekPicks := make(map[int]map[int][]*models.Pick) // [userID][week] -> picks array
+
 	userPickCount := make(map[int]int)
 	gamePickCount := make(map[int]int)
 	pickTypeCount := make(map[models.PickType]int)
-	
+
 	for _, legacyPick := range legacyPicks {
 		// Get week number from game data (we need to look up the game)
 		week, exists := gameWeekMap[legacyPick.Game]
@@ -224,39 +225,79 @@ func (s *LegacyImportService) ImportPicks(filePath string, season int) error {
 			week = game.Week
 			gameWeekMap[legacyPick.Game] = week
 		}
-		
+
 		// Create Pick using the model's helper function (includes season tracking)
 		pick := models.CreatePickFromLegacyData(
 			legacyPick.User,
 			legacyPick.Game,
 			legacyPick.Team,
-			season, // NEW: Season tracking
+			season, // Season tracking
 			week,
 		)
-		
-		picks = append(picks, pick)
-		
+
+		// Group picks by user and week
+		if userWeekPicks[legacyPick.User] == nil {
+			userWeekPicks[legacyPick.User] = make(map[int][]*models.Pick)
+		}
+		userWeekPicks[legacyPick.User][week] = append(userWeekPicks[legacyPick.User][week], pick)
+
 		// Update statistics
 		userPickCount[legacyPick.User]++
 		gamePickCount[legacyPick.Game]++
 		pickTypeCount[pick.PickType]++
 	}
-	
-	if len(picks) == 0 {
+
+	if len(userWeekPicks) == 0 {
 		log.Printf("LegacyImport: No valid picks to import for season %d", season)
 		return nil
 	}
-	
-	// Store picks in database using batch insert
-	log.Printf("LegacyImport: Storing %d picks in database for season %d...", len(picks), season)
-	if err := s.pickRepo.CreateMany(ctx, picks); err != nil {
-		return fmt.Errorf("failed to store picks: %w", err)
+
+	// Store picks in database using WeeklyPicks documents
+	totalPicks := 0
+	weeklyDocsCreated := 0
+
+	for userID, weekPicks := range userWeekPicks {
+		for week, picks := range weekPicks {
+			weeklyPicks := &models.WeeklyPicks{
+				UserID: userID,
+				Season: season,
+				Week:   week,
+				Picks:  make([]models.Pick, len(picks)),
+			}
+
+			// Convert pick pointers to values for WeeklyPicks
+			for i, pick := range picks {
+				weeklyPicks.Picks[i] = *pick
+			}
+
+			// Upsert the WeeklyPicks document
+			if err := s.weeklyPicksRepo.Upsert(ctx, weeklyPicks); err != nil {
+				return fmt.Errorf("failed to store weekly picks for user %d week %d: %w", userID, week, err)
+			}
+
+			totalPicks += len(picks)
+			weeklyDocsCreated++
+		}
 	}
-	
+
+	log.Printf("LegacyImport: Storing %d picks in %d weekly documents for season %d...", totalPicks, weeklyDocsCreated, season)
+
+	// Trigger pick enrichment for completed games in this season
+	if s.resultCalcService != nil {
+		log.Printf("LegacyImport: Triggering pick enrichment for completed games in season %d...", season)
+		err := s.resultCalcService.ProcessAllCompletedGames(ctx, season)
+		if err != nil {
+			log.Printf("LegacyImport: Warning - failed to process completed games for season %d: %v", season, err)
+		} else {
+			log.Printf("LegacyImport: ✅ Pick enrichment completed for season %d", season)
+		}
+	}
+
 	// Log import statistics
-	log.Printf("LegacyImport: Successfully imported %d picks for %d season", len(picks), season)
+	log.Printf("LegacyImport: Successfully imported %d picks in %d weekly documents for %d season", totalPicks, weeklyDocsCreated, season)
 	log.Printf("  - Users with picks: %d", len(userPickCount))
 	log.Printf("  - Games with picks: %d", len(gamePickCount))
+	log.Printf("  - Weekly documents created: %d", weeklyDocsCreated)
 	log.Printf("  - Spread picks: %d", pickTypeCount[models.PickTypeSpread])
 	log.Printf("  - Over/Under picks: %d", pickTypeCount[models.PickTypeOverUnder])
 	

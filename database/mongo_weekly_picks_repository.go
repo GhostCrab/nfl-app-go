@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"nfl-app-go/logging"
 	"nfl-app-go/models"
 	"time"
 
@@ -275,4 +276,76 @@ func (r *MongoWeeklyPicksRepository) UpdatePickResults(ctx context.Context, seas
 	}
 
 	return nil
+}
+
+// UpdateIndividualPickResults updates specific picks individually based on game, user, and pick type
+// This handles the case where users have multiple picks per game (spread, over/under)
+func (r *MongoWeeklyPicksRepository) UpdateIndividualPickResults(ctx context.Context, season, week, gameID int, pickUpdates []PickUpdate) error {
+	if len(pickUpdates) == 0 {
+		return nil
+	}
+
+	var operations []mongo.WriteModel
+
+	for _, update := range pickUpdates {
+		// Update specific pick using arrayFilters for precise targeting
+		// This allows updating multiple picks in the same document for the same game
+		filter := bson.M{
+			"user_id": update.UserID,
+			"season":  season,
+			"week":    week,
+		}
+
+		updateDoc := bson.M{
+			"$set": bson.M{
+				"picks.$[elem].result": update.Result,
+				"updated_at":           time.Now(),
+			},
+		}
+
+		// ArrayFilters allow us to specify exactly which array element to update
+		arrayFilters := options.ArrayFilters{
+			Filters: []interface{}{
+				bson.M{
+					"elem.game_id":   gameID,
+					"elem.pick_type": update.PickType,
+				},
+			},
+		}
+
+		logging.Debugf("Building update for game %d, user %d, type %s, result %s",
+			gameID, update.UserID, update.PickType, update.Result)
+
+		updateOp := mongo.NewUpdateOneModel().
+			SetFilter(filter).
+			SetUpdate(updateDoc).
+			SetArrayFilters(arrayFilters)
+		operations = append(operations, updateOp)
+	}
+
+	if len(operations) > 0 {
+		opts := options.BulkWrite().SetOrdered(false)
+		result, err := r.collection.BulkWrite(ctx, operations, opts)
+		if err != nil {
+			return fmt.Errorf("failed to bulk update individual pick results: %w", err)
+		}
+
+		logging.Infof("Bulk update result for game %d: ModifiedCount=%d, MatchedCount=%d, UpsertedCount=%d",
+			gameID, result.ModifiedCount, result.MatchedCount, result.UpsertedCount)
+
+		// Log individual operation results if any failed
+		if result.ModifiedCount < int64(len(operations)) {
+			logging.Warnf("Some updates failed for game %d: Expected %d, Modified %d",
+				gameID, len(operations), result.ModifiedCount)
+		}
+	}
+
+	return nil
+}
+
+// PickUpdate represents an individual pick result update
+type PickUpdate struct {
+	UserID   int
+	PickType string
+	Result   models.PickResult
 }

@@ -141,8 +141,8 @@ func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
 		h.BroadcastGameUpdate(event.GameID, event.Season, event.Week)
 	}
 
-	// Handle pick collection changes (both legacy "picks" and new "weekly_picks")
-	if (event.Collection == "picks" || event.Collection == "weekly_picks") && event.UserID > 0 {
+	// Handle weekly_picks collection changes
+	if event.Collection == "weekly_picks" && event.UserID > 0 {
 		h.BroadcastPickUpdate(event.UserID, event.Season, event.Week)
 	}
 

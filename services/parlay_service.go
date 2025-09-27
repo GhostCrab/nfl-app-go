@@ -13,21 +13,18 @@ import (
 // This service is responsible for calculating weekly and daily parlay scores
 // and updating user parlay records.
 type ParlayService struct {
-	pickRepo   *database.MongoPickRepository
-	gameRepo   *database.MongoGameRepository
-	parlayRepo *database.MongoParlayRepository
+	weeklyPicksRepo *database.MongoWeeklyPicksRepository
+	gameRepo        *database.MongoGameRepository
 }
 
 // NewParlayService creates a new parlay service instance
 func NewParlayService(
-	pickRepo *database.MongoPickRepository,
+	weeklyPicksRepo *database.MongoWeeklyPicksRepository,
 	gameRepo *database.MongoGameRepository,
-	parlayRepo *database.MongoParlayRepository,
 ) *ParlayService {
 	service := &ParlayService{
-		pickRepo:   pickRepo,
-		gameRepo:   gameRepo,
-		parlayRepo: parlayRepo,
+		weeklyPicksRepo: weeklyPicksRepo,
+		gameRepo:        gameRepo,
 	}
 	return service
 }
@@ -41,8 +38,8 @@ func (s *ParlayService) CalculateUserParlayScore(ctx context.Context, userID, se
 	}
 
 	// Legacy seasons: use the original categorization logic
-	// Get user's picks for the week
-	userPicks, err := s.pickRepo.GetUserPicksForWeek(ctx, userID, season, week)
+	// Get user's picks for the week from WeeklyPicks document
+	userPicks, err := s.getUserPicksForWeek(ctx, userID, season, week)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user picks: %w", err)
 	}
@@ -144,8 +141,8 @@ func (s *ParlayService) getGameInfoForWeek(ctx context.Context, season, week int
 func (s *ParlayService) ProcessWeekParlayScoring(ctx context.Context, season, week int) error {
 	logging.Infof("Processing parlay scoring for season %d, week %d", season, week)
 
-	// Get all unique user IDs who made picks this week
-	userIDs, err := s.pickRepo.GetUniqueUserIDsForWeek(ctx, season, week)
+	// Get all unique user IDs who made picks this week from WeeklyPicks documents
+	userIDs, err := s.getUniqueUserIDsForWeek(ctx, season, week)
 	if err != nil {
 		return fmt.Errorf("failed to get user IDs: %w", err)
 	}
@@ -186,11 +183,10 @@ func (s *ParlayService) UpdateUserParlayRecord(ctx context.Context, userID, seas
 		logging.Errorf("ParlayService.UpdateUserParlayRecord stack trace:\n%s", buf[:n])
 	}
 
-	// Get or create the user's season record
-	seasonRecord, err := s.parlayRepo.GetUserSeasonRecord(ctx, userID, season)
-	if err != nil {
-		return fmt.Errorf("failed to get season record: %w", err)
-	}
+	// TODO: Replace with MemoryParlayScorer calls when needed
+	// Parlay scores are now managed in-memory by MemoryParlayScorer
+	// Database reads removed to prevent dual tracking
+	seasonRecord := (*models.ParlaySeasonRecord)(nil) // Placeholder
 
 	if seasonRecord == nil {
 		// Create new season record
@@ -220,14 +216,15 @@ func (s *ParlayService) UpdateUserParlayRecord(ctx context.Context, userID, seas
 	// Recalculate season totals
 	seasonRecord.RecalculateTotals()
 
-	// Save to database
-	return s.parlayRepo.UpsertUserSeasonRecord(ctx, seasonRecord)
+	// Note: Season records are now managed in-memory by MemoryParlayScorer
+	// Database storage removed to prevent dual tracking
+	return nil
 }
 
 // ProcessParlayCategory processes scoring for a specific parlay category
 func (s *ParlayService) ProcessParlayCategory(ctx context.Context, season, week int, category models.ParlayCategory) error {
 	// Get all users with picks for this week
-	userIDs, err := s.pickRepo.GetUniqueUserIDsForWeek(ctx, season, week)
+	userIDs, err := s.getUniqueUserIDsForWeek(ctx, season, week)
 	if err != nil {
 		return fmt.Errorf("failed to get user IDs: %w", err)
 	}
@@ -280,13 +277,11 @@ func (s *ParlayService) UpdateUserParlayCategoryRecord(ctx context.Context, user
 
 // CheckWeekHasParlayScores checks if parlay scores have been calculated for a week
 func (s *ParlayService) CheckWeekHasParlayScores(ctx context.Context, season, week int) (bool, error) {
-	// Check if any users have parlay scores recorded for this week
-	count, err := s.parlayRepo.CountUsersWithScoresForWeek(ctx, season, week)
-	if err != nil {
-		return false, fmt.Errorf("failed to check parlay scores: %w", err)
-	}
-
-	return count > 0, nil
+	// TODO: Replace with MemoryParlayScorer calls when needed
+	// Parlay scores are now managed in-memory by MemoryParlayScorer
+	// Database reads removed to prevent dual tracking
+	// For now, always return false to indicate no scores in database
+	return false, nil
 }
 
 // ProcessDailyParlayScoring processes daily parlay scoring (for modern seasons)
@@ -316,7 +311,7 @@ func (s *ParlayService) ProcessDailyParlayScoring(ctx context.Context, season, w
 	}
 
 	// Get all users with picks for this week
-	userIDs, err := s.pickRepo.GetUniqueUserIDsForWeek(ctx, season, week)
+	userIDs, err := s.getUniqueUserIDsForWeek(ctx, season, week)
 	if err != nil {
 		return fmt.Errorf("failed to get user IDs: %w", err)
 	}
@@ -343,8 +338,8 @@ func (s *ParlayService) ProcessDailyParlayScoring(ctx context.Context, season, w
 
 // CalculateUserDailyParlayScores calculates daily parlay scores for modern seasons
 func (s *ParlayService) CalculateUserDailyParlayScores(ctx context.Context, userID, season, week int, games []models.Game) (map[string]int, error) {
-	// Get user's picks for the week
-	userPicks, err := s.pickRepo.GetUserPicksForWeek(ctx, userID, season, week)
+	// Get user's picks for the week from WeeklyPicks document
+	userPicks, err := s.getUserPicksForWeek(ctx, userID, season, week)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user picks: %w", err)
 	}
@@ -407,11 +402,10 @@ func (s *ParlayService) calculateDayParlayScore(picks []models.Pick) int {
 
 // UpdateUserDailyParlayRecord updates user's daily parlay scores
 func (s *ParlayService) UpdateUserDailyParlayRecord(ctx context.Context, userID, season, week int, dailyScores map[string]int) error {
-	// Get or create user's season record
-	seasonRecord, err := s.parlayRepo.GetUserSeasonRecord(ctx, userID, season)
-	if err != nil {
-		return fmt.Errorf("failed to get season record: %w", err)
-	}
+	// TODO: Replace with MemoryParlayScorer calls when needed
+	// Parlay scores are now managed in-memory by MemoryParlayScorer
+	// Database reads removed to prevent dual tracking
+	seasonRecord := (*models.ParlaySeasonRecord)(nil) // Placeholder
 
 	if seasonRecord == nil {
 		seasonRecord = &models.ParlaySeasonRecord{
@@ -444,6 +438,45 @@ func (s *ParlayService) UpdateUserDailyParlayRecord(ctx context.Context, userID,
 	// Recalculate season totals
 	seasonRecord.RecalculateTotals()
 
-	// Save to database
-	return s.parlayRepo.UpsertUserSeasonRecord(ctx, seasonRecord)
+	// Note: Season records are now managed in-memory by MemoryParlayScorer
+	// Database storage removed to prevent dual tracking
+	return nil
+}
+
+// Helper methods to work with WeeklyPicks documents
+
+// getUserPicksForWeek gets all picks for a specific user and week from WeeklyPicks document
+func (s *ParlayService) getUserPicksForWeek(ctx context.Context, userID, season, week int) ([]models.Pick, error) {
+	weeklyPicks, err := s.weeklyPicksRepo.FindByUserAndWeek(ctx, userID, season, week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get weekly picks: %w", err)
+	}
+
+	if weeklyPicks == nil {
+		return []models.Pick{}, nil // No picks found for this user/week
+	}
+
+	return weeklyPicks.Picks, nil
+}
+
+// getUniqueUserIDsForWeek gets all unique user IDs who made picks in a specific week
+func (s *ParlayService) getUniqueUserIDsForWeek(ctx context.Context, season, week int) ([]int, error) {
+	weeklyPicksList, err := s.weeklyPicksRepo.FindAllByWeek(ctx, season, week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get weekly picks: %w", err)
+	}
+
+	// Extract unique user IDs
+	userIDSet := make(map[int]bool)
+	for _, weeklyPicks := range weeklyPicksList {
+		userIDSet[weeklyPicks.UserID] = true
+	}
+
+	// Convert to slice
+	var userIDs []int
+	for userID := range userIDSet {
+		userIDs = append(userIDs, userID)
+	}
+
+	return userIDs, nil
 }

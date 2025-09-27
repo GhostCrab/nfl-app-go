@@ -8,22 +8,31 @@ import (
 	"nfl-app-go/database"
 )
 
+// PickServiceInterface defines the methods needed from PickService for result updates
+type PickServiceInterface interface {
+	UpdatePickResultsByGame(ctx context.Context, season, week, gameID int, pickResults map[int]models.PickResult) error
+	UpdateIndividualPickResults(ctx context.Context, season, week, gameID int, pickUpdates []database.PickUpdate) error
+}
+
 // ResultCalculationService handles all game result calculations separated from PickService
 // This service is responsible for calculating pick results based on game outcomes
 // and determining spread, over/under, and moneyline results.
 type ResultCalculationService struct {
-	pickRepo *database.MongoPickRepository
-	gameRepo *database.MongoGameRepository
+	weeklyPicksRepo *database.MongoWeeklyPicksRepository
+	gameRepo        *database.MongoGameRepository
+	pickService     PickServiceInterface
 }
 
 // NewResultCalculationService creates a new result calculation service
 func NewResultCalculationService(
-	pickRepo *database.MongoPickRepository,
+	weeklyPicksRepo *database.MongoWeeklyPicksRepository,
 	gameRepo *database.MongoGameRepository,
+	pickService PickServiceInterface,
 ) *ResultCalculationService {
 	return &ResultCalculationService{
-		pickRepo: pickRepo,
-		gameRepo: gameRepo,
+		weeklyPicksRepo: weeklyPicksRepo,
+		gameRepo:        gameRepo,
+		pickService:     pickService,
 	}
 }
 
@@ -36,8 +45,8 @@ func (s *ResultCalculationService) ProcessGameCompletion(ctx context.Context, ga
 	log.Printf("Processing game completion for game %d: %s @ %s (Final: %d-%d)", 
 		game.ID, game.Away, game.Home, game.AwayScore, game.HomeScore)
 
-	// Get all picks for this game
-	picks, err := s.pickRepo.GetPicksByGameID(ctx, game.ID)
+	// Get all picks for this game from WeeklyPicks documents
+	picks, err := s.getPicksByGameID(ctx, game.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get picks for game %d: %w", game.ID, err)
 	}
@@ -49,14 +58,28 @@ func (s *ResultCalculationService) ProcessGameCompletion(ctx context.Context, ga
 
 	log.Printf("Processing %d picks for game %d", len(picks), game.ID)
 
-	// Process each pick
+	// Calculate results for each pick individually
+	var pickUpdates []database.PickUpdate
 	for _, pick := range picks {
 		result := s.CalculatePickResult(&pick, game)
-		
-		// TODO: Update the pick result in WeeklyPicks database
-		// For now, just log the result calculation
-		log.Printf("Calculated result for user %d game %d: %s -> %s",
-			pick.UserID, pick.GameID, pick.PickDescription, result)
+
+		pickUpdate := database.PickUpdate{
+			UserID:   pick.UserID,
+			PickType: string(pick.PickType),
+			Result:   result,
+		}
+		pickUpdates = append(pickUpdates, pickUpdate)
+
+		log.Printf("Calculated result for user %d game %d pick %s: %s -> %s",
+			pick.UserID, pick.GameID, pick.PickType, pick.PickDescription, result)
+	}
+
+	// Update all pick results individually
+	if len(pickUpdates) > 0 {
+		if err := s.pickService.UpdateIndividualPickResults(ctx, game.Season, game.Week, game.ID, pickUpdates); err != nil {
+			return fmt.Errorf("failed to update pick results: %w", err)
+		}
+		log.Printf("Updated %d individual pick results for game %d", len(pickUpdates), game.ID)
 	}
 
 	return nil
@@ -217,7 +240,7 @@ func (s *ResultCalculationService) getTeamIDFromAbbreviation(abbr string) int {
 
 // GetPickStatisticsForGame returns statistics for picks on a specific game
 func (s *ResultCalculationService) GetPickStatisticsForGame(ctx context.Context, gameID int) (GamePickStats, error) {
-	picks, err := s.pickRepo.GetPicksByGameID(ctx, gameID)
+	picks, err := s.getPicksByGameID(ctx, gameID)
 	if err != nil {
 		return GamePickStats{}, fmt.Errorf("failed to get picks: %w", err)
 	}
@@ -301,7 +324,7 @@ func (s *ResultCalculationService) ProcessAllCompletedGames(ctx context.Context,
 		}
 
 		// Check if picks for this game have already been processed
-		picks, err := s.pickRepo.GetPicksByGameID(ctx, game.ID)
+		picks, err := s.getPicksByGameID(ctx, game.ID)
 		if err != nil {
 			log.Printf("Failed to get picks for game %d: %v", game.ID, err)
 			errorCount++
@@ -335,4 +358,34 @@ func (s *ResultCalculationService) ProcessAllCompletedGames(ctx context.Context,
 
 	log.Printf("Processed %d completed games (%d errors)", processedCount, errorCount)
 	return nil
+}
+
+// Helper method to work with WeeklyPicks documents
+
+// getPicksByGameID extracts all picks for a specific game from WeeklyPicks documents
+func (s *ResultCalculationService) getPicksByGameID(ctx context.Context, gameID int) ([]models.Pick, error) {
+	// We need to find which season and week this game belongs to first
+	game, err := s.gameRepo.FindByESPNID(ctx, gameID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game: %w", err)
+	}
+
+	// Get all weekly picks for the game's season and week
+	weeklyPicksList, err := s.weeklyPicksRepo.FindAllByWeek(ctx, game.Season, game.Week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get weekly picks for game: %w", err)
+	}
+
+	var picks []models.Pick
+	for _, weeklyPicks := range weeklyPicksList {
+		for _, pick := range weeklyPicks.Picks {
+			if pick.GameID == gameID {
+				// CRITICAL: Ensure UserID is set from the parent WeeklyPicks document
+				pick.UserID = weeklyPicks.UserID
+				picks = append(picks, pick)
+			}
+		}
+	}
+
+	return picks, nil
 }
