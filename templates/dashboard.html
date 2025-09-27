@@ -186,12 +186,12 @@
         {{debugLog "sortUsersWithCurrentFirst returned, starting range"}}
         {{range $index, $userPicks := $sortedUserPicks}}
             {{$isCurrentUser := eq .UserName $.User.Name}}
-            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0) "Season" $.CurrentSeason "Week" $.CurrentWeek}}
+            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" $isCurrentUser "IsFirst" (eq $index 0) "Season" $.CurrentSeason "Week" $.CurrentWeek "UseOOBSwap" false}}
         {{end}}
     {{else}}
         {{debugLog "No User, using basic range"}}
         {{range $index, $userPicks := .UserPicks}}
-            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" false "IsFirst" (eq $index 0) "Season" $.CurrentSeason "Week" $.CurrentWeek}}
+            {{template "user-picks-block" dict "UserPicks" . "Games" $.Games "IsCurrentUser" false "IsFirst" (eq $index 0) "Season" $.CurrentSeason "Week" $.CurrentWeek "UseOOBSwap" false}}
         {{end}}
     {{end}}
 {{else}}
@@ -207,7 +207,13 @@
 {{define "user-picks-block"}}
 {{$userPicks := .UserPicks}}{{$games := .Games}}{{$isCurrentUser := .IsCurrentUser -}}
 {{$season := .Season -}}{{$week := .Week -}}
-<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}" hx-swap-oob="true">
+<div class="user-picks-section" id="user-picks-{{$userPicks.UserID}}-{{$season}}-{{$week}}" data-user-id="{{$userPicks.UserID}}" data-season="{{$season}}" data-week="{{$week}}"{{if .UseOOBSwap}} hx-swap-oob="true"{{end}}>
+{{/*
+CRITICAL: UseOOBSwap controls hx-swap-oob behavior
+- SSE updates: UseOOBSwap=true for in-place pick updates
+- Normal navigation: UseOOBSwap=false to avoid conflicts with dashboard-content target
+This prevents the picks-container from becoming empty during week switching.
+*/}}
 <div class="user-picks-header">
 {{if $isCurrentUser}}MY PICKS{{else}}{{$userPicks.UserName}}'S PICKS{{end}}
 </div>

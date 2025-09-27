@@ -345,6 +345,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 				"IsFirst":       false,
 				"Season":        season,
 				"Week":          week,
+				"UseOOBSwap":    true, // Enable OOB swapping for SSE updates
 			}
 
 			if err := h.templates.ExecuteTemplate(htmlBuffer, "user-picks-block", templateData); err != nil {

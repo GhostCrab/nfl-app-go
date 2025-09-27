@@ -199,6 +199,11 @@ func (r *MongoWeeklyPicksRepository) Delete(ctx context.Context, userID, season,
 	return nil
 }
 
+// Count returns the total number of weekly picks documents
+func (r *MongoWeeklyPicksRepository) Count(ctx context.Context) (int64, error) {
+	return r.collection.CountDocuments(ctx, bson.M{})
+}
+
 // CountBySeasonAndWeek returns the number of users who have submitted picks for a specific season and week
 func (r *MongoWeeklyPicksRepository) CountBySeasonAndWeek(ctx context.Context, season, week int) (int64, error) {
 	filter := bson.M{

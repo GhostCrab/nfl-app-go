@@ -144,9 +144,16 @@ func (s *PickService) GetUserPicksForWeek(ctx context.Context, userID, season, w
 		gameInfoMap = make(map[int]models.GameDayInfo) // Empty map as fallback
 	}
 
-	// Categorize picks from userPicks (already converted from WeeklyPicks)
+	// Enrich picks with game data and categorize them
 	for i := range userPicks.Picks {
 		pick := &userPicks.Picks[i]
+
+		// IMPORTANT: Enrich pick with game data to populate TeamName and other display fields
+		// This fixes the issue where picks show help.svg on first load due to empty TeamName
+		if err := s.EnrichPickWithGameData(pick); err != nil {
+			logger.Warnf("Failed to enrich pick for game %d: %v", pick.GameID, err)
+			// Continue with unenriched pick rather than failing completely
+		}
 
 		// Categorize by pick type
 		switch pick.PickType {
@@ -275,23 +282,32 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 			userPicksData.Record.WeeklyPoints = weekParlayScore.TotalPoints
 		}
 
-		// Categorize picks by game day for bonus weeks
-		for _, pick := range userPicksData.Picks {
+		// Enrich picks and categorize them by game day for bonus weeks
+		for i := range userPicksData.Picks {
+			pick := &userPicksData.Picks[i]
+
+			// IMPORTANT: Enrich pick with game data to populate TeamName and other display fields
+			// This fixes the issue where picks show help.svg on first load due to empty TeamName
+			if err := s.EnrichPickWithGameData(pick); err != nil {
+				logger.Warnf("Failed to enrich pick for game %d: %v", pick.GameID, err)
+				// Continue with unenriched pick rather than failing completely
+			}
+
 			if gameInfo, exists := gameInfoMap[pick.GameID]; exists {
 				switch gameInfo.Category {
 				case models.ParlayBonusThursday:
-					userPicksData.BonusThursdayPicks = append(userPicksData.BonusThursdayPicks, pick)
+					userPicksData.BonusThursdayPicks = append(userPicksData.BonusThursdayPicks, *pick)
 				case models.ParlayBonusFriday:
-					userPicksData.BonusFridayPicks = append(userPicksData.BonusFridayPicks, pick)
+					userPicksData.BonusFridayPicks = append(userPicksData.BonusFridayPicks, *pick)
 				}
 			}
 
 			// Also categorize by pick type
 			switch pick.PickType {
 			case models.PickTypeSpread:
-				userPicksData.SpreadPicks = append(userPicksData.SpreadPicks, pick)
+				userPicksData.SpreadPicks = append(userPicksData.SpreadPicks, *pick)
 			case models.PickTypeOverUnder:
-				userPicksData.OverUnderPicks = append(userPicksData.OverUnderPicks, pick)
+				userPicksData.OverUnderPicks = append(userPicksData.OverUnderPicks, *pick)
 			}
 		}
 	}
@@ -346,7 +362,20 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 // NOTE: This method is legacy and may not work with new WeeklyPicks model
 func (s *PickService) UpdatePickResult(ctx context.Context, pickID primitive.ObjectID, result models.PickResult) error {
 	// TODO: Implement with WeeklyPicks repository
-	return fmt.Errorf("UpdatePickResult not implemented with WeeklyPicks model")
+	return fmt.Errorf("UpdatePickResult not implemented with WeeklyPicks model - use UpdatePickResultsByGame instead")
+}
+
+// UpdatePickResultsByGame updates pick results for all users who have picks on a specific game
+func (s *PickService) UpdatePickResultsByGame(ctx context.Context, season, week, gameID int, pickResults map[int]models.PickResult) error {
+	logger := logging.WithPrefix("PickService")
+
+	// Use the WeeklyPicksRepository's UpdatePickResults method
+	if err := s.weeklyPicksRepo.UpdatePickResults(ctx, season, week, gameID, pickResults); err != nil {
+		return fmt.Errorf("failed to update pick results for game %d: %w", gameID, err)
+	}
+
+	logger.Infof("Updated pick results for game %d: %d users affected", gameID, len(pickResults))
+	return nil
 }
 
 // ProcessGameCompletion processes all picks for a completed game and calculates results
@@ -372,15 +401,23 @@ func (s *PickService) ProcessGameCompletion(ctx context.Context, game *models.Ga
 
 	logger.Infof("Processing %d picks for completed game %d", len(picks), game.ID)
 
+	// Calculate results for all picks and collect them by UserID
+	pickResults := make(map[int]models.PickResult)
 	for _, pick := range picks {
-		var result models.PickResult
-
 		// Calculate pick result using specialized service
-		result = s.resultCalcService.CalculatePickResult(&pick, game)
+		result := s.resultCalcService.CalculatePickResult(&pick, game)
 
-		// TODO: Update the pick result in WeeklyPicks repository
-		// For now, just log the result calculation
-		logger.Infof("Calculated pick result for game %d: %s (not updated in DB yet)", pick.GameID, result)
+		// Store result mapped by UserID
+		pickResults[pick.UserID] = result
+
+		logger.Infof("Calculated pick result for user %d, game %d: %s", pick.UserID, pick.GameID, result)
+	}
+
+	// Update all pick results in one batch operation
+	if len(pickResults) > 0 {
+		if err := s.UpdatePickResultsByGame(ctx, game.Season, game.Week, game.ID, pickResults); err != nil {
+			return fmt.Errorf("failed to update pick results: %w", err)
+		}
 	}
 
 	return nil
@@ -388,12 +425,14 @@ func (s *PickService) ProcessGameCompletion(ctx context.Context, game *models.Ga
 
 // GetPickStats returns statistics about picks in the system
 func (s *PickService) GetPickStats(ctx context.Context) (map[string]interface{}, error) {
-	// TODO: Implement with WeeklyPicks repository
-	totalPicks := int64(0) // Stub for now
+	totalWeeklyPicksDocuments, err := s.weeklyPicksRepo.Count(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count weekly picks documents: %w", err)
+	}
 
 	stats := map[string]interface{}{
-		"total_picks":  totalPicks,
-		"last_updated": time.Now(),
+		"total_weekly_picks_documents": totalWeeklyPicksDocuments,
+		"last_updated":                 time.Now(),
 	}
 
 	// Add season-specific stats
@@ -907,14 +946,6 @@ func (s *PickService) populateTeamName(pick *models.Pick, game *models.Game) {
 	}
 }
 
-// Helper function to convert []*Pick to []Pick
-func convertPickPointers(picks []*models.Pick) []models.Pick {
-	result := make([]models.Pick, len(picks))
-	for i, pick := range picks {
-		result[i] = *pick
-	}
-	return result
-}
 
 // checkAndTriggerScoring checks if any parlay categories are now complete and triggers scoring
 // Only triggers scoring for categories with completed games - not for pending games
