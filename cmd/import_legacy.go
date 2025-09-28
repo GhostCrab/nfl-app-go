@@ -6,6 +6,7 @@ import (
 	"nfl-app-go/services"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -15,6 +16,25 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getEnvWithDevelOverride gets environment variable with development port override
+func getEnvWithDevelOverride(key, develKey, defaultValue string) string {
+	// Check if we're in development mode
+	environment := getEnv("ENVIRONMENT", "development")
+	isDevelopment := strings.ToLower(environment) == "development"
+
+	// Get the base value
+	value := getEnv(key, defaultValue)
+
+	// Override with development value if in development mode
+	if isDevelopment {
+		if develValue := getEnv(develKey, ""); develValue != "" {
+			value = develValue
+		}
+	}
+
+	return value
 }
 
 func main() {
@@ -28,7 +48,7 @@ func main() {
 	// Initialize MongoDB connection
 	dbConfig := database.Config{
 		Host:     getEnv("DB_HOST", "p5server"),
-		Port:     getEnv("DB_PORT", "27017"),
+		Port:     getEnvWithDevelOverride("DB_PORT", "DEVEL_DB_PORT", "27017"),
 		Username: getEnv("DB_USERNAME", "nflapp"),
 		Password: getEnv("DB_PASSWORD", ""),
 		Database: getEnv("DB_NAME", "nfl_app"),

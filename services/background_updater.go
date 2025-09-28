@@ -63,6 +63,9 @@ func (bu *BackgroundUpdater) Start() {
 	// Do an initial update
 	go bu.updateGames()
 
+	// Log upcoming games for better visibility
+	bu.logUpcomingGames()
+
 	// Start the intelligent scheduler
 	go bu.intelligentScheduler()
 }
@@ -363,7 +366,7 @@ func (bu *BackgroundUpdater) intelligentScheduler() {
 	}
 }
 
-// getIntelligentUpdateInterval calculates update interval based on current game states
+// getIntelligentUpdateInterval calculates update interval based on current game states and scheduled times
 func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, string) {
 	// Get current games from database to analyze their states
 	games, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
@@ -373,6 +376,8 @@ func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, stri
 		return 2 * time.Minute, "fallback"
 	}
 
+	now := time.Now()
+
 	// Check for games in progress (highest priority - 5 seconds)
 	for _, game := range games {
 		if game.State == models.GameStateInPlay {
@@ -380,8 +385,13 @@ func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, stri
 		}
 	}
 
+	// Check for games that should be starting soon or recently started
+	interval, reason := bu.getGameTimeBasedInterval(games, now)
+	if interval > 0 {
+		return interval, reason
+	}
+
 	// During NFL season (September through February): poll every 2 minutes
-	now := time.Now()
 	month := now.Month()
 	if month >= 9 || month <= 2 {
 		return 2 * time.Minute, "nfl-season"
@@ -389,6 +399,79 @@ func (bu *BackgroundUpdater) getIntelligentUpdateInterval() (time.Duration, stri
 
 	// Off-season: poll every 30 minutes
 	return 30 * time.Minute, "off-season"
+}
+
+// getGameTimeBasedInterval returns polling interval based on scheduled game times
+func (bu *BackgroundUpdater) getGameTimeBasedInterval(games []*models.Game, now time.Time) (time.Duration, string) {
+	// Find games that are scheduled for today or the next few hours
+	for _, game := range games {
+		if game == nil || game.State != models.GameStateScheduled {
+			continue
+		}
+
+		timeDiff := game.Date.Sub(now)
+
+		// If game starts within 15 minutes: poll every 10 seconds (pre-game rapid)
+		if timeDiff >= -15*time.Minute && timeDiff <= 15*time.Minute {
+			return 10 * time.Second, fmt.Sprintf("pre-game-rapid (game %d in %s)", game.ID, timeDiff.Round(time.Minute))
+		}
+
+		// If game starts within 1 hour: poll every 30 seconds (pre-game)
+		if timeDiff >= -30*time.Minute && timeDiff <= 1*time.Hour {
+			return 30 * time.Second, fmt.Sprintf("pre-game (game %d in %s)", game.ID, timeDiff.Round(time.Minute))
+		}
+
+		// If game should have started within last 4 hours but still shows scheduled: poll every 15 seconds (delayed start detection)
+		if timeDiff >= -4*time.Hour && timeDiff <= 0 {
+			return 15 * time.Second, fmt.Sprintf("delayed-start-detection (game %d should have started %s ago)", game.ID, (-timeDiff).Round(time.Minute))
+		}
+
+		// If game starts within 3 hours: poll every 2 minutes (game day)
+		if timeDiff >= 0 && timeDiff <= 3*time.Hour {
+			return 2 * time.Minute, fmt.Sprintf("game-day (game %d in %s)", game.ID, timeDiff.Round(time.Minute))
+		}
+	}
+
+	// No relevant games found
+	return 0, ""
+}
+
+// logUpcomingGames logs information about upcoming scheduled games
+func (bu *BackgroundUpdater) logUpcomingGames() {
+	games, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
+	if err != nil {
+		bu.logger.Errorf("Error fetching games for upcoming game log: %v", err)
+		return
+	}
+
+	now := time.Now()
+	upcomingGames := make([]*models.Game, 0)
+
+	// Find games in the next 24 hours
+	for _, game := range games {
+		if game == nil || game.State != models.GameStateScheduled {
+			continue
+		}
+
+		timeDiff := game.Date.Sub(now)
+		if timeDiff >= 0 && timeDiff <= 24*time.Hour {
+			upcomingGames = append(upcomingGames, game)
+		}
+	}
+
+	if len(upcomingGames) == 0 {
+		bu.logger.Info("No games scheduled in the next 24 hours")
+		return
+	}
+
+	bu.logger.Infof("Found %d upcoming games in next 24 hours:", len(upcomingGames))
+	for _, game := range upcomingGames {
+		timeDiff := game.Date.Sub(now)
+		bu.logger.Infof("  Game %d: %s @ %s in %s (%s)",
+			game.ID, game.Away, game.Home,
+			timeDiff.Round(time.Minute),
+			game.Date.Format("15:04 MST"))
+	}
 }
 
 // getCurrentNFLWeek determines current NFL week based on date

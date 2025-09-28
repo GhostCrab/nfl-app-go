@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -42,6 +43,7 @@ type SSEHandler struct {
 	memoryScorer      *services.MemoryParlayScorer
 	userRepo          *database.MongoUserRepository // Added for BroadcastPickUpdate fix
 	sseClients        map[*SSEClient]bool
+	clientsMutex      sync.RWMutex    // Protects sseClients map
 	messageCounter    uint64          // Atomic counter for message sequencing
 	messageQueue      chan SSEMessage // Ordered message queue
 	heartbeatTicker   *time.Ticker    // Heartbeat timer
@@ -80,9 +82,39 @@ func (h *SSEHandler) SetServices(pickService *services.PickService, authService 
 	h.userRepo = userRepo
 }
 
+// getClientCount returns the number of connected SSE clients (thread-safe)
+func (h *SSEHandler) getClientCount() int {
+	h.clientsMutex.RLock()
+	defer h.clientsMutex.RUnlock()
+	return len(h.sseClients)
+}
+
+// forEachClient safely iterates over SSE clients
+func (h *SSEHandler) forEachClient(fn func(*SSEClient)) {
+	h.clientsMutex.RLock()
+	// Create a slice of clients to avoid holding the lock during iteration
+	clients := make([]*SSEClient, 0, len(h.sseClients))
+	for client := range h.sseClients {
+		clients = append(clients, client)
+	}
+	h.clientsMutex.RUnlock()
+
+	// Now iterate without holding the lock
+	for _, client := range clients {
+		fn(client)
+	}
+}
+
 // GetClients returns the SSE clients for broadcasting (for use by other handlers)
 func (h *SSEHandler) GetClients() map[*SSEClient]bool {
-	return h.sseClients
+	h.clientsMutex.RLock()
+	defer h.clientsMutex.RUnlock()
+	// Return a copy to avoid race conditions
+	clientsCopy := make(map[*SSEClient]bool, len(h.sseClients))
+	for client, active := range h.sseClients {
+		clientsCopy[client] = active
+	}
+	return clientsCopy
 }
 
 // SSEHandler handles Server-Sent Events for real-time game updates
@@ -110,10 +142,15 @@ func (h *SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		UserID:  userID,
 	}
 
-	// Add client to the map
+	// Add client to the map (thread-safe)
+	h.clientsMutex.Lock()
 	h.sseClients[client] = true
+	h.clientsMutex.Unlock()
+
 	defer func() {
+		h.clientsMutex.Lock()
 		delete(h.sseClients, client)
+		h.clientsMutex.Unlock()
 		close(client.Channel)
 		logger.Infof("Client disconnected (UserID: %d)", userID)
 	}()
@@ -226,7 +263,7 @@ func (h *SSEHandler) getNextMessageID() uint64 {
 
 // BroadcastToAllClients sends a message with sequence ID to all connected SSE clients via queue
 func (h *SSEHandler) BroadcastToAllClients(eventType, data string) {
-	if len(h.sseClients) == 0 {
+	if h.getClientCount() == 0 {
 		return
 	}
 
@@ -288,17 +325,17 @@ func (h *SSEHandler) broadcastDirectly(eventType, data string, messageID uint64)
 	messageData := fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", messageID, eventType, data)
 
 	logger := logging.WithPrefix("SSE")
-	clientCount := len(h.sseClients)
+	clientCount := h.getClientCount()
 	sentCount := 0
 
-	for client := range h.sseClients {
+	h.forEachClient(func(client *SSEClient) {
 		select {
 		case client.Channel <- messageData:
 			sentCount++
 		default:
 			logger.Warnf("Client channel full, skipping message %d", messageID)
 		}
-	}
+	})
 
 	if clientCount > 0 {
 		logger.Debugf("Broadcasted message %d (%s) to %d/%d clients", messageID, eventType, sentCount, clientCount)
@@ -326,13 +363,14 @@ func (h *SSEHandler) startHeartbeat() {
 func (h *SSEHandler) sendHeartbeat() {
 	logger := logging.WithPrefix("SSE:Heartbeat")
 
-	if len(h.sseClients) == 0 {
+	clientCount := h.getClientCount()
+	if clientCount == 0 {
 		return
 	}
 
 	h.BroadcastToAllClients("heartbeat", "keep-alive")
 
-	logger.Debugf("Sent heartbeat to %d clients", len(h.sseClients))
+	logger.Debugf("Sent heartbeat to %d clients", clientCount)
 }
 
 // Stop stops the heartbeat timer (cleanup method)
@@ -429,7 +467,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	userPicks.PopulateDailyPickGroups(weekGames, season)
 
 	// Check if there are any connected clients
-	clientCount := len(h.sseClients)
+	clientCount := h.getClientCount()
 	if clientCount == 0 {
 		logger.Debug("No SSE clients connected, skipping broadcast")
 		return
@@ -437,7 +475,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 
 	// Send update to each client with visibility filtering
 	sentCount := 0
-	for client := range h.sseClients {
+	h.forEachClient(func(client *SSEClient) {
 		viewingUserID := client.UserID
 
 		// Apply visibility filtering - only show this user's picks if viewer can see them
@@ -451,7 +489,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		)
 		if err != nil {
 			logger.Errorf("Error filtering picks for viewing user %d: %v", viewingUserID, err)
-			continue
+			return
 		}
 
 		// Only include this user's picks if they're visible to the viewer
@@ -462,7 +500,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		// If no picks are visible to this viewer, skip
 		if len(visibleUserPicks) == 0 {
 			logger.Debugf("User %d's picks not visible to viewer %d, skipping", userID, viewingUserID)
-			continue
+			return
 		}
 
 		// Render the single user's pick section
@@ -478,7 +516,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		htmlBuffer := &strings.Builder{}
 		if err := h.templates.ExecuteTemplate(htmlBuffer, "user-picks-block", templateData); err != nil {
 			logger.Errorf("Error rendering user picks template for user %d: %v", userID, err)
-			continue
+			return
 		}
 
 		// Send to specific client
@@ -498,7 +536,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		default:
 			logger.Warnf("Message queue full, dropping pick update for user %d", userID)
 		}
-	}
+	})
 
 	logger.Infof("Broadcasted single user pick update for user %d to %d/%d clients", userID, sentCount, clientCount)
 }
@@ -916,7 +954,7 @@ func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
 	// Send the HTML update via SSE
 	h.BroadcastToAllClients("parlay-scores-updated", oobHTML)
 
-	logger.Infof("Broadcasted club scores update to %d clients for season %d, week %d", len(h.sseClients), season, week)
+	logger.Infof("Broadcasted club scores update to %d clients for season %d, week %d", h.getClientCount(), season, week)
 }
 
 // BroadcastPickContainerRefresh broadcasts complete pick-container updates for visibility changes
@@ -954,6 +992,8 @@ func (h *SSEHandler) BroadcastPickContainerRefresh(season, week int) {
 	// Create template data for pick container
 	templateData := map[string]interface{}{
 		"UserPicks": userPicks,
+		"Season":    season,
+		"Week":      week,
 	}
 
 	// Render the pick-container content with updated visibility
@@ -969,7 +1009,7 @@ func (h *SSEHandler) BroadcastPickContainerRefresh(season, week int) {
 	// Send the HTML update via SSE
 	h.BroadcastToAllClients("pick-container-refresh", oobHTML)
 
-	logger.Infof("Broadcasted pick container refresh to %d clients for season %d, week %d", len(h.sseClients), season, week)
+	logger.Infof("Broadcasted pick container refresh to %d clients for season %d, week %d", h.getClientCount(), season, week)
 }
 
 // handleGameCompletion handles game state change events to update pick results and recalculate parlay scores
@@ -1078,11 +1118,11 @@ func (h *SSEHandler) BroadcastPickItemUpdate(game *models.Game, pick *models.Pic
 
 	// Send to all clients (they'll filter based on visibility on their end)
 	sentCount := 0
-	for client := range h.sseClients {
+	h.forEachClient(func(client *SSEClient) {
 		if h.sendMessageToClient(client, message) {
 			sentCount++
 		}
-	}
+	})
 
 	logger.Debugf("Broadcasted pick item update for pick %d-%d (game %d, state: %s) to %d clients",
 		pick.UserID, pick.GameID, game.ID, game.State, sentCount)

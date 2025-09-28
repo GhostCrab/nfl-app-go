@@ -31,6 +31,9 @@ type Config struct {
 
 	// Application configuration
 	App AppConfig `json:"app"`
+
+	// Backup configuration
+	Backup BackupConfig `json:"backup"`
 }
 
 // ServerConfig holds server-related configuration
@@ -59,6 +62,8 @@ type LoggingConfig struct {
 	Level       string `json:"level"`
 	Prefix      string `json:"prefix"`
 	EnableColor bool   `json:"enable_color"`
+	LogDir      string `json:"log_dir"`
+	EnableFile  bool   `json:"enable_file"`
 }
 
 // EmailConfig holds SMTP configuration
@@ -85,6 +90,14 @@ type AppConfig struct {
 	DisplayIDTooltips        bool `json:"display_id_tooltips"`
 }
 
+// BackupConfig holds backup configuration
+type BackupConfig struct {
+	Enabled        bool   `json:"enabled"`
+	BackupDir      string `json:"backup_dir"`
+	BackupTime     string `json:"backup_time"`
+	RetentionDays  int    `json:"retention_days"`
+}
+
 // Load loads configuration from environment variables and .env file
 func Load() (*Config, error) {
 	// Load .env file if it exists
@@ -93,19 +106,39 @@ func Load() (*Config, error) {
 		logging.Warnf("Could not load .env file: %v", err)
 	}
 
+	// Determine if we're in development mode first
+	environment := getEnv("ENVIRONMENT", "development")
+	isDevelopment := strings.ToLower(environment) == "development"
+
+	// Get server port with development override
+	serverPort := getEnv("SERVER_PORT", "8080")
+	if isDevelopment {
+		if develPort := getEnv("DEVEL_SERVER_PORT", ""); develPort != "" {
+			serverPort = develPort
+		}
+	}
+
+	// Get database port with development override
+	dbPort := getEnv("DB_PORT", "27017")
+	if isDevelopment {
+		if develPort := getEnv("DEVEL_DB_PORT", ""); develPort != "" {
+			dbPort = develPort
+		}
+	}
+
 	config := &Config{
 		Server: ServerConfig{
-			Port:        getEnv("SERVER_PORT", "8080"),
+			Port:        serverPort,
 			Host:        getEnv("SERVER_HOST", "0.0.0.0"),
 			UseTLS:      getBoolEnv("USE_TLS", true),
 			BehindProxy: getBoolEnv("BEHIND_PROXY", false),
 			CertFile:    getEnv("TLS_CERT_FILE", "server.crt"),
 			KeyFile:     getEnv("TLS_KEY_FILE", "server.key"),
-			Environment: getEnv("ENVIRONMENT", "development"),
+			Environment: environment,
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DB_HOST", "p5server"),
-			Port:     getEnv("DB_PORT", "27017"),
+			Port:     dbPort,
 			Username: getEnv("DB_USERNAME", "nflapp"),
 			Password: getEnv("DB_PASSWORD", ""),
 			Database: getEnv("DB_NAME", "nfl_app"),
@@ -115,6 +148,8 @@ func Load() (*Config, error) {
 			Level:       getEnv("LOG_LEVEL", "debug"),
 			Prefix:      getEnv("LOG_PREFIX", "nfl-app"),
 			EnableColor: getBoolEnv("LOG_COLOR", true),
+			LogDir:      getEnv("LOG_DIR", "./logs"),
+			EnableFile:  getBoolEnv("LOG_FILE", false),
 		},
 		Email: EmailConfig{
 			SMTPHost:     getEnv("SMTP_HOST", ""),
@@ -129,10 +164,16 @@ func Load() (*Config, error) {
 		},
 		App: AppConfig{
 			CurrentSeason:            getIntEnv("CURRENT_SEASON", 2025),
-			IsDevelopment:            strings.ToLower(getEnv("ENVIRONMENT", "development")) == "development",
+			IsDevelopment:            isDevelopment,
 			BackgroundUpdaterEnabled: getBoolEnv("BACKGROUND_UPDATER_ENABLED", true),
 			MockUpdaterEnabled:       getBoolEnv("MOCK_UPDATER_ENABLED", false),
 			DisplayIDTooltips:        getBoolEnv("DISPLAY_ID_TOOLTIPS", false),
+		},
+		Backup: BackupConfig{
+			Enabled:       getBoolEnv("BACKUP_ENABLED", true),
+			BackupDir:     getEnv("BACKUP_DIR", "./backups"),
+			BackupTime:    getEnv("BACKUP_TIME", "02:00"),
+			RetentionDays: getIntEnv("BACKUP_RETENTION_DAYS", 30),
 		},
 	}
 
@@ -226,6 +267,23 @@ func (c *Config) IsMockUpdaterEnabled() bool {
 	return c.App.MockUpdaterEnabled
 }
 
+// Backup configuration methods
+func (c *Config) IsBackupEnabled() bool {
+	return c.Backup.Enabled
+}
+
+func (c *Config) GetBackupDir() string {
+	return c.Backup.BackupDir
+}
+
+func (c *Config) GetBackupTime() string {
+	return c.Backup.BackupTime
+}
+
+func (c *Config) GetBackupRetentionDays() int {
+	return c.Backup.RetentionDays
+}
+
 // LogConfiguration logs the current configuration (without sensitive data)
 func (c *Config) LogConfiguration() {
 	logging.Info("=== Application Configuration ===")
@@ -240,6 +298,8 @@ func (c *Config) LogConfiguration() {
 		c.IsEmailConfigured(), c.Email.SMTPHost, c.Email.FromEmail)
 	logging.Infof("App: Season=%d, Development=%t, BackgroundUpdater=%t, MockUpdater=%t, DisplayIDTooltips=%t",
 		c.App.CurrentSeason, c.App.IsDevelopment, c.App.BackgroundUpdaterEnabled, c.App.MockUpdaterEnabled, c.App.DisplayIDTooltips)
+	logging.Infof("Backup: Enabled=%t, Dir=%s, Time=%s, Retention=%d days",
+		c.Backup.Enabled, c.Backup.BackupDir, c.Backup.BackupTime, c.Backup.RetentionDays)
 	logging.Info("================================")
 }
 
@@ -281,3 +341,4 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 	}
 	return defaultValue
 }
+

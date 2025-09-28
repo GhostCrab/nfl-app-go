@@ -1,7 +1,9 @@
 package logging
 
 import (
+	"io"
 	"os"
+	"path/filepath"
 )
 
 // Global logger instance
@@ -37,6 +39,35 @@ func SetGlobalLogger(logger *Logger) {
 // Configure configures the global logger
 func Configure(config Config) {
 	globalLogger = New(config)
+}
+
+// ConfigureFileLogging sets up logging to both file and stdout
+func ConfigureFileLogging(config Config, logDir string) error {
+	// Create log directory if it doesn't exist
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return err
+	}
+
+	// Create log file
+	logFile := filepath.Join(logDir, "nfl-app.log")
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+
+	// Create multi-writer for both file and stdout
+	var output io.Writer
+	if config.EnableColor {
+		// For production, disable colors in file but keep them in stdout
+		output = io.MultiWriter(file, os.Stdout)
+		config.EnableColor = false // Disable colors for file output
+	} else {
+		output = io.MultiWriter(file, os.Stdout)
+	}
+
+	config.Output = output
+	globalLogger = New(config)
+	return nil
 }
 
 // Global logging functions that use the global logger instance

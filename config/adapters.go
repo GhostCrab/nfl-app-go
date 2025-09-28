@@ -39,3 +39,13 @@ func (c *Config) ToEmailConfig() services.EmailConfig {
 		FromName:     c.Email.FromName,
 	}
 }
+
+// ShouldLogToFile returns whether file logging is enabled
+func (c *Config) ShouldLogToFile() bool {
+	return c.Logging.EnableFile
+}
+
+// GetLogDir returns the log directory path
+func (c *Config) GetLogDir() string {
+	return c.Logging.LogDir
+}

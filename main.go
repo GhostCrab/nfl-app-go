@@ -25,7 +25,14 @@ func main() {
 	}
 
 	// Configure structured logging using config
-	logging.Configure(cfg.ToLoggingConfig())
+	if cfg.ShouldLogToFile() {
+		if err := logging.ConfigureFileLogging(cfg.ToLoggingConfig(), cfg.GetLogDir()); err != nil {
+			logging.Fatalf("Failed to configure file logging: %v", err)
+		}
+		logging.Infof("File logging enabled: %s", cfg.GetLogDir())
+	} else {
+		logging.Configure(cfg.ToLoggingConfig())
+	}
 
 	// Log the loaded configuration
 	cfg.LogConfiguration()
@@ -160,6 +167,19 @@ func main() {
 	ctx := context.Background()
 	if err := memoryScorer.InitializeClubScores(ctx, currentSeason); err != nil {
 		logging.Errorf("Failed to initialize memory scorer: %v", err)
+	}
+
+	// Create and start backup service
+	backupConfig := services.BackupConfig{
+		BackupDir:   cfg.GetBackupDir(),
+		Collections: []string{"weekly_picks", "games"},
+	}
+	backupService := services.NewBackupService(db, backupConfig)
+
+	// Start backup scheduler if enabled
+	if cfg.IsBackupEnabled() {
+		backupService.StartScheduler(ctx, cfg.GetBackupTime(), cfg.GetBackupRetentionDays())
+		logging.Infof("Backup service started - nightly backups at %s, retention: %d days", cfg.GetBackupTime(), cfg.GetBackupRetentionDays())
 	}
 
 	// Create middleware
