@@ -489,12 +489,13 @@ body {
 }
 
 
-/* Team score - fixed width for alignment */
+/* Team score - fixed width for alignment, same size as pick-item team scores */
 .game-row .team-score {
     width: 28px;
     text-align: center;
     flex-shrink: 0;
-    font-size: 1.1em;
+    font-size: 15.2px;
+    font-weight: 600;
     margin-left: auto;
 }
 
@@ -623,7 +624,8 @@ body {
     
     .game-row .team-score {
         width: 24px;
-        font-size: 0.95em;
+        font-size: 15.2px;
+        font-weight: 600;
     }
     
     .game-row .team-name-spread {
@@ -679,13 +681,14 @@ body {
         gap: 4px;
     }
     
-    /* Hide team spreads on very narrow screens to save space */
+    /* Keep team spreads visible on narrow screens - they show under team names */
     .game-row .team-spread {
-        display: none;
+        font-size: 0.75em;
     }
     
     .game-row .team-score {
-        font-size: 0.9em;
+        font-size: 15.2px;
+        font-weight: 600;
         width: 22px;
     }
     
@@ -989,7 +992,7 @@ body {
 
 .pick-item .team-score {
     text-align: right;
-    font-size: 0.95em;
+    font-size: 15.2px;
     font-weight: 600;
 }
 
