@@ -45,8 +45,12 @@
     <div id="sse-listener" 
          hx-ext="sse" 
          sse-connect="/events">
-        <!-- User picks updates listener - OOB only -->
-        <div sse-swap="user-picks-updated" 
+        <!-- User picks updates listener - OOB only (renamed from user-picks-updated) -->
+        <div sse-swap="user-section-updated"
+             hx-swap="none"></div>
+
+        <!-- Pick state updates listener - for game state changes affecting multiple picks -->
+        <div sse-swap="pick-state-updated"
              hx-swap="none"></div>
         
         <!-- Dashboard updates listener -->

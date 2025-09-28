@@ -156,23 +156,67 @@ func (h *SSEHandler) HandleDatabaseChange(event services.ChangeEvent) {
 
 	// Handle game collection changes
 	if event.Collection == "games" && event.GameID != "" {
+		// Always broadcast game row updates
 		h.BroadcastGameUpdate(event.GameID, event.Season, event.Week)
-	}
 
-	// Handle weekly_picks collection changes
-	if event.Collection == "weekly_picks" && event.UserID > 0 {
-		h.BroadcastPickUpdate(event.UserID, event.Season, event.Week)
-	}
-
-	// Handle game completion events to trigger parlay score recalculation
-	if event.Collection == "games" && h.memoryScorer != nil {
-		// Check if this is a meaningful game state change that affects scoring
+		// For state changes that affect picks, process pick results FIRST, then broadcast
 		if event.UpdatedFields != nil {
 			if _, hasState := event.UpdatedFields["state"]; hasState {
+				// FIRST: Handle pick result processing and parlay score updates
 				h.handleGameCompletion(event.Season, event.Week, event.GameID)
+
+				// THEN: Broadcast pick state changes (now with calculated results)
+				gameID, err := strconv.Atoi(event.GameID)
+				if err == nil {
+					h.BroadcastPickStateUpdate(gameID, event.Season, event.Week)
+				}
 			}
 		}
 	}
+
+	// Handle weekly_picks collection changes (actual pick submissions, not game-driven updates)
+	if event.Collection == "weekly_picks" && event.UserID > 0 {
+		// Debug logging for troubleshooting
+		isGameCompletion := h.isGameCompletionUpdate(event)
+		logger.Debugf("Weekly picks change - UserID: %d, Operation: %s, IsGameCompletion: %t, UpdatedFields: %+v",
+			event.UserID, event.Operation, isGameCompletion, event.UpdatedFields)
+
+		// Only broadcast for genuine pick changes, not game-completion updates
+		if !isGameCompletion {
+			logger.Debugf("Broadcasting user section update for user %d", event.UserID)
+			h.BroadcastPickUpdate(event.UserID, event.Season, event.Week)
+		} else {
+			logger.Debugf("Skipping game completion update for user %d", event.UserID)
+		}
+	}
+}
+
+// isGameCompletionUpdate determines if this change came from ProcessGameCompletion
+// vs actual user pick submissions by checking if only pick result fields were updated
+func (h *SSEHandler) isGameCompletionUpdate(event services.ChangeEvent) bool {
+	// Check if this is an update operation with updated fields
+	if event.Operation != "update" || event.UpdatedFields == nil {
+		return false
+	}
+
+	// Check if only pick result fields were updated (indicates game completion processing)
+	for fieldName := range event.UpdatedFields {
+		// If any field other than pick results and timestamps was updated, this is likely a user change
+		if fieldName != "updated_at" && !strings.Contains(fieldName, "picks.") && !strings.Contains(fieldName, ".result") {
+			return false
+		}
+	}
+
+	// If we only see pick result updates, this is likely from game completion processing
+	hasPickResultUpdate := false
+	for fieldName := range event.UpdatedFields {
+		if strings.Contains(fieldName, "picks.") && strings.Contains(fieldName, ".result") {
+			hasPickResultUpdate = true
+			break
+		}
+	}
+
+	return hasPickResultUpdate
 }
 
 // getNextMessageID returns the next atomic message ID for SSE ordering
@@ -301,8 +345,8 @@ func (h *SSEHandler) Stop() {
 	}
 }
 
-// broadcastPickUpdate broadcasts pick updates for ALL users with proper visibility filtering
-// CRITICAL FIX: Now matches dashboard logic exactly - gets ALL users' picks to prevent user disappearing
+// BroadcastPickUpdate broadcasts pick updates for a SINGLE user's pick section
+// Used when a user adds/removes picks (structural changes), not for game state changes
 func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	if h.pickService == nil {
 		logger := logging.WithPrefix("SSE")
@@ -316,13 +360,22 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		return
 	}
 
-	logger := logging.WithPrefix("SSE:PickUpdate")
-	logger.Debugf("Broadcasting pick update triggered by user %d, season %d, week %d", userID, season, week)
+	logger := logging.WithPrefix("SSE:SingleUserUpdate")
+	logger.Debugf("Broadcasting single user pick update for user %d, season %d, week %d", userID, season, week)
 
-	// Get current games for the season and week
+	ctx := context.Background()
+
+	// Get only the specific user's picks
+	userPicks, err := h.pickService.GetUserPicksForWeek(ctx, userID, season, week)
+	if err != nil {
+		logger.Errorf("Error fetching picks for user %d: %v", userID, err)
+		return
+	}
+
+	// Get games for template context
 	games, err := h.gameService.GetGamesBySeason(season)
 	if err != nil {
-		logger.Errorf("Error fetching games for pick update: %v", err)
+		logger.Errorf("Error fetching games for user pick update: %v", err)
 		return
 	}
 
@@ -334,78 +387,64 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		}
 	}
 
-	// CRITICAL FIX: Get ALL users' picks (same as dashboard initial load)
-	allUserPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, week)
-	if err != nil {
-		logger.Errorf("Error fetching all user picks for broadcast: %v", err)
-		return
-	}
-
-	// CRITICAL FIX: Get all users to ensure empty entries exist (matches dashboard logic)
-	users, err := h.userRepo.GetAllUsers()
-	if err != nil {
-		logger.Errorf("Error fetching users for pick update: %v", err)
-		return
-	}
-
-	// CRITICAL FIX: Ensure all users have a pick entry, even if empty (matches dashboard logic)
-	userPicksMap := make(map[int]*models.UserPicks)
-	for _, up := range allUserPicks {
-		userPicksMap[up.UserID] = up
-	}
-
-	// Add empty pick entries for users who don't have picks this week
-	for _, u := range users {
-		if _, exists := userPicksMap[u.ID]; !exists {
-			emptyUserPicks := &models.UserPicks{
-				UserID:   u.ID,
-				UserName: u.Name,
-				Picks:    []models.Pick{},
-				Record: models.UserRecord{
-					Wins:   0,
-					Losses: 0,
-					Pushes: 0,
-				},
-			}
-			allUserPicks = append(allUserPicks, emptyUserPicks)
-			userPicksMap[u.ID] = emptyUserPicks
+	// Handle case where user has no picks
+	if userPicks == nil {
+		// Get user info to create empty picks structure
+		users, err := h.userRepo.GetAllUsers()
+		if err != nil {
+			logger.Errorf("Error fetching users: %v", err)
+			return
 		}
-	}
 
-	// CRITICAL FIX: Enrich picks with display fields and PopulateDailyPickGroups (matches dashboard logic)
-	enrichLogger := logging.WithPrefix("SSE:PickEnrich")
-	for _, up := range allUserPicks {
-		enrichLogger.Debugf("Enriching %d picks for user %s", len(up.Picks), up.UserName)
-		for i := range up.Picks {
-			pick := &up.Picks[i]
-
-			if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
-				enrichLogger.Errorf("Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
-				continue
+		var userName string
+		for _, u := range users {
+			if u.ID == userID {
+				userName = u.Name
+				break
 			}
 		}
 
-		// CRITICAL FIX: Populate DailyPickGroups for ALL modern seasons (matches dashboard logic)
-		up.PopulateDailyPickGroups(weekGames, season)
+		userPicks = &models.UserPicks{
+			UserID:   userID,
+			UserName: userName,
+			Picks:    []models.Pick{},
+			Record: models.UserRecord{
+				Wins:   0,
+				Losses: 0,
+				Pushes: 0,
+			},
+		}
 	}
 
-	// CRITICAL SECURITY FIX: Broadcast different content to each client based on their viewing permissions
+	// Enrich picks with game data
+	for i := range userPicks.Picks {
+		pick := &userPicks.Picks[i]
+		if err := h.pickService.EnrichPickWithGameData(pick); err != nil {
+			logger.Errorf("Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
+			continue
+		}
+	}
+
+	// Populate daily pick groups for modern seasons
+	userPicks.PopulateDailyPickGroups(weekGames, season)
+
+	// Check if there are any connected clients
 	clientCount := len(h.sseClients)
 	if clientCount == 0 {
 		logger.Debug("No SSE clients connected, skipping broadcast")
 		return
 	}
 
-	// Process each client individually with their own message ID for ordering
+	// Send update to each client with visibility filtering
 	sentCount := 0
 	for client := range h.sseClients {
-		// Apply visibility filtering for this specific viewing user
-		viewingUserID := client.UserID // UserID 0 means unauthenticated
+		viewingUserID := client.UserID
 
-		// Filter picks based on what this specific viewer is allowed to see
+		// Apply visibility filtering - only show this user's picks if viewer can see them
+		visibleUserPicks := []*models.UserPicks{}
 		filteredPicks, err := h.visibilityService.FilterVisibleUserPicks(
-			context.Background(),
-			allUserPicks,
+			ctx,
+			[]*models.UserPicks{userPicks},
 			season,
 			week,
 			viewingUserID,
@@ -415,54 +454,131 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 			continue
 		}
 
-		// Skip if no picks are visible to this user
-		if len(filteredPicks) == 0 {
-			logger.Debugf("No picks visible to viewing user %d, skipping", viewingUserID)
+		// Only include this user's picks if they're visible to the viewer
+		if len(filteredPicks) > 0 {
+			visibleUserPicks = filteredPicks
+		}
+
+		// If no picks are visible to this viewer, skip
+		if len(visibleUserPicks) == 0 {
+			logger.Debugf("User %d's picks not visible to viewer %d, skipping", userID, viewingUserID)
 			continue
 		}
 
-		// Render template with filtered picks for this specific viewer
-		htmlBuffer := &strings.Builder{}
-		for _, up := range filteredPicks {
-			templateData := map[string]interface{}{
-				"UserPicks":     up,
-				"Games":         weekGames,
-				"IsCurrentUser": viewingUserID == userID, // True if viewing their own picks
-				"IsFirst":       false,
-				"Season":        season,
-				"Week":          week,
-				"UseOOBSwap":    true, // Enable OOB swapping for SSE updates
-			}
-
-			if err := h.templates.ExecuteTemplate(htmlBuffer, "user-picks-block", templateData); err != nil {
-				logger.Errorf("Error rendering user picks template for viewer %d: %v", viewingUserID, err)
-				continue
-			}
+		// Render the single user's pick section
+		templateData := map[string]interface{}{
+			"UserPicks":     visibleUserPicks[0],
+			"Games":         weekGames,
+			"IsCurrentUser": viewingUserID == userID,
+			"Season":        season,
+			"Week":          week,
+			"UseOOBSwap":    true,
 		}
 
-		// Send personalized content to this specific client via queue
-		htmlContent := compactHTMLForSSE(htmlBuffer.String())
+		htmlBuffer := &strings.Builder{}
+		if err := h.templates.ExecuteTemplate(htmlBuffer, "user-picks-block", templateData); err != nil {
+			logger.Errorf("Error rendering user picks template for user %d: %v", userID, err)
+			continue
+		}
 
-		// Reserve message ID and queue for ordered delivery
+		// Send to specific client
+		htmlContent := compactHTMLForSSE(htmlBuffer.String())
 		msgID := h.getNextMessageID()
 		message := SSEMessage{
-			EventType:    "user-picks-updated",
+			EventType:    "user-section-updated",
 			Data:         htmlContent,
 			Reserved:     msgID,
-			TargetClient: client, // Send to specific client only
+			TargetClient: client,
 		}
 
-		// Send to queue for ordered processing
 		select {
 		case h.messageQueue <- message:
 			sentCount++
-			logger.Debugf("Queued filtered pick update for user %d (viewing user %d's picks)", viewingUserID, userID)
+			logger.Debugf("Queued single user pick update for user %d to viewer %d", userID, viewingUserID)
 		default:
-			logger.Warnf("Message queue full, dropping pick update for user %d", viewingUserID)
+			logger.Warnf("Message queue full, dropping pick update for user %d", userID)
 		}
 	}
 
-	logger.Infof("Broadcasted filtered pick updates to %d/%d clients for user %d's picks", sentCount, clientCount, userID)
+	logger.Infof("Broadcasted single user pick update for user %d to %d/%d clients", userID, sentCount, clientCount)
+}
+
+// BroadcastPickStateUpdate broadcasts targeted pick state changes for a specific game
+// Used when games change state and affect multiple users' picks (e.g., scheduled → in_play)
+func (h *SSEHandler) BroadcastPickStateUpdate(gameID, season, week int) {
+	if h.pickService == nil || h.gameService == nil {
+		logger := logging.WithPrefix("SSE")
+		logger.Warn("Required services not available for pick state update broadcast")
+		return
+	}
+
+	logger := logging.WithPrefix("SSE:PickStateUpdate")
+	logger.Debugf("Broadcasting pick state update for game %d, season %d, week %d", gameID, season, week)
+
+	ctx := context.Background()
+
+	// Get the specific game that changed
+	game, err := h.gameService.GetGameByID(gameID)
+	if err != nil {
+		logger.Errorf("Error fetching game %d: %v", gameID, err)
+		return
+	}
+
+	// Get all user picks for this week to find picks affected by this game
+	allUserPicks, err := h.pickService.GetAllUserPicksForWeek(ctx, season, week)
+	if err != nil {
+		logger.Errorf("Error fetching user picks for pick state update: %v", err)
+		return
+	}
+
+	// Get games for template context
+	games, err := h.gameService.GetGamesBySeason(season)
+	if err != nil {
+		logger.Errorf("Error fetching games for pick state update: %v", err)
+		return
+	}
+
+	// Collect all picks affected by this game change
+	var affectedPicks []models.Pick
+	for _, userPicks := range allUserPicks {
+		for _, pick := range userPicks.Picks {
+			if pick.GameID == gameID {
+				// Enrich pick with game data for template
+				if err := h.pickService.EnrichPickWithGameData(&pick); err != nil {
+					logger.Errorf("Failed to enrich pick for Game %d, User %d: %v", pick.GameID, pick.UserID, err)
+					continue
+				}
+				affectedPicks = append(affectedPicks, pick)
+			}
+		}
+	}
+
+	if len(affectedPicks) == 0 {
+		logger.Debugf("No picks affected by game %d state change", gameID)
+		return
+	}
+
+	// Generate consolidated OOB updates for all affected picks
+	htmlBuffer := &strings.Builder{}
+	for _, pick := range affectedPicks {
+		templateData := map[string]interface{}{
+			"Pick":          &pick,
+			"Games":         games,
+			"Game":          game,
+			"IsCurrentUser": false, // Will be filtered by client
+			"UseOOBSwap":    true,  // Enable OOB swapping
+		}
+
+		// Use existing pick-item-update template for consistency
+		if err := h.templates.ExecuteTemplate(htmlBuffer, "pick-item-update", templateData); err != nil {
+			logger.Errorf("Error rendering pick-item-update for pick %d-%d: %v", pick.UserID, pick.GameID, err)
+			continue
+		}
+	}
+
+	// Send consolidated pick state update
+	h.BroadcastToAllClients("pick-state-updated", htmlBuffer.String())
+	logger.Infof("Broadcasted pick state update for game %d affecting %d picks", gameID, len(affectedPicks))
 }
 
 // BroadcastLivePickExpansionForUser broadcasts targeted updates for all of a user's live pick expansions for a game

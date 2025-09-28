@@ -612,8 +612,8 @@ func (s *PickService) getGameStatusDescription(game *models.Game) string {
 	}
 }
 
-// calculatePickResult determines if a pick won, lost, or pushed based on game outcome
-func (s *PickService) calculatePickResult(pick *models.Pick, game *models.Game) models.PickResult {
+// CalculatePickResult determines if a pick won, lost, or pushed based on game outcome
+func (s *PickService) CalculatePickResult(pick *models.Pick, game *models.Game) models.PickResult {
 	// Delegate to specialized ResultCalculationService
 	return s.resultCalcService.CalculatePickResult(pick, game)
 }
@@ -820,7 +820,7 @@ func (s *PickService) UpdateUserPicksForScheduledGames(ctx context.Context, user
 			if game, exists := gameMap[pick.GameID]; exists {
 				if game.State == models.GameStateCompleted || game.State == models.GameStateInPlay {
 					logger.Debugf("Calculating pick result in-memory for %s game %d", game.State, pick.GameID)
-					result := s.resultCalcService.CalculatePickResult(pick, &game)
+					result := s.CalculatePickResult(pick, &game)
 					pick.Result = result
 					logger.Debugf("Pick result calculated: User %d, Game %d, Result: %s", pick.UserID, pick.GameID, result)
 				}
