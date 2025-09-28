@@ -57,6 +57,7 @@
 
 body {
     font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 16px; /* Explicit base font size for consistent em calculations */
     background-color: var(--bg-color);
     color: var(--text-color);
     line-height: 1.6;
@@ -434,7 +435,8 @@ body {
 .game-row {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
+    padding: 6px 12px;
+    font-size: 1em; /* Explicit 1em base - inherits from body (16px) */
     margin-bottom: 4px;
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -443,6 +445,7 @@ body {
     font-size: 1em;
     font-weight: bold;
     color: var(--card-text);
+    min-height: 54px;
 }
 
 /* Main matchup section - takes most space and contains both teams */
@@ -450,8 +453,8 @@ body {
     flex: 1 1 60%;
     display: flex;
     align-items: center;
-    gap: 12px;
-    min-width: 200px;
+    gap: 32px; /* Increased gap to prevent away score from getting too close to home icon */
+    min-width: 240px;
 }
 
 /* Individual team section - equal space for away/home teams */
@@ -489,12 +492,12 @@ body {
 }
 
 
-/* Team score - fixed width for alignment, same size as pick-item team scores */
+/* Team score - fixed width for alignment, larger on desktop for better visibility */
 .game-row .team-score {
-    width: 28px;
+    width: 24px;
     text-align: center;
     flex-shrink: 0;
-    font-size: 15.2px;
+    font-size: 1.5em; /* 17.6px - larger on desktop like original, consistent em system */
     font-weight: 600;
     margin-left: auto;
 }
@@ -604,7 +607,7 @@ body {
     .game-row {
         gap: 6px;
         padding: 6px 8px;
-        font-size: 0.95em;
+        /* font-size: 1em - keep consistent with desktop */
     }
     
     .game-row .game-matchup {
@@ -624,7 +627,7 @@ body {
     
     .game-row .team-score {
         width: 24px;
-        font-size: 15.2px;
+        font-size: 0.95em; /* Consistent em value across all breakpoints */
         font-weight: 600;
     }
     
@@ -671,7 +674,7 @@ body {
 /* For very narrow screens */
 @media (max-width: 480px) {
     .game-row {
-        font-size: 0.9em;
+        /* font-size: 1em - keep consistent with desktop */
         padding: 4px 6px;
         gap: 4px;
     }
@@ -687,7 +690,7 @@ body {
     }
     
     .game-row .team-score {
-        font-size: 15.2px;
+        font-size: 0.95em; /* Consistent em value across all breakpoints */
         font-weight: 600;
         width: 22px;
     }
@@ -992,7 +995,7 @@ body {
 
 .pick-item .team-score {
     text-align: right;
-    font-size: 15.2px;
+    font-size: 0.95em; /* 15.2px ÷ 16px = 0.95em - now consistent with game-row */
     font-weight: 600;
 }
 
@@ -1227,12 +1230,18 @@ fieldset legend {
 .user-picks-header {
     color: var(--text-primary);
     font-weight: 600;
-    font-size: 16px;
+    font-size: 19.2px; /* 20% larger than original 16px */
     padding: 8px 16px;
     background: var(--card-bg);
     border-bottom: 1px solid var(--border-color);
     margin: 0;
     border-radius: 4px 4px 0 0;
+    /* text-shadow:
+        -1px -1px 0 #000,
+        1px -1px 0 #000,
+        -1px 1px 0 #000,
+        1px 1px 0 #000,
+        1px 1px 2px rgb(0, 0, 0); */
 }
 
 .user-picks-list, .user-picks-content {
@@ -2027,27 +2036,6 @@ body.modal-open {
     opacity: 0.8 !important;
 }
 
-/* Add a subtle background highlight to show existing picks on disabled games */
-.pick-checkbox-label.disabled .pick-checkbox:checked + .pick-team-img,
-.pick-checkbox-label.disabled .pick-checkbox:checked ~ .pick-text-container {
-    background-color: rgba(76, 175, 80, 0.2); /* Subtle green highlight */
-    border-radius: 4px;
-}
-
-/* Ensure the label itself indicates selection for disabled games */
-.pick-checkbox-label.disabled:has(.pick-checkbox:checked) {
-    background-color: rgba(76, 175, 80, 0.1);
-    border: 1px solid rgba(76, 175, 80, 0.3);
-    border-radius: 4px;
-}
-
-/* Fallback for browsers without :has() support - use JavaScript class */
-.pick-checkbox-label.disabled.has-checked-pick {
-    background-color: rgba(76, 175, 80, 0.1);
-    border: 1px solid rgba(76, 175, 80, 0.3);
-    border-radius: 4px;
-}
-
 .pick-team-img {
     width: 24px;
     height: 24px;
@@ -2239,10 +2227,10 @@ body.modal-open {
 }
 
 .pick-day-section .pick-picker-grid {
-    border: 1px solid var(--border-color);
     border-top: none;
     border-radius: 0 0 4px 4px;
     background: var(--card-bg);
+    margin-top: 2px;
 }
 
 /* Responsive styling for pick day sections */

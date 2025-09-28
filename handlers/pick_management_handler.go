@@ -418,8 +418,8 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 
 // canSubmitPicksForWeek checks if picks can still be submitted for the given games
 func (h *PickManagementHandler) canSubmitPicksForWeek(games []models.Game) bool {
-	// DEBUG:
-	return true
+	// DEBUG allow picks any time:
+	// return true
 	now := time.Now()
 	// Allow pick submission if any game hasn't started yet
 	for _, game := range games {
@@ -431,11 +431,18 @@ func (h *PickManagementHandler) canSubmitPicksForWeek(games []models.Game) bool 
 }
 
 func (h *PickManagementHandler) canSubmitPicksArray(games []models.Game) map[int]bool {
+	// DEBUG allow picks any time:
+	// debugCanPickArr := make(map[int]bool)
+	// for _, game := range games {
+	// 	debugCanPickArr[game.ID] = true
+	// }
+	// return debugCanPickArr
+
+	now := time.Now()
 	canPickArr := make(map[int]bool)
-	// now := time.Now()
 	// Allow pick submission if any game hasn't started yet
 	for _, game := range games {
-		canPickArr[game.ID] = true //game.Date.After(now)
+		canPickArr[game.ID] = game.Date.After(now)
 	}
 	return canPickArr
 }
