@@ -152,8 +152,13 @@ func main() {
 
 	// Create in-memory parlay scorer for real-time score management
 	memoryScorer := services.NewMemoryParlayScorer(parlayService, pickService)
+
+	// Set memory scorer in both services so they can track club scores
+	parlayService.SetMemoryScorer(memoryScorer)
+	pickService.SetMemoryScorer(memoryScorer)
+
 	ctx := context.Background()
-	if err := memoryScorer.InitializeFromDatabase(ctx, currentSeason); err != nil {
+	if err := memoryScorer.InitializeClubScores(ctx, currentSeason); err != nil {
 		logging.Errorf("Failed to initialize memory scorer: %v", err)
 	}
 
@@ -162,7 +167,7 @@ func main() {
 
 	// Create new specialized handlers
 	sseHandler := handlers.NewSSEHandler(templates, gameService, cfg)
-	sseHandler.SetServices(pickService, authService, visibilityService, memoryScorer)
+	sseHandler.SetServices(pickService, authService, visibilityService, memoryScorer, userRepo)
 
 	gameDisplayHandler := handlers.NewGameDisplayHandler(templates, gameService, cfg)
 	gameDisplayHandler.SetServices(pickService, authService, visibilityService, userRepo)
@@ -173,8 +178,9 @@ func main() {
 	// Create auth handler
 	authHandler := handlers.NewAuthHandler(templates, authService, emailService)
 
-	// Set up SSE broadcasting for pick service
+	// Set up SSE broadcasting for pick service and parlay service
 	pickService.SetBroadcaster(sseHandler)
+	parlayService.SetBroadcaster(sseHandler)
 
 	// Start background ESPN API updater
 	if cfg.IsBackgroundUpdaterEnabled() {
@@ -204,6 +210,13 @@ func main() {
 		},
 		currentSeason,
 	)
+
+	// Set up heavy-handed pick container refresh for visibility changes
+	visibilityTimer.SetPickRefreshHandler(func(season, week int) {
+		// Generate and broadcast complete pick-container OOB updates
+		sseHandler.BroadcastPickContainerRefresh(season, week)
+	})
+
 	visibilityTimer.Start()
 	defer visibilityTimer.Stop()
 

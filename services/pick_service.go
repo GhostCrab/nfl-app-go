@@ -30,6 +30,7 @@ type PickService struct {
 	parlayService     *ParlayService
 	resultCalcService *ResultCalculationService
 	analyticsService  *AnalyticsService
+	memoryScorer      *MemoryParlayScorer
 }
 
 // NewPickService creates a new pick service
@@ -51,6 +52,11 @@ func (s *PickService) SetSpecializedServices(parlayService *ParlayService, resul
 	s.parlayService = parlayService
 	s.resultCalcService = resultCalcService
 	s.analyticsService = analyticsService
+}
+
+// SetMemoryScorer sets the memory scorer for club score tracking
+func (s *PickService) SetMemoryScorer(memoryScorer *MemoryParlayScorer) {
+	s.memoryScorer = memoryScorer
 }
 
 // CreatePick creates a new pick with validation
@@ -264,16 +270,18 @@ func (s *PickService) GetAllUserPicksForWeek(ctx context.Context, season, week i
 
 	// Categorize picks for each user
 	for _, userPicksData := range userPicksList {
-		// TODO: Replace with MemoryParlayScorer calls when needed
-		// Parlay scores are now managed in-memory by MemoryParlayScorer
-		// Database reads removed to prevent dual tracking
-		userPicksData.Record.ParlayPoints = 0
+		// Get parlay points from MemoryParlayScorer
+		if s.memoryScorer != nil {
+			// Get season total up to current week for ParlayPoints
+			seasonTotal := s.memoryScorer.GetUserSeasonTotal(season, week, userPicksData.UserID)
+			userPicksData.Record.ParlayPoints = seasonTotal
 
-		// TODO: Replace with MemoryParlayScorer calls when needed
-		// Get parlay points for this specific week
-		weekParlayScore := (*models.ParlayScore)(nil) // Placeholder
-		if false { // Disabled database read
-			userPicksData.Record.WeeklyPoints = weekParlayScore.TotalPoints
+			// Get current week's points for WeeklyPoints display
+			if weekParlayScore, exists := s.memoryScorer.GetUserScore(season, week, userPicksData.UserID); exists {
+				userPicksData.Record.WeeklyPoints = weekParlayScore.TotalPoints
+			} else {
+				userPicksData.Record.WeeklyPoints = 0
+			}
 		}
 
 		// Enrich picks and categorize them by game day for bonus weeks
@@ -414,22 +422,27 @@ func (s *PickService) ProcessGameCompletion(ctx context.Context, game *models.Ga
 
 	logger.Infof("Processing %d picks for completed game %d", len(picks), game.ID)
 
-	// Calculate results for all picks and collect them by UserID
-	pickResults := make(map[int]models.PickResult)
+	// Calculate results for each individual pick (ATS + O/U separately)
+	var pickUpdates []database.PickUpdate
 	for _, pick := range picks {
 		// Calculate pick result using specialized service
 		result := s.resultCalcService.CalculatePickResult(&pick, game)
 
-		// Store result mapped by UserID
-		pickResults[pick.UserID] = result
+		// Create individual pick update
+		pickUpdate := database.PickUpdate{
+			UserID:   pick.UserID,
+			PickType: string(pick.PickType),
+			Result:   result,
+		}
+		pickUpdates = append(pickUpdates, pickUpdate)
 
-		logger.Infof("Calculated pick result for user %d, game %d: %s", pick.UserID, pick.GameID, result)
+		logger.Infof("Calculated pick result for user %d, game %d, type %s: %s", pick.UserID, pick.GameID, pick.PickType, result)
 	}
 
-	// Update all pick results in one batch operation
-	if len(pickResults) > 0 {
-		if err := s.UpdatePickResultsByGame(ctx, game.Season, game.Week, game.ID, pickResults); err != nil {
-			return fmt.Errorf("failed to update pick results: %w", err)
+	// Update individual pick results (handles multiple picks per user per game correctly)
+	if len(pickUpdates) > 0 {
+		if err := s.weeklyPicksRepo.UpdateIndividualPickResults(ctx, game.Season, game.Week, game.ID, pickUpdates); err != nil {
+			return fmt.Errorf("failed to update individual pick results: %w", err)
 		}
 	}
 
@@ -721,46 +734,18 @@ func (s *PickService) CalculateUserParlayCategoryScore(ctx context.Context, user
 // UpdateUserParlayCategoryRecord updates a specific category score in the user's parlay record
 func (s *PickService) UpdateUserParlayCategoryRecord(ctx context.Context, userID, season, week int, category models.ParlayCategory, points int) error {
 	logger := logging.WithPrefix("PickService")
-	// TODO: Replace with MemoryParlayScorer calls when needed
-	// Parlay scores are now managed in-memory by MemoryParlayScorer
-	// Database reads removed to prevent dual tracking
-	existingScore := (*models.ParlayScore)(nil) // Placeholder
 
-	var parlayScore *models.ParlayScore
-	if existingScore != nil {
-		parlayScore = existingScore
-	} else {
-		// Create new parlay score entry
-		parlayScore = &models.ParlayScore{
-			UserID:    userID,
-			Season:    season,
-			Week:      week,
-			CreatedAt: time.Now(),
+	// Use MemoryParlayScorer to recalculate and store scores
+	if s.memoryScorer != nil {
+		_, err := s.memoryScorer.RecalculateUserScore(ctx, season, week, userID)
+		if err != nil {
+			return fmt.Errorf("failed to update user parlay category record in memory: %w", err)
 		}
 	}
-
-	// Update the specific category
-	switch category {
-	case models.ParlayRegular:
-		parlayScore.RegularPoints = points
-	case models.ParlayBonusThursday:
-		parlayScore.BonusThursdayPoints = points
-	case models.ParlayBonusFriday:
-		parlayScore.BonusFridayPoints = points
-	}
-
-	// Recalculate total and update timestamp
-	parlayScore.CalculateTotal()
-	parlayScore.UpdatedAt = time.Now()
 
 	// DEBUG: Log parlay score calculation in ProcessParlayCategory
 	logger.Debugf("ProcessParlayCategory calculated - UserID=%d, Season=%d, Week=%d",
 		userID, season, week)
-
-	// Note: Scores are now managed in-memory by MemoryParlayScorer
-	// Database storage removed to prevent dual tracking
-
-	// Don't broadcast here - let the caller broadcast once after all users are processed
 
 	return nil
 }
@@ -827,7 +812,23 @@ func (s *PickService) UpdateUserPicksForScheduledGames(ctx context.Context, user
 		scheduledGameIDs[pick.GameID] = true
 	}
 
-	// Replace picks for scheduled games
+	// CRITICAL: Calculate pick results in-memory for completed/in-progress games BEFORE database update
+	// This ensures pick results are calculated but included in the single upsert operation
+	if s.resultCalcService != nil {
+		for i := range newPicksSlice {
+			pick := &newPicksSlice[i]
+			if game, exists := gameMap[pick.GameID]; exists {
+				if game.State == models.GameStateCompleted || game.State == models.GameStateInPlay {
+					logger.Debugf("Calculating pick result in-memory for %s game %d", game.State, pick.GameID)
+					result := s.resultCalcService.CalculatePickResult(pick, &game)
+					pick.Result = result
+					logger.Debugf("Pick result calculated: User %d, Game %d, Result: %s", pick.UserID, pick.GameID, result)
+				}
+			}
+		}
+	}
+
+	// Replace picks for scheduled games (now with calculated results)
 	existingWeeklyPicks.ReplacePicksForScheduledGames(newPicksSlice, scheduledGameIDs)
 
 	// Single upsert operation - this will trigger only ONE change stream event!
@@ -838,7 +839,63 @@ func (s *PickService) UpdateUserPicksForScheduledGames(ctx context.Context, user
 	logger.Infof("Updated picks for user %d, season %d, week %d: kept %d existing picks, created %d new picks",
 		userID, season, week, len(picksToKeep), len(newPicksSlice))
 
-	// Trigger scoring for any categories that might now be complete due to pick updates
+	// CRITICAL: Immediately trigger MemoryParlayScorer recalculation if any picks changed for completed games
+	// This ensures club scores update even when not all category games are complete
+	if s.memoryScorer != nil {
+		hasCompletedGamePicks := false
+		for _, pick := range newPicksSlice {
+			if game, exists := gameMap[pick.GameID]; exists {
+				if game.State == models.GameStateCompleted {
+					hasCompletedGamePicks = true
+					break
+				}
+			}
+		}
+
+		if hasCompletedGamePicks {
+			logger.Infof("Recalculating MemoryParlayScorer for user %d due to completed game pick changes", userID)
+
+			// Get the current score before recalculation to detect changes
+			var beforeScore *models.ParlayScore
+			if currentScore, exists := s.memoryScorer.GetUserScore(season, week, userID); exists {
+				beforeScore = currentScore
+			}
+
+			_, err := s.memoryScorer.RecalculateUserScore(ctx, season, week, userID)
+			if err != nil {
+				logger.Warnf("Failed to recalculate memory parlay score for user %d: %v", userID, err)
+			} else {
+				// Only broadcast SSE if the score actually changed
+				var afterScore *models.ParlayScore
+				if newScore, exists := s.memoryScorer.GetUserScore(season, week, userID); exists {
+					afterScore = newScore
+				}
+
+				// Compare scores to detect actual changes
+				scoreChanged := false
+				if beforeScore == nil && afterScore != nil {
+					scoreChanged = true
+				} else if beforeScore != nil && afterScore == nil {
+					scoreChanged = true
+				} else if beforeScore != nil && afterScore != nil {
+					scoreChanged = beforeScore.TotalPoints != afterScore.TotalPoints
+				}
+
+				if scoreChanged {
+					logger.Infof("Club score changed for user %d: %v → %v, broadcasting SSE update",
+						userID, getScorePoints(beforeScore), getScorePoints(afterScore))
+					if s.parlayService != nil {
+						s.parlayService.TriggerScoreBroadcast(season, week)
+					}
+				} else {
+					logger.Debugf("Club score unchanged for user %d (%v), skipping SSE broadcast",
+						userID, getScorePoints(afterScore))
+				}
+			}
+		}
+	}
+
+	// Also trigger scoring for any categories that might now be complete due to pick updates
 	s.checkAndTriggerScoring(ctx, season, week, gameMap)
 
 	return nil
@@ -1044,11 +1101,20 @@ func (s *PickService) UpdateUserDailyParlayRecord(ctx context.Context, userID, s
 
 // CheckWeekHasParlayScores checks if parlay scores already exist for a given week
 func (s *PickService) CheckWeekHasParlayScores(ctx context.Context, season, week int) (bool, error) {
-	// TODO: Replace with MemoryParlayScorer calls when needed
-	// Parlay scores are now managed in-memory by MemoryParlayScorer
-	// Database reads removed to prevent dual tracking
-	// For now, always return false to indicate no scores in database
+	// Check MemoryParlayScorer for existing scores
+	if s.memoryScorer != nil {
+		scores := s.memoryScorer.GetWeekScores(season, week)
+		return len(scores) > 0, nil
+	}
 	return false, nil
+}
+
+// getScorePoints helper function to extract points from ParlayScore for logging
+func getScorePoints(score *models.ParlayScore) interface{} {
+	if score == nil {
+		return "nil"
+	}
+	return score.TotalPoints
 }
 
 // sortPicksByGameTime sorts picks by their corresponding game start times
@@ -1071,4 +1137,44 @@ func (s *PickService) sortPicksByGameTime(picks []models.Pick, gameMap map[int]m
 		// Secondary sort: alphabetically by home team name for same kickoff time
 		return gameI.Home < gameJ.Home
 	})
+}
+
+// ResetPickResultsForGame resets all pick results for a specific game back to pending
+// Used when games transition from completed back to in_play or scheduled states
+func (s *PickService) ResetPickResultsForGame(ctx context.Context, game *models.Game) error {
+	logger := logging.WithPrefix("PickService")
+	logger.Infof("Resetting pick results to pending for game %d", game.ID)
+
+	// Get all picks for this week to find picks for this specific game
+	allPicks, err := s.GetAllPicksForWeek(ctx, game.Season, game.Week)
+	if err != nil {
+		return fmt.Errorf("failed to get picks for week %d: %w", game.Week, err)
+	}
+
+	// Filter picks for this specific game and create individual pick updates
+	var pickUpdates []database.PickUpdate
+	for _, pick := range allPicks {
+		if pick.GameID == game.ID && pick.Result != models.PickResultPending {
+			// Only reset non-pending picks - create individual update for each pick type
+			pickUpdate := database.PickUpdate{
+				UserID:   pick.UserID,
+				PickType: string(pick.PickType),
+				Result:   models.PickResultPending,
+			}
+			pickUpdates = append(pickUpdates, pickUpdate)
+		}
+	}
+
+	if len(pickUpdates) == 0 {
+		logger.Debugf("All picks for game %d are already pending", game.ID)
+		return nil
+	}
+
+	// Update individual pick results (handles multiple picks per user per game correctly)
+	if err := s.weeklyPicksRepo.UpdateIndividualPickResults(ctx, game.Season, game.Week, game.ID, pickUpdates); err != nil {
+		return fmt.Errorf("failed to reset individual pick results for game %d: %w", game.ID, err)
+	}
+
+	logger.Infof("Reset %d individual pick results to pending for game %d", len(pickUpdates), game.ID)
+	return nil
 }

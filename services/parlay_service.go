@@ -9,12 +9,19 @@ import (
 	"runtime"
 )
 
+// ParlayScoreBroadcaster interface for broadcasting parlay score updates via SSE
+type ParlayScoreBroadcaster interface {
+	BroadcastParlayScoreUpdate(season, week int)
+}
+
 // ParlayService handles all parlay scoring logic separated from PickService
 // This service is responsible for calculating weekly and daily parlay scores
 // and updating user parlay records.
 type ParlayService struct {
 	weeklyPicksRepo *database.MongoWeeklyPicksRepository
 	gameRepo        *database.MongoGameRepository
+	memoryScorer    *MemoryParlayScorer
+	broadcaster     ParlayScoreBroadcaster
 }
 
 // NewParlayService creates a new parlay service instance
@@ -27,6 +34,23 @@ func NewParlayService(
 		gameRepo:        gameRepo,
 	}
 	return service
+}
+
+// SetMemoryScorer sets the memory scorer for club score tracking
+func (s *ParlayService) SetMemoryScorer(memoryScorer *MemoryParlayScorer) {
+	s.memoryScorer = memoryScorer
+}
+
+// SetBroadcaster sets the SSE broadcaster for real-time parlay score updates
+func (s *ParlayService) SetBroadcaster(broadcaster ParlayScoreBroadcaster) {
+	s.broadcaster = broadcaster
+}
+
+// TriggerScoreBroadcast manually triggers a parlay score broadcast for immediate updates
+func (s *ParlayService) TriggerScoreBroadcast(season, week int) {
+	if s.broadcaster != nil {
+		s.broadcaster.BroadcastParlayScoreUpdate(season, week)
+	}
 }
 
 // CalculateUserParlayScore calculates parlay scores for a specific user and week
@@ -170,7 +194,7 @@ func (s *ParlayService) ProcessWeekParlayScoring(ctx context.Context, season, we
 	return nil
 }
 
-// UpdateUserParlayRecord updates a user's parlay scores in the database
+// UpdateUserParlayRecord updates a user's parlay scores in memory
 func (s *ParlayService) UpdateUserParlayRecord(ctx context.Context, userID, season, week int, weeklyScores map[models.ParlayCategory]int) error {
 	// Check for invalid data
 	if season == 0 || week == 0 {
@@ -183,41 +207,14 @@ func (s *ParlayService) UpdateUserParlayRecord(ctx context.Context, userID, seas
 		logging.Errorf("ParlayService.UpdateUserParlayRecord stack trace:\n%s", buf[:n])
 	}
 
-	// TODO: Replace with MemoryParlayScorer calls when needed
-	// Parlay scores are now managed in-memory by MemoryParlayScorer
-	// Database reads removed to prevent dual tracking
-	seasonRecord := (*models.ParlaySeasonRecord)(nil) // Placeholder
-
-	if seasonRecord == nil {
-		// Create new season record
-		seasonRecord = &models.ParlaySeasonRecord{
-			UserID:     userID,
-			Season:     season,
-			WeekScores: make(map[int]models.ParlayWeekScore),
+	// Use MemoryParlayScorer to recalculate and store scores
+	if s.memoryScorer != nil {
+		_, err := s.memoryScorer.RecalculateUserScore(ctx, season, week, userID)
+		if err != nil {
+			return fmt.Errorf("failed to update user parlay record in memory: %w", err)
 		}
 	}
 
-	// Update the week scores
-	totalPoints := 0
-	for _, points := range weeklyScores {
-		totalPoints += points
-	}
-
-	weekScore := models.ParlayWeekScore{
-		Week:               week,
-		ThursdayPoints:     weeklyScores[models.ParlayBonusThursday],
-		FridayPoints:       weeklyScores[models.ParlayBonusFriday],
-		SundayMondayPoints: weeklyScores[models.ParlayRegular],
-		TotalPoints:        totalPoints,
-	}
-
-	seasonRecord.WeekScores[week] = weekScore
-
-	// Recalculate season totals
-	seasonRecord.RecalculateTotals()
-
-	// Note: Season records are now managed in-memory by MemoryParlayScorer
-	// Database storage removed to prevent dual tracking
 	return nil
 }
 
@@ -246,6 +243,15 @@ func (s *ParlayService) ProcessParlayCategory(ctx context.Context, season, week 
 		if points > 0 {
 			logging.Infof("User %d scored %d points in %s category", userID, points, category)
 		}
+	}
+
+	// CRITICAL: Broadcast parlay score updates via SSE after category scoring completes
+	// This triggers real-time club score updates for all connected clients
+	if s.broadcaster != nil {
+		logging.Infof("Broadcasting parlay score updates for season %d, week %d after %s category completion", season, week, category)
+		s.broadcaster.BroadcastParlayScoreUpdate(season, week)
+	} else {
+		logging.Warn("No broadcaster set for parlay score updates")
 	}
 
 	return nil
@@ -277,10 +283,11 @@ func (s *ParlayService) UpdateUserParlayCategoryRecord(ctx context.Context, user
 
 // CheckWeekHasParlayScores checks if parlay scores have been calculated for a week
 func (s *ParlayService) CheckWeekHasParlayScores(ctx context.Context, season, week int) (bool, error) {
-	// TODO: Replace with MemoryParlayScorer calls when needed
-	// Parlay scores are now managed in-memory by MemoryParlayScorer
-	// Database reads removed to prevent dual tracking
-	// For now, always return false to indicate no scores in database
+	// Check MemoryParlayScorer for existing scores
+	if s.memoryScorer != nil {
+		scores := s.memoryScorer.GetWeekScores(season, week)
+		return len(scores) > 0, nil
+	}
 	return false, nil
 }
 
@@ -402,44 +409,14 @@ func (s *ParlayService) calculateDayParlayScore(picks []models.Pick) int {
 
 // UpdateUserDailyParlayRecord updates user's daily parlay scores
 func (s *ParlayService) UpdateUserDailyParlayRecord(ctx context.Context, userID, season, week int, dailyScores map[string]int) error {
-	// TODO: Replace with MemoryParlayScorer calls when needed
-	// Parlay scores are now managed in-memory by MemoryParlayScorer
-	// Database reads removed to prevent dual tracking
-	seasonRecord := (*models.ParlaySeasonRecord)(nil) // Placeholder
-
-	if seasonRecord == nil {
-		seasonRecord = &models.ParlaySeasonRecord{
-			UserID:     userID,
-			Season:     season,
-			WeekScores: make(map[int]models.ParlayWeekScore),
+	// Use MemoryParlayScorer to recalculate and store scores
+	if s.memoryScorer != nil {
+		_, err := s.memoryScorer.RecalculateUserScore(ctx, season, week, userID)
+		if err != nil {
+			return fmt.Errorf("failed to update user daily parlay record in memory: %w", err)
 		}
 	}
 
-	// Update week record with daily scores
-	weekScore, exists := seasonRecord.WeekScores[week]
-	if !exists {
-		weekScore = models.ParlayWeekScore{
-			Week: week,
-		}
-	}
-
-	// Set daily scores
-	weekScore.DailyScores = dailyScores
-
-	// Calculate total from daily scores
-	totalPoints := 0
-	for _, points := range dailyScores {
-		totalPoints += points
-	}
-	weekScore.TotalPoints = totalPoints
-
-	seasonRecord.WeekScores[week] = weekScore
-
-	// Recalculate season totals
-	seasonRecord.RecalculateTotals()
-
-	// Note: Season records are now managed in-memory by MemoryParlayScorer
-	// Database storage removed to prevent dual tracking
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"nfl-app-go/config"
+	"nfl-app-go/database"
 	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
 	"nfl-app-go/models"
@@ -23,6 +24,14 @@ type SSEClient struct {
 	UserID  int
 }
 
+// SSEMessage represents a queued SSE message with ordering and targeting info
+type SSEMessage struct {
+	EventType    string
+	Data         string
+	Reserved     uint64     // Pre-reserved message ID
+	TargetClient *SSEClient // nil = broadcast to all clients
+}
+
 // SSEHandler handles all Server-Sent Events functionality
 type SSEHandler struct {
 	templates         *template.Template
@@ -31,22 +40,30 @@ type SSEHandler struct {
 	authService       *services.AuthService
 	visibilityService *services.PickVisibilityService
 	memoryScorer      *services.MemoryParlayScorer
+	userRepo          *database.MongoUserRepository // Added for BroadcastPickUpdate fix
 	sseClients        map[*SSEClient]bool
-	messageCounter    uint64       // Atomic counter for message sequencing
-	heartbeatTicker   *time.Ticker // Heartbeat timer
-	stopHeartbeat     chan bool    // Channel to stop heartbeat
+	messageCounter    uint64          // Atomic counter for message sequencing
+	messageQueue      chan SSEMessage // Ordered message queue
+	heartbeatTicker   *time.Ticker    // Heartbeat timer
+	stopHeartbeat     chan bool       // Channel to stop heartbeat
+	stopMessageQueue  chan bool       // Channel to stop message processor
 	config            *config.Config
 }
 
 // NewSSEHandler creates a new SSE handler
 func NewSSEHandler(templates *template.Template, gameService services.GameService, cfg *config.Config) *SSEHandler {
 	handler := &SSEHandler{
-		templates:     templates,
-		gameService:   gameService,
-		sseClients:    make(map[*SSEClient]bool),
-		stopHeartbeat: make(chan bool),
-		config:        cfg,
+		templates:        templates,
+		gameService:      gameService,
+		sseClients:       make(map[*SSEClient]bool),
+		messageQueue:     make(chan SSEMessage, 1000), // Buffered queue for message ordering
+		stopHeartbeat:    make(chan bool),
+		stopMessageQueue: make(chan bool),
+		config:           cfg,
 	}
+
+	// Start message processor for ordered delivery
+	go handler.messageProcessor()
 
 	// Start heartbeat goroutine
 	handler.startHeartbeat()
@@ -55,11 +72,12 @@ func NewSSEHandler(templates *template.Template, gameService services.GameServic
 }
 
 // SetServices sets the required services
-func (h *SSEHandler) SetServices(pickService *services.PickService, authService *services.AuthService, visibilityService *services.PickVisibilityService, memoryScorer *services.MemoryParlayScorer) {
+func (h *SSEHandler) SetServices(pickService *services.PickService, authService *services.AuthService, visibilityService *services.PickVisibilityService, memoryScorer *services.MemoryParlayScorer, userRepo *database.MongoUserRepository) {
 	h.pickService = pickService
 	h.authService = authService
 	h.visibilityService = visibilityService
 	h.memoryScorer = memoryScorer
+	h.userRepo = userRepo
 }
 
 // GetClients returns the SSE clients for broadcasting (for use by other handlers)
@@ -162,31 +180,29 @@ func (h *SSEHandler) getNextMessageID() uint64 {
 	return atomic.AddUint64(&h.messageCounter, 1)
 }
 
-// BroadcastToAllClients sends a message with sequence ID to all connected SSE clients
+// BroadcastToAllClients sends a message with sequence ID to all connected SSE clients via queue
 func (h *SSEHandler) BroadcastToAllClients(eventType, data string) {
-	clientCount := len(h.sseClients)
-	if clientCount == 0 {
+	if len(h.sseClients) == 0 {
 		return
 	}
 
-	// Generate next message ID
+	// Reserve message ID and queue for ordered delivery
 	msgID := h.getNextMessageID()
-
-	// Add message ID to the SSE message
-	messageWithID := fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", msgID, eventType, compactHTMLForSSE(data))
-
-	sentCount := 0
-	for client := range h.sseClients {
-		select {
-		case client.Channel <- messageWithID:
-			sentCount++
-		default:
-			logger := logging.WithPrefix("SSE")
-			logger.Warnf("Client channel full, skipping message")
-		}
+	message := SSEMessage{
+		EventType:    eventType,
+		Data:         compactHTMLForSSE(data),
+		Reserved:     msgID,
+		TargetClient: nil, // nil = broadcast to all clients
 	}
 
-	// log.Printf("SSE: Broadcasted message %d to %d/%d clients", msgID, sentCount, clientCount)
+	// Send to queue for ordered processing
+	select {
+	case h.messageQueue <- message:
+		// Message queued successfully
+	default:
+		logger := logging.WithPrefix("SSE")
+		logger.Warnf("Message queue full, dropping broadcast message %d", msgID)
+	}
 }
 
 // sendMessageToClient sends a message with sequence ID to a specific client
@@ -196,6 +212,52 @@ func (h *SSEHandler) sendMessageToClient(client *SSEClient, messageData string) 
 		return true
 	default:
 		return false
+	}
+}
+
+// messageProcessor processes queued messages in order to prevent race conditions
+func (h *SSEHandler) messageProcessor() {
+	logger := logging.WithPrefix("SSE:MessageProcessor")
+	logger.Debug("Message processor started")
+
+	for {
+		select {
+		case message := <-h.messageQueue:
+			// Process message in order
+			if message.TargetClient != nil {
+				// Send to specific client
+				messageData := fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", message.Reserved, message.EventType, message.Data)
+				h.sendMessageToClient(message.TargetClient, messageData)
+			} else {
+				// Broadcast to all clients
+				h.broadcastDirectly(message.EventType, message.Data, message.Reserved)
+			}
+		case <-h.stopMessageQueue:
+			logger.Debug("Message processor stopped")
+			return
+		}
+	}
+}
+
+// broadcastDirectly sends message directly to all clients with pre-reserved ID
+func (h *SSEHandler) broadcastDirectly(eventType, data string, messageID uint64) {
+	messageData := fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", messageID, eventType, data)
+
+	logger := logging.WithPrefix("SSE")
+	clientCount := len(h.sseClients)
+	sentCount := 0
+
+	for client := range h.sseClients {
+		select {
+		case client.Channel <- messageData:
+			sentCount++
+		default:
+			logger.Warnf("Client channel full, skipping message %d", messageID)
+		}
+	}
+
+	if clientCount > 0 {
+		logger.Debugf("Broadcasted message %d (%s) to %d/%d clients", messageID, eventType, sentCount, clientCount)
 	}
 }
 
@@ -239,7 +301,8 @@ func (h *SSEHandler) Stop() {
 	}
 }
 
-// broadcastPickUpdate broadcasts pick updates for a specific user with proper visibility filtering
+// broadcastPickUpdate broadcasts pick updates for ALL users with proper visibility filtering
+// CRITICAL FIX: Now matches dashboard logic exactly - gets ALL users' picks to prevent user disappearing
 func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	if h.pickService == nil {
 		logger := logging.WithPrefix("SSE")
@@ -254,7 +317,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 	}
 
 	logger := logging.WithPrefix("SSE:PickUpdate")
-	logger.Debugf("Broadcasting pick update for user %d, season %d, week %d", userID, season, week)
+	logger.Debugf("Broadcasting pick update triggered by user %d, season %d, week %d", userID, season, week)
 
 	// Get current games for the season and week
 	games, err := h.gameService.GetGamesBySeason(season)
@@ -271,20 +334,45 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		}
 	}
 
-	// Get the updated user's picks
-	userPicksData, err := h.pickService.GetUserPicksForWeek(context.Background(), userID, season, week)
+	// CRITICAL FIX: Get ALL users' picks (same as dashboard initial load)
+	allUserPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, week)
 	if err != nil {
-		logger.Errorf("Error fetching user picks for broadcast: %v", err)
+		logger.Errorf("Error fetching all user picks for broadcast: %v", err)
 		return
 	}
 
-	// Convert single user picks to array for template compatibility
-	var allUserPicks []*models.UserPicks
-	if userPicksData != nil {
-		allUserPicks = []*models.UserPicks{userPicksData}
+	// CRITICAL FIX: Get all users to ensure empty entries exist (matches dashboard logic)
+	users, err := h.userRepo.GetAllUsers()
+	if err != nil {
+		logger.Errorf("Error fetching users for pick update: %v", err)
+		return
 	}
 
-	// Enrich picks with display fields before rendering (CRITICAL for SSE updates)
+	// CRITICAL FIX: Ensure all users have a pick entry, even if empty (matches dashboard logic)
+	userPicksMap := make(map[int]*models.UserPicks)
+	for _, up := range allUserPicks {
+		userPicksMap[up.UserID] = up
+	}
+
+	// Add empty pick entries for users who don't have picks this week
+	for _, u := range users {
+		if _, exists := userPicksMap[u.ID]; !exists {
+			emptyUserPicks := &models.UserPicks{
+				UserID:   u.ID,
+				UserName: u.Name,
+				Picks:    []models.Pick{},
+				Record: models.UserRecord{
+					Wins:   0,
+					Losses: 0,
+					Pushes: 0,
+				},
+			}
+			allUserPicks = append(allUserPicks, emptyUserPicks)
+			userPicksMap[u.ID] = emptyUserPicks
+		}
+	}
+
+	// CRITICAL FIX: Enrich picks with display fields and PopulateDailyPickGroups (matches dashboard logic)
 	enrichLogger := logging.WithPrefix("SSE:PickEnrich")
 	for _, up := range allUserPicks {
 		enrichLogger.Debugf("Enriching %d picks for user %s", len(up.Picks), up.UserName)
@@ -297,7 +385,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 			}
 		}
 
-		// Populate DailyPickGroups for modern seasons (2025+)
+		// CRITICAL FIX: Populate DailyPickGroups for ALL modern seasons (matches dashboard logic)
 		up.PopulateDailyPickGroups(weekGames, season)
 	}
 
@@ -308,9 +396,7 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 		return
 	}
 
-	// Get a single message ID for all clients to maintain message ordering
-	msgID := h.getNextMessageID()
-
+	// Process each client individually with their own message ID for ordering
 	sentCount := 0
 	for client := range h.sseClients {
 		// Apply visibility filtering for this specific viewing user
@@ -354,19 +440,25 @@ func (h *SSEHandler) BroadcastPickUpdate(userID, season, week int) {
 			}
 		}
 
-		// Send personalized content to this specific client using proper SSE format
-		htmlContent := htmlBuffer.String()
+		// Send personalized content to this specific client via queue
+		htmlContent := compactHTMLForSSE(htmlBuffer.String())
 
-		// Create proper SSE message with HTML content and message ID for proper ordering
-		// HTMX SSE extension expects event: and data: lines with raw HTML
-		message := fmt.Sprintf("id: %d\nevent: user-picks-updated\ndata: %s\n\n", msgID, compactHTMLForSSE(htmlContent))
+		// Reserve message ID and queue for ordered delivery
+		msgID := h.getNextMessageID()
+		message := SSEMessage{
+			EventType:    "user-picks-updated",
+			Data:         htmlContent,
+			Reserved:     msgID,
+			TargetClient: client, // Send to specific client only
+		}
 
-		// Send to this specific client only
-		if h.sendMessageToClient(client, message) {
+		// Send to queue for ordered processing
+		select {
+		case h.messageQueue <- message:
 			sentCount++
-			logger.Debugf("Sent filtered pick update to user %d (viewing user %d's picks)", viewingUserID, userID)
-		} else {
-			logger.Warnf("Client channel full for user %d, skipping pick update", viewingUserID)
+			logger.Debugf("Queued filtered pick update for user %d (viewing user %d's picks)", viewingUserID, userID)
+		default:
+			logger.Warnf("Message queue full, dropping pick update for user %d", viewingUserID)
 		}
 	}
 
@@ -532,7 +624,8 @@ func (h *SSEHandler) broadcastConsolidatedGameUpdate(game *models.Game) {
 	h.broadcastPickUpdatesForGame(game)
 }
 
-// broadcastPickUpdatesForGame broadcasts pick item updates for all picks associated with a game
+// broadcastPickUpdatesForGame broadcasts consolidated pick item updates for all picks associated with a game
+// CRITICAL: Now uses consolidated approach like game updates - single broadcast with all pick updates
 func (h *SSEHandler) broadcastPickUpdatesForGame(game *models.Game) {
 	if game == nil || h.pickService == nil {
 		return
@@ -548,22 +641,42 @@ func (h *SSEHandler) broadcastPickUpdatesForGame(game *models.Game) {
 		return
 	}
 
-	// Find and broadcast updates for all picks associated with this game
+	// Get games array for template compatibility
+	games, err := h.gameService.GetGamesBySeason(game.Season)
+	if err != nil {
+		logger.Errorf("Error fetching games for pick updates: %v", err)
+		return
+	}
+
+	// Collect all picks for this game into a single consolidated update
+	htmlBuffer := &strings.Builder{}
 	pickCount := 0
+
 	for _, userPicks := range allUserPicks {
 		for _, pick := range userPicks.Picks {
 			if pick.GameID == game.ID {
-				// Broadcast pick item update for each client's perspective
-				for client := range h.sseClients {
-					h.BroadcastPickItemUpdate(game, &pick, client.UserID)
+				// Create template data for each pick
+				templateData := map[string]interface{}{
+					"Pick":          &pick,
+					"Games":         games,
+					"IsCurrentUser": false, // Will be handled by client-side filtering
 				}
+
+				// Render the pick-item-update template (includes both pick-item AND live-expansion with OOB)
+				if err := h.templates.ExecuteTemplate(htmlBuffer, "pick-item-update", templateData); err != nil {
+					logger.Errorf("Error rendering pick-item-update for pick %d-%d: %v", pick.UserID, pick.GameID, err)
+					continue
+				}
+
 				pickCount++
 			}
 		}
 	}
 
 	if pickCount > 0 {
-		logger.Debugf("Broadcasted pick updates for %d picks associated with game %d", pickCount, game.ID)
+		// Send single consolidated update with all pick updates for this game
+		h.BroadcastToAllClients("pick-item-updated", htmlBuffer.String())
+		logger.Debugf("Broadcasted consolidated pick updates for %d picks associated with game %d (state: %s)", pickCount, game.ID, game.State)
 	}
 }
 
@@ -628,66 +741,124 @@ func (h *SSEHandler) broadcastGameScoresHTML(game *models.Game) {
 }
 
 // BroadcastParlayScoreUpdate broadcasts parlay score updates for a specific season/week
+// Rebuilt to match current cumulative scoring implementation using MemoryParlayScorer
 func (h *SSEHandler) BroadcastParlayScoreUpdate(season, week int) {
-	logger := logging.WithPrefix("SSE")
+	logger := logging.WithPrefix("SSE:ParlayScore")
 	logger.Debugf("Broadcasting parlay score update for season %d, week %d", season, week)
 
-	// Get updated user picks data to render club scores
-	if h.pickService != nil {
-		ctx := context.Background()
-		userPicks, err := h.pickService.GetAllUserPicksForWeek(ctx, season, week)
-		if err != nil {
-			logger.Errorf("Failed to get user picks for club score update: %v", err)
-			return
-		}
-
-		// Populate parlay scores for each user - CRITICAL for club scores display
-		if h.memoryScorer != nil {
-			for _, up := range userPicks {
-				// Get this week's specific score from memory scorer
-				weekScore, exists := h.memoryScorer.GetUserScore(season, week, up.UserID)
-				weeklyPoints := 0
-				if exists && weekScore != nil {
-					weeklyPoints = weekScore.TotalPoints
-				}
-
-				// For now, use weekly points as cumulative (will need separate cumulative calculation)
-				// TODO: Implement proper cumulative scoring across multiple weeks
-				cumulativeScore := weeklyPoints
-
-				// Populate the Record field with parlay scoring data
-				up.Record.ParlayPoints = cumulativeScore
-				up.Record.WeeklyPoints = weeklyPoints
-			}
-		}
-
-		// Create template data
-		templateData := map[string]interface{}{
-			"UserPicks": userPicks,
-		}
-
-		// Render the club-scores-content template
-		htmlBuffer := &strings.Builder{}
-		if err := h.templates.ExecuteTemplate(htmlBuffer, "club-scores-content", templateData); err != nil {
-			logger.Errorf("Error rendering club-scores template: %v", err)
-			return
-		}
-
-		// Create hx-swap-oob update for club-scores div
-		oobHTML := fmt.Sprintf(`<div class="club-scores" id="club-scores" hx-swap-oob="true">%s</div>`, htmlBuffer.String())
-
-		// Send the HTML update via SSE
-		h.BroadcastToAllClients("parlay-scores-updated", oobHTML)
-
-		logger.Infof("Broadcasted club scores HTML update to %d clients", len(h.sseClients))
-	} else {
-		logger.Warn("Pick service not available for parlay score HTML broadcast")
+	if h.pickService == nil {
+		logger.Warn("Pick service not available for parlay score broadcast")
+		return
 	}
+
+	if h.memoryScorer == nil {
+		logger.Warn("Memory scorer not available for parlay score broadcast")
+		return
+	}
+
+	ctx := context.Background()
+
+	// Get all user picks for this week to build club scores display
+	userPicks, err := h.pickService.GetAllUserPicksForWeek(ctx, season, week)
+	if err != nil {
+		logger.Errorf("Failed to get user picks for club score update: %v", err)
+		return
+	}
+
+	// Populate parlay scores using the same logic as PickService (CRITICAL for consistency)
+	for _, up := range userPicks {
+		// Get season total up to current week for ParlayPoints (cumulative)
+		seasonTotal := h.memoryScorer.GetUserSeasonTotal(season, week, up.UserID)
+		up.Record.ParlayPoints = seasonTotal
+
+		// Get current week's points for WeeklyPoints display
+		if weekParlayScore, exists := h.memoryScorer.GetUserScore(season, week, up.UserID); exists {
+			up.Record.WeeklyPoints = weekParlayScore.TotalPoints
+		} else {
+			up.Record.WeeklyPoints = 0
+		}
+
+		logger.Debugf("User %d scores - Season total: %d, Week %d: %d",
+			up.UserID, up.Record.ParlayPoints, week, up.Record.WeeklyPoints)
+	}
+
+	// Create template data
+	templateData := map[string]interface{}{
+		"UserPicks": userPicks,
+	}
+
+	// Render the club-scores-content template
+	htmlBuffer := &strings.Builder{}
+	if err := h.templates.ExecuteTemplate(htmlBuffer, "club-scores-content", templateData); err != nil {
+		logger.Errorf("Error rendering club-scores template: %v", err)
+		return
+	}
+
+	// Create hx-swap-oob update for club-scores div
+	oobHTML := fmt.Sprintf(`<div class="club-scores" id="club-scores" hx-swap-oob="true">%s</div>`, htmlBuffer.String())
+
+	// Send the HTML update via SSE
+	h.BroadcastToAllClients("parlay-scores-updated", oobHTML)
+
+	logger.Infof("Broadcasted club scores update to %d clients for season %d, week %d", len(h.sseClients), season, week)
 }
 
-// handleGameCompletion handles game completion events to recalculate parlay scores
+// BroadcastPickContainerRefresh broadcasts complete pick-container updates for visibility changes
+// This is used by VisibilityTimerService when pick visibility cutoffs are reached
+func (h *SSEHandler) BroadcastPickContainerRefresh(season, week int) {
+	logger := logging.WithPrefix("SSE:PickVisibility")
+	logger.Infof("Broadcasting full pick container refresh for season %d, week %d", season, week)
+
+	if h.pickService == nil {
+		logger.Warn("Pick service not available for pick container refresh")
+		return
+	}
+
+	ctx := context.Background()
+
+	// Get all user picks for the specified week with updated visibility
+	userPicks, err := h.pickService.GetAllUserPicksForWeek(ctx, season, week)
+	if err != nil {
+		logger.Errorf("Failed to get user picks for visibility refresh: %v", err)
+		return
+	}
+
+	// Apply pick visibility filtering for current time (this will show newly visible picks)
+	if h.visibilityService != nil {
+		// Use anonymous user ID (-1) to get the base visibility (could be enhanced per-user if needed)
+		filteredUserPicks, err := h.visibilityService.FilterVisibleUserPicks(ctx, userPicks, season, week, -1)
+		if err != nil {
+			logger.Warnf("Failed to filter pick visibility for refresh: %v", err)
+		} else {
+			userPicks = filteredUserPicks
+			logger.Debugf("Applied pick visibility filtering for season %d, week %d", season, week)
+		}
+	}
+
+	// Create template data for pick container
+	templateData := map[string]interface{}{
+		"UserPicks": userPicks,
+	}
+
+	// Render the pick-container content with updated visibility
+	htmlBuffer := &strings.Builder{}
+	if err := h.templates.ExecuteTemplate(htmlBuffer, "picks-section", templateData); err != nil {
+		logger.Errorf("Error rendering picks-section template for visibility refresh: %v", err)
+		return
+	}
+
+	// Create hx-swap-oob update for pick-container div
+	oobHTML := fmt.Sprintf(`<div class="pick-container" id="pick-container" hx-swap-oob="true">%s</div>`, htmlBuffer.String())
+
+	// Send the HTML update via SSE
+	h.BroadcastToAllClients("pick-container-refresh", oobHTML)
+
+	logger.Infof("Broadcasted pick container refresh to %d clients for season %d, week %d", len(h.sseClients), season, week)
+}
+
+// handleGameCompletion handles game state change events to update pick results and recalculate parlay scores
 func (h *SSEHandler) handleGameCompletion(season, week int, gameID string) {
-	logger := logging.WithPrefix("SSE:GameCompletion")
+	logger := logging.WithPrefix("SSE:GameStateChange")
 	ctx := context.Background()
 
 	if h.memoryScorer == nil || h.pickService == nil {
@@ -695,16 +866,47 @@ func (h *SSEHandler) handleGameCompletion(season, week int, gameID string) {
 		return
 	}
 
-	logger.Infof("Game %s completed for season %d, week %d - recalculating parlay scores", gameID, season, week)
+	// Get the current game to check its state
+	gameIDInt, err := strconv.Atoi(gameID)
+	if err != nil {
+		logger.Errorf("Invalid game ID: %s", gameID)
+		return
+	}
 
-	// Get all users who made picks for this week
+	game, err := h.gameService.GetGameByID(gameIDInt)
+	if err != nil {
+		logger.Errorf("Failed to get game %s: %v", gameID, err)
+		return
+	}
+
+	logger.Infof("Game %s state changed to %s for season %d, week %d - updating pick results", gameID, game.State, season, week)
+
+	// CRITICAL: Update pick results in database based on new game state
+	if game.IsCompleted() {
+		// Game completed - calculate pick results
+		logger.Infof("Processing game completion for game %s", gameID)
+		if err := h.pickService.ProcessGameCompletion(ctx, game); err != nil {
+			logger.Errorf("Failed to process game completion for game %s: %v", gameID, err)
+		} else {
+			logger.Infof("Successfully updated pick results for completed game %s", gameID)
+		}
+	} else {
+		// Game transitioned to non-completed state (in_play or scheduled) - reset pick results to pending
+		logger.Infof("Game %s transitioned to %s state - resetting pick results to pending", gameID, game.State)
+		if err := h.pickService.ResetPickResultsForGame(ctx, game); err != nil {
+			logger.Errorf("Failed to reset pick results for game %s: %v", gameID, err)
+		} else {
+			logger.Infof("Successfully reset pick results for game %s", gameID)
+		}
+	}
+
+	// Recalculate in-memory parlay scores for each user who made picks this week
 	allUserPicks, err := h.pickService.GetAllUserPicksForWeek(ctx, season, week)
 	if err != nil {
 		logger.Errorf("Failed to get user picks for week %d: %v", week, err)
 		return
 	}
 
-	// Recalculate scores for each user who made picks this week
 	updatedCount := 0
 	for _, userPicks := range allUserPicks {
 		_, err := h.memoryScorer.RecalculateUserScore(ctx, season, week, userPicks.UserID)
@@ -715,9 +917,9 @@ func (h *SSEHandler) handleGameCompletion(season, week int, gameID string) {
 		updatedCount++
 	}
 
-	logger.Infof("Recalculated parlay scores for %d users", updatedCount)
+	logger.Infof("Recalculated in-memory parlay scores for %d users", updatedCount)
 
-	// Broadcast the updated scores via SSE
+	// Broadcast the updated scores via SSE (club scores - in-memory only)
 	if updatedCount > 0 {
 		h.BroadcastParlayScoreUpdate(season, week)
 	}

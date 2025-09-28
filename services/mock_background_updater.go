@@ -252,33 +252,9 @@ func (mu *MockBackgroundUpdater) generateRandomClock() string {
 	return fmt.Sprintf("%d:%02d", minutes, seconds)
 }
 
-// getCurrentWeek determines the current NFL week
+// getCurrentWeek determines the current NFL week using the proper GetNFLWeekForDate function
 func (mu *MockBackgroundUpdater) getCurrentWeek() int {
-	now := time.Now()
-
-	// Simple logic: assume we're in week 1-18 based on date
-	// Adjusted for 2025 season: Week 3 starts around Sept 15
-	month := now.Month()
-	day := now.Day()
-
-	// September - early weeks (Week 1: Sept 1-7, Week 2: Sept 8-14, Week 3: Sept 15+)
-	if month == 9 {
-		if day < 8 {
-			return 1
-		} else if day < 15 {
-			return 2
-		} else {
-			return 3
-		}
-	}
-
-	// October - mid season
-	if month == 10 {
-		return 4 + (day-1)/7
-	}
-
-	// For testing, default to week 1
-	return 1
+	return models.GetNFLWeekForDate(time.Now(), mu.currentSeason)
 }
 
 // IsRunning returns whether the mock updater is currently running

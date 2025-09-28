@@ -241,11 +241,11 @@ func (r *MongoWeeklyPicksRepository) UpdatePickResults(ctx context.Context, seas
 
 		// Check if this user has a pick result to update
 		if newResult, hasUpdate := updates[weeklyPicks.UserID]; hasUpdate {
-			// Update the specific pick's result
+			// Update the specific pick's result for ALL picks on this game (ATS + O/U)
 			for i := range weeklyPicks.Picks {
 				if weeklyPicks.Picks[i].GameID == gameID {
 					weeklyPicks.Picks[i].Result = newResult
-					break
+					// CRITICAL FIX: Don't break - user may have multiple picks (ATS + O/U) for same game
 				}
 			}
 

@@ -413,68 +413,16 @@ func (h *GameDisplayHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// getCurrentWeek determines the current NFL week based on game dates
+// getCurrentWeek determines the current NFL week using the proper GetNFLWeekForDate function
 // This utility function helps determine which week to display by default
 func (h *GameDisplayHandler) getCurrentWeek(games []models.Game) int {
-	logger := logging.WithPrefix("GameDisplay")
-	if len(games) == 0 {
-		return 1 // Default to week 1 if no games
+	// Use the proper week calculation that accounts for NFL season timing
+	if len(games) > 0 {
+		// Use the season from the games
+		return models.GetNFLWeekForDate(time.Now(), games[0].Season)
 	}
-
-	now := time.Now()
-
-	// Group games by week
-	weekGames := make(map[int][]models.Game)
-	for _, game := range games {
-		weekGames[game.Week] = append(weekGames[game.Week], game)
-	}
-
-	// Find the current week based on game timing
-	for week := 1; week <= 18; week++ {
-		gamesThisWeek := weekGames[week]
-		if len(gamesThisWeek) == 0 {
-			continue
-		}
-
-		// Check if any games this week are in progress or recently completed
-		hasRecentActivity := false
-		allCompleted := true
-
-		for _, game := range gamesThisWeek {
-			timeSinceKickoff := now.Sub(game.Date)
-
-			// Game is recent if it's within 4 hours of kickoff (before or after)
-			if timeSinceKickoff >= -4*time.Hour && timeSinceKickoff <= 4*time.Hour {
-				hasRecentActivity = true
-			}
-
-			// Check if game is not completed
-			if !game.IsCompleted() {
-				allCompleted = false
-			}
-		}
-
-		// If there's recent activity or not all games are completed, this is likely the current week
-		if hasRecentActivity || !allCompleted {
-			logger.Debugf("Determined current week as %d based on game activity", week)
-			return week
-		}
-	}
-
-	// Fallback: find the first week with incomplete games
-	for week := 1; week <= 18; week++ {
-		gamesThisWeek := weekGames[week]
-		for _, game := range gamesThisWeek {
-			if !game.IsCompleted() {
-				logger.Debugf("Determined current week as %d based on incomplete games", week)
-				return week
-			}
-		}
-	}
-
-	// Ultimate fallback: return week 1
-	logger.Debug("Using fallback current week: 1")
-	return 1
+	// Fallback to current year if no games available
+	return models.GetNFLWeekForDate(time.Now(), time.Now().Year())
 }
 
 // generateWeekList creates a list of weeks 1-18 for template rendering

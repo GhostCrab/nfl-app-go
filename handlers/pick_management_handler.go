@@ -440,34 +440,15 @@ func (h *PickManagementHandler) canSubmitPicksArray(games []models.Game) map[int
 	return canPickArr
 }
 
-// getCurrentWeek determines the current NFL week based on game dates
+// getCurrentWeek determines the current NFL week using the proper GetNFLWeekForDate function
 func (h *PickManagementHandler) getCurrentWeek(games []models.Game) int {
-	if len(games) == 0 {
-		return 1
+	// Use the proper week calculation that accounts for NFL season timing
+	if len(games) > 0 {
+		// Use the season from the games
+		return models.GetNFLWeekForDate(time.Now(), games[0].Season)
 	}
-
-	// Group games by week
-	weekGames := make(map[int][]models.Game)
-	for _, game := range games {
-		weekGames[game.Week] = append(weekGames[game.Week], game)
-	}
-
-	// Find current week based on game timing
-	for week := 1; week <= 18; week++ {
-		gamesThisWeek := weekGames[week]
-		if len(gamesThisWeek) == 0 {
-			continue
-		}
-
-		// Check if any games this week are not completed
-		for _, game := range gamesThisWeek {
-			if !game.IsCompleted() {
-				return week
-			}
-		}
-	}
-
-	return 1 // Fallback
+	// Fallback to current year if no games available
+	return models.GetNFLWeekForDate(time.Now(), time.Now().Year())
 }
 
 // getTeamIDFromAbbreviation maps team abbreviation to ESPN team ID

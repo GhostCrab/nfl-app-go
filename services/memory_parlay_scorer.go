@@ -143,9 +143,9 @@ func (mps *MemoryParlayScorer) RecalculateUserScore(ctx context.Context, season,
 	return parlayScore, nil
 }
 
-// InitializeFromDatabase loads existing scores from database on startup
-func (mps *MemoryParlayScorer) InitializeFromDatabase(ctx context.Context, currentSeason int) error {
-	mps.logger.Info("Initializing parlay scores from database calculations")
+// InitializeClubScores calculates and loads all club scores into memory on startup
+func (mps *MemoryParlayScorer) InitializeClubScores(ctx context.Context, currentSeason int) error {
+	mps.logger.Info("Initializing club scores by calculating all parlay scores")
 
 	if mps.parlayService == nil {
 		mps.logger.Error("ParlayService is nil, cannot initialize scores")
@@ -157,19 +157,40 @@ func (mps *MemoryParlayScorer) InitializeFromDatabase(ctx context.Context, curre
 		return fmt.Errorf("pickService is nil")
 	}
 
-	// For now, we'll calculate scores for the current season
-	// In the future, you might want to calculate historical scores as needed
-	for week := 1; week <= 18; week++ {
-		err := mps.CalculateAndStoreWeekScores(ctx, currentSeason, week)
-		if err != nil {
-			mps.logger.Warnf("Failed to calculate scores for season %d, week %d: %v",
-				currentSeason, week, err)
-			continue
+	// Initialize scores for all seasons with data (2023, 2024, 2025)
+	seasons := []int{2023, 2024, 2025}
+	for _, season := range seasons {
+		mps.logger.Infof("Calculating scores for season %d", season)
+		for week := 1; week <= 18; week++ {
+			err := mps.CalculateAndStoreWeekScores(ctx, season, week)
+			if err != nil {
+				mps.logger.Warnf("Failed to calculate scores for season %d, week %d: %v",
+					season, week, err)
+				continue
+			}
 		}
 	}
 
-	mps.logger.Infof("Finished initializing parlay scores for season %d", currentSeason)
+	mps.logger.Infof("Finished initializing parlay scores for all seasons")
 	return nil
+}
+
+// GetUserSeasonTotal calculates the total season points for a user up to a specific week
+func (mps *MemoryParlayScorer) GetUserSeasonTotal(season, throughWeek, userID int) int {
+	mps.mu.RLock()
+	defer mps.mu.RUnlock()
+
+	totalPoints := 0
+	for week := 1; week <= throughWeek; week++ {
+		key := fmt.Sprintf("%d-%d", season, week)
+		if weekScores, exists := mps.weeklyScores[key]; exists {
+			if userScore, exists := weekScores.UserScores[userID]; exists {
+				totalPoints += userScore.TotalPoints
+			}
+		}
+	}
+
+	return totalPoints
 }
 
 // GetMemoryStats returns statistics about the in-memory data

@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"nfl-app-go/logging"
 	"sync"
 	"time"
@@ -12,6 +11,7 @@ import (
 type VisibilityTimerService struct {
 	visibilityService *PickVisibilityService
 	broadcastHandler  func(eventType, data string) // Handler for SSE broadcasts
+	pickRefreshHandler func(season, week int) // Handler for generating full pick container updates
 	currentSeason     int
 	ticker            *time.Ticker
 	stopChan          chan struct{}
@@ -29,6 +29,13 @@ func NewVisibilityTimerService(visibilityService *PickVisibilityService, broadca
 		stopChan:          make(chan struct{}),
 		lastCheck:         time.Now(),
 	}
+}
+
+// SetPickRefreshHandler sets the handler for generating full pick container updates
+func (s *VisibilityTimerService) SetPickRefreshHandler(handler func(season, week int)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pickRefreshHandler = handler
 }
 
 // Start begins monitoring for pick visibility changes
@@ -111,21 +118,31 @@ func (s *VisibilityTimerService) checkForVisibilityChanges(ctx context.Context) 
 	s.mu.Unlock()
 }
 
-// triggerVisibilityUpdate sends an SSE event to update pick visibility
+// triggerVisibilityUpdate sends an SSE event to update pick visibility with full pick container refresh
 func (s *VisibilityTimerService) triggerVisibilityUpdate(week int) {
 	if s.broadcastHandler == nil {
 		logging.Error("VisibilityTimerService: No broadcast handler configured")
 		return
 	}
 
-	// Create visibility update event JSON
-	eventJSON := fmt.Sprintf(`{"type":"visibility-change","season":%d,"week":%d,"message":"Pick visibility has changed, refreshing picks","timestamp":%d}`,
-		s.currentSeason, week, time.Now().UnixMilli())
+	// Use pick refresh handler if available for heavy-handed full container update
+	s.mu.RLock()
+	pickHandler := s.pickRefreshHandler
+	s.mu.RUnlock()
 
-	// Broadcast the visibility change event
-	s.broadcastHandler("visibility-change", eventJSON)
+	if pickHandler != nil {
+		logging.Infof("VisibilityTimerService: Triggering full pick container refresh for week %d", week)
+		// This will generate and broadcast complete pick-container OOB updates
+		pickHandler(s.currentSeason, week)
+	} else {
+		// Fallback to simple visibility change event (will trigger hx-get="/" reload)
+		logging.Infof("VisibilityTimerService: Triggering dashboard reload for week %d visibility change", week)
 
-	logging.Infof("VisibilityTimerService: Sent visibility change event for week %d", week)
+		// Send empty data - the SSE listener will trigger hx-get="/" to reload dashboard
+		s.broadcastHandler("visibility-change", "")
+	}
+
+	logging.Infof("VisibilityTimerService: Sent visibility change update for week %d", week)
 }
 
 // GetNextScheduledUpdate returns when the next visibility change will occur
