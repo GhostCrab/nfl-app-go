@@ -130,8 +130,8 @@ func Load() (*Config, error) {
 		Server: ServerConfig{
 			Port:        serverPort,
 			Host:        getEnv("SERVER_HOST", "0.0.0.0"),
-			UseTLS:      getBoolEnv("USE_TLS", true),
-			BehindProxy: getBoolEnv("BEHIND_PROXY", false),
+			UseTLS:      getBoolEnv("USE_TLS", false),
+			BehindProxy: getBoolEnv("BEHIND_PROXY", true),
 			CertFile:    getEnv("TLS_CERT_FILE", "server.crt"),
 			KeyFile:     getEnv("TLS_KEY_FILE", "server.key"),
 			Environment: environment,

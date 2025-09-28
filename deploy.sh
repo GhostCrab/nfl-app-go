@@ -165,6 +165,7 @@ copy_files() {
         log_warning ".env file not found - you'll need to create one in $DEPLOY_DIR"
     fi
 
+
     # Set ownership
     chown -R "$APP_USER:$APP_USER" "$DEPLOY_DIR"
 
@@ -292,6 +293,7 @@ print_instructions() {
     echo "   - Configure database credentials"
     echo "   - Set up MongoDB authentication"
     echo "   - Configure firewall rules"
+    echo "   - Application configured for Cloudflare proxy (USE_TLS=false, BEHIND_PROXY=true)"
     echo ""
 }
 
