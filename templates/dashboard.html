@@ -934,21 +934,9 @@ This prevents the picks-container from becoming empty during week switching.
 
         // SSE Message ID tracking for missed updates detection
         let expectedMessageId = null; // Will be set from first message received
-        let isReconnecting = false;
-        let lastMessageTime = Date.now();
-        let messageTimeoutId = null;
-
-        // SSE timeout configuration
-        const MESSAGE_TIMEOUT = 90 * 1000; // 90 seconds (3x heartbeat interval)
-        const HEARTBEAT_INTERVAL = 30 * 1000; // Expected heartbeat every 30 seconds
 
         document.addEventListener('htmx:sseMessage', function(e) {
-            // console.log('HTMX SSE Message received:', e.detail);
             console.log(`[HTMX SSE Message received] type: ${e.detail.type}, lastEventId: ${e.detail.lastEventId}, expected ID: ${expectedMessageId}`);
-
-            // Update last message time and reset timeout
-            lastMessageTime = Date.now();
-            resetMessageTimeout();
 
             // Extract message ID from SSE event
             const lastEventId = e.detail.lastEventId;
@@ -962,8 +950,8 @@ This prevents the picks-container from becoming empty during week switching.
                     return;
                 }
 
-                // Check for gaps in message sequence
-                if (messageId > expectedMessageId && !isReconnecting) {
+                // Check for gaps in message sequence - any gap triggers resync
+                if (messageId !== expectedMessageId) {
                     console.warn(`SSE Message gap detected: expected ${expectedMessageId}, got ${messageId}. Triggering dashboard refresh.`);
                     refreshDashboard();
                     return;
@@ -971,7 +959,6 @@ This prevents the picks-container from becoming empty during week switching.
 
                 // Update expected next message ID
                 expectedMessageId = messageId + 1;
-                console.log(`Incremented expected message id to ${expectedMessageId}`);
             }
         });
 
@@ -979,72 +966,21 @@ This prevents the picks-container from becoming empty during week switching.
         //     console.log('HTMX OOB swap completed:', e.detail);
         // });
 
-        // Log SSE connection status and handle reconnection
+        // Log SSE connection status
         document.addEventListener('htmx:sseOpen', function(e) {
             console.log('SSE connection opened successfully');
-            lastMessageTime = Date.now();
-            resetMessageTimeout();
-
-            if (isReconnecting) {
-                console.log('SSE reconnected after tab focus, triggering dashboard refresh');
-                refreshDashboard();
-            }
-            isReconnecting = false;
         });
 
         // Handle SSE connection errors and server restarts
         document.addEventListener('htmx:sseError', function(e) {
             console.warn('SSE connection error:', e.detail);
-            clearMessageTimeout();
-            isReconnecting = true;
             // Reset expected message ID on connection error (server may have restarted)
             expectedMessageId = null;
         });
 
-        // Handle page visibility changes (tab focus/blur)
-        document.addEventListener('visibilitychange', function() {
-            if (!document.hidden) {
-                // Tab became visible - check if we might have missed updates
-                console.log('Tab became visible, marking for potential refresh on next SSE message');
-                isReconnecting = true;
-
-                // Check if too much time has passed since last message
-                const timeSinceLastMessage = Date.now() - lastMessageTime;
-                if (timeSinceLastMessage > MESSAGE_TIMEOUT) {
-                    console.warn(`Tab was hidden for ${Math.floor(timeSinceLastMessage / 1000)}s, triggering refresh`);
-                    refreshDashboard();
-                }
-            } else {
-                // Tab became hidden - clear timeout to avoid unnecessary refreshes
-                clearMessageTimeout();
-            }
-        });
-
-        // Reset message timeout - called when we receive any SSE message
-        function resetMessageTimeout() {
-            clearMessageTimeout();
-
-            // Only set timeout if tab is visible
-            if (!document.hidden) {
-                messageTimeoutId = setTimeout(function() {
-                    console.warn(`No SSE messages received for ${MESSAGE_TIMEOUT / 1000}s, triggering refresh`);
-                    refreshDashboard();
-                }, MESSAGE_TIMEOUT);
-            }
-        }
-
-        // Clear message timeout
-        function clearMessageTimeout() {
-            if (messageTimeoutId) {
-                clearTimeout(messageTimeoutId);
-                messageTimeoutId = null;
-            }
-        }
-
         // Function to refresh dashboard state
         function refreshDashboard() {
             console.log('Refreshing dashboard due to missed SSE messages');
-            clearMessageTimeout();
 
             // Get stored week from localStorage, fallback to current week selector value
             const storedWeek = localStorage.getItem('currentWeek');
