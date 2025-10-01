@@ -5,18 +5,19 @@
     {{range $sortedUsers}}
         <div class="score-item">
             <span class="user-name">{{.UserName}}</span>
-            <span class="user-score">
-                {{.Record.ParlayPoints}}
-                {{if .Record.WeeklyPoints}}
-                    <span class="weekly-gain">(+{{.Record.WeeklyPoints}})</span>
-                {{end}}
-            </span>
+            {{if .Record.WeeklyPoints}}
+                <span class="weekly-gain">+{{.Record.WeeklyPoints}}</span>
+            {{else}}
+                <span class="weekly-gain weekly-gain-placeholder"></span>
+            {{end}}
+            <span class="user-score">{{.Record.ParlayPoints}}</span>
         </div>
     {{end}}
 {{else}}
     {{range .Users}}
         <div class="score-item">
             <span class="user-name">{{.Name}}</span>
+            <span class="weekly-gain weekly-gain-placeholder"></span>
             <span class="user-score">0</span>
         </div>
     {{end}}

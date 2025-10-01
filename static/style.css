@@ -1360,7 +1360,7 @@ fieldset legend {
 
 .score-item {
     display: flex;
-    justify-content: space-between;
+    align-items: center;
     padding: 8px 0;
     border-bottom: 1px solid var(--border-color);
     color: var(--card-text);
@@ -1371,12 +1371,28 @@ fieldset legend {
 }
 
 .score-item .user-name {
+    min-width: 85px;
+    flex: 1;
     color: var(--card-text);
     font-weight: 500;
 }
 
-.score-item .user-score {
+.score-item .weekly-gain {
+    width: 50px;
+    text-align: right;
     color: var(--card-text);
+    margin: 0 16px;
+}
+
+.score-item .weekly-gain-placeholder {
+    visibility: hidden;
+}
+
+.score-item .user-score {
+    width: 40px;
+    text-align: right;
+    color: var(--card-text);
+    margin-left: auto;
 }
 
 /* Week Summary section */
