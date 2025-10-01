@@ -176,9 +176,16 @@ func (mps *MemoryParlayScorer) InitializeClubScores(ctx context.Context, current
 }
 
 // GetUserSeasonTotal calculates the total season points for a user up to a specific week
+// The throughWeek parameter is capped at the actual current week to prevent future weeks from counting
 func (mps *MemoryParlayScorer) GetUserSeasonTotal(season, throughWeek, userID int) int {
 	mps.mu.RLock()
 	defer mps.mu.RUnlock()
+
+	// Cap throughWeek at the current week to prevent future weeks from being included in cumulative totals
+	actualCurrentWeek := models.GetNFLWeekForDate(time.Now(), season)
+	if throughWeek > actualCurrentWeek {
+		throughWeek = actualCurrentWeek
+	}
 
 	totalPoints := 0
 	for week := 1; week <= throughWeek; week++ {

@@ -166,17 +166,24 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Add empty pick entries for users who don't have picks this week
+		// and populate their cumulative parlay scores
 		for _, u := range users {
 			if _, exists := userPicksMap[u.ID]; !exists {
-				userPicks = append(userPicks, &models.UserPicks{
+				emptyPicks := &models.UserPicks{
 					UserID:             u.ID,
 					UserName:           u.Name,
 					Picks:              []models.Pick{},
 					BonusThursdayPicks: []models.Pick{},
 					BonusFridayPicks:   []models.Pick{},
 					Record:             models.UserRecord{},
-				})
+				}
+				userPicks = append(userPicks, emptyPicks)
 			}
+		}
+
+		// Populate parlay scores for ALL users (including those with no picks)
+		if err := h.pickService.PopulateParlayScores(r.Context(), userPicks, season, currentWeek); err != nil {
+			logger.Warnf("Failed to populate parlay scores: %v", err)
 		}
 
 		// Populate daily pick groups for modern seasons (after visibility filtering)

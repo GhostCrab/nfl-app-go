@@ -1178,3 +1178,26 @@ func (s *PickService) ResetPickResultsForGame(ctx context.Context, game *models.
 	logger.Infof("Reset %d individual pick results to pending for game %d", len(pickUpdates), game.ID)
 	return nil
 }
+
+// PopulateParlayScores populates parlay scores for all users in the provided list
+// This is used by handlers to ensure all users have their cumulative scores populated
+func (s *PickService) PopulateParlayScores(ctx context.Context, userPicksList []*models.UserPicks, season, week int) error {
+	if s.memoryScorer == nil {
+		return fmt.Errorf("memory scorer not available")
+	}
+
+	for _, userPicks := range userPicksList {
+		// Get season total up to current week for ParlayPoints (cumulative)
+		seasonTotal := s.memoryScorer.GetUserSeasonTotal(season, week, userPicks.UserID)
+		userPicks.Record.ParlayPoints = seasonTotal
+
+		// Get current week's points for WeeklyPoints display
+		if weekParlayScore, exists := s.memoryScorer.GetUserScore(season, week, userPicks.UserID); exists {
+			userPicks.Record.WeeklyPoints = weekParlayScore.TotalPoints
+		} else {
+			userPicks.Record.WeeklyPoints = 0
+		}
+	}
+
+	return nil
+}
