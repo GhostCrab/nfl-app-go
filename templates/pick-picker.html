@@ -2,15 +2,19 @@
     <div id="pick-picker-overlay" class="pick-picker-overlay">
         <div class="pick-picker-modal">
             <div class="pick-picker-header">
-                <h2>Week {{.CurrentWeek}}</h2>
+                <h2>Week {{.CurrentWeek}}{{if .IsAdminMode}} <span style="color: #ff6b6b;">(Admin Mode)</span>{{end}}</h2>
                 <button class="close-picker">×</button>
             </div>
-            <form id="pick-form" 
-                  hx-post="/submit-picks" 
-                  hx-target="#pick-result" 
+            <form id="pick-form"
+                  hx-post="/submit-picks"
+                  hx-target="#pick-result"
                   hx-swap="innerHTML">
                 <input type="hidden" name="week" value="{{.CurrentWeek}}">
                 <input type="hidden" name="season" value="{{.CurrentSeason}}">
+                {{if .IsAdminMode}}
+                    <input type="hidden" name="adminMode" value="true">
+                    <input type="hidden" name="targetUserID" value="{{.TargetUserID}}">
+                {{end}}
                 
                 <div class="pick-picker-content">
                     {{if .Games}}

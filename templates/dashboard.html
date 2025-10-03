@@ -128,7 +128,7 @@
                     <select id="week-select" name="week" class="week-select"
                             hx-get="/"
                             hx-target="#dashboard-content"
-                            hx-include="[name='season']"
+                            hx-include="[name='season']{{if .IsAdminMode}},[name='admin']{{end}}"
                             hx-trigger="change"
                             onchange="localStorage.setItem('currentWeek', this.value)">
                         {{range .Weeks}}
@@ -138,13 +138,32 @@
                         {{end}}
                     </select>
                     <input type="hidden" name="season" value="{{.CurrentSeason}}">
+                    {{if .IsAdminMode}}
+                        <input type="hidden" name="admin" value="true">
+                    {{end}}
                 </div>
                 {{if .User}}
+                    {{if .IsAdminMode}}
+                        <!-- Admin Mode: User Selector -->
+                        <div class="form-field" style="margin-top: 10px;">
+                            <label for="admin-user-select" class="form-label" style="color: #ff6b6b;">Admin: Edit As</label>
+                            <select id="admin-user-select" class="week-select">
+                                <option value="">-- Select User --</option>
+                                {{range .Users}}
+                                    <option value="{{.ID}}">{{.Name}}</option>
+                                {{end}}
+                            </select>
+                        </div>
+                    {{end}}
                     <button class="update-picks-btn"
+                            {{if .IsAdminMode}}
+                            onclick="openAdminPicker(event, {{.CurrentWeek}}, {{.CurrentSeason}})"
+                            {{else}}
                             hx-get="/pick-picker?week={{.CurrentWeek}}&season={{.CurrentSeason}}"
                             hx-target="body"
-                            hx-swap="beforeend">
-                        Update Picks
+                            hx-swap="beforeend"
+                            {{end}}>
+                        {{if .IsAdminMode}}Admin Edit Picks{{else}}Update Picks{{end}}
                     </button>
                 {{end}}
             </div>
@@ -711,6 +730,21 @@ This prevents the picks-container from becoming empty during week switching.
 
 
     <script>
+        // Admin mode: Open picker for selected user
+        function openAdminPicker(event, week, season) {
+            event.preventDefault();
+            const userSelect = document.getElementById('admin-user-select');
+            const selectedUserId = userSelect.value;
+
+            if (!selectedUserId) {
+                alert('Please select a user to edit picks for');
+                return;
+            }
+
+            const url = `/pick-picker?week=${week}&season=${season}&adminViewingAs=${selectedUserId}&adminMode=true`;
+            htmx.ajax('GET', url, {target: 'body', swap: 'beforeend'});
+        }
+
         // SSE events now use week-specific IDs, so cross-week contamination is prevented automatically
 
         // Set up mutual exclusion for pick checkboxes

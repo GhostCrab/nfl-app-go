@@ -58,7 +58,23 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	log.Printf("ShowPickPicker for user %d (%s)", user.ID, user.Email)
+	// Check for admin mode
+	adminMode := r.URL.Query().Get("adminMode") == "true"
+	adminViewingAsStr := r.URL.Query().Get("adminViewingAs")
+
+	targetUserID := user.ID
+	isAdminMode := false
+
+	if adminMode && user.ID == 4 && adminViewingAsStr != "" {
+		// Admin mode enabled - user ID 4 (RYAN) editing as another user
+		if viewAsID, err := strconv.Atoi(adminViewingAsStr); err == nil {
+			targetUserID = viewAsID
+			isAdminMode = true
+			log.Printf("ADMIN MODE: User %d (%s) editing picks for user %d", user.ID, user.Email, targetUserID)
+		}
+	}
+
+	log.Printf("ShowPickPicker for user %d (%s)", targetUserID, user.Email)
 
 	// Parse query parameters
 	seasonStr := r.URL.Query().Get("season")
@@ -128,9 +144,9 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		return games[i].Home < games[j].Home
 	})
 
-	// Get user's existing picks for this week
+	// Get user's existing picks for this week (for the target user in admin mode)
 	ctx := context.Background()
-	userPicksData, err := h.pickService.GetUserPicksForWeek(ctx, user.ID, season, week)
+	userPicksData, err := h.pickService.GetUserPicksForWeek(ctx, targetUserID, season, week)
 	if err != nil {
 		log.Printf("Error getting existing picks: %v", err)
 		// Continue without existing picks rather than failing
@@ -184,8 +200,14 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		pickState[game.ID] = gameState
 	}
 
-	// Check if picks can still be submitted (before kickoff)
+	// Check if picks can still be submitted (before kickoff or in admin mode)
 	canSubmitPicks := h.canSubmitPicksArray(games)
+	if isAdminMode {
+		// In admin mode, allow editing all games
+		for gameID := range canSubmitPicks {
+			canSubmitPicks[gameID] = true
+		}
+	}
 
 	// Prepare template data
 	data := struct {
@@ -196,6 +218,8 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		CurrentWeek    int
 		CanSubmitPicks map[int]bool
 		PickState      map[int]map[int]bool
+		IsAdminMode    bool
+		TargetUserID   int
 	}{
 		User:           user,
 		Games:          games,
@@ -204,6 +228,8 @@ func (h *PickManagementHandler) ShowPickPicker(w http.ResponseWriter, r *http.Re
 		CurrentWeek:    week,
 		CanSubmitPicks: canSubmitPicks,
 		PickState:      pickState,
+		IsAdminMode:    isAdminMode,
+		TargetUserID:   targetUserID,
 	}
 
 	// Render the pick picker template
@@ -233,6 +259,22 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Check for admin mode
+	adminModeStr := r.FormValue("adminMode")
+	targetUserIDStr := r.FormValue("targetUserID")
+
+	targetUserID := user.ID
+	isAdminMode := false
+
+	if adminModeStr == "true" && user.ID == 4 && targetUserIDStr != "" {
+		// Admin mode - user ID 4 (RYAN) editing as another user
+		if viewAsID, err := strconv.Atoi(targetUserIDStr); err == nil {
+			targetUserID = viewAsID
+			isAdminMode = true
+			log.Printf("ADMIN MODE: User %d submitting picks for user %d", user.ID, targetUserID)
+		}
+	}
+
 	// Extract season and week
 	seasonStr := r.FormValue("season")
 	weekStr := r.FormValue("week")
@@ -251,7 +293,7 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	log.Printf("Processing picks submission for user %d, season %d, week %d", user.ID, season, week)
+	log.Printf("Processing picks submission for user %d, season %d, week %d", targetUserID, season, week)
 
 	// Get games for validation
 	allGames, err := h.gameService.GetGamesBySeason(season)
@@ -269,8 +311,8 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Check if picks can still be submitted
-	if !h.canSubmitPicksForWeek(games) {
+	// Check if picks can still be submitted (bypass check in admin mode)
+	if !isAdminMode && !h.canSubmitPicksForWeek(games) {
 		log.Printf("Attempted to submit picks after deadline for week %d", week)
 		http.Error(w, "Pick submission deadline has passed", http.StatusForbidden)
 		return
@@ -371,9 +413,9 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 			}
 		}
 
-		// Create pick with proper TeamName
+		// Create pick with proper TeamName (using targetUserID in admin mode)
 		pick := &models.Pick{
-			UserID:          user.ID,
+			UserID:          targetUserID,
 			GameID:          gameID,
 			TeamID:          teamID,
 			PickType:        pickType,
@@ -396,13 +438,18 @@ func (h *PickManagementHandler) SubmitPicks(w http.ResponseWriter, r *http.Reque
 	// CRITICAL FIX: Use UpdateUserPicksForScheduledGames to preserve existing picks for completed games
 	// instead of ReplaceUserPicksForWeek which deletes all picks for the week
 	ctx := context.Background()
-	if err := h.pickService.UpdateUserPicksForScheduledGames(ctx, user.ID, season, week, picks, gameMap); err != nil {
-		log.Printf("Error updating picks for user %d: %v", user.ID, err)
+	if err := h.pickService.UpdateUserPicksForScheduledGames(ctx, targetUserID, season, week, picks, gameMap); err != nil {
+		log.Printf("Error updating picks for user %d: %v", targetUserID, err)
 		http.Error(w, "Error saving picks", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Successfully saved %d picks for user %d", len(picks), user.ID)
+	log.Printf("Successfully saved %d picks for user %d%s", len(picks), targetUserID, func() string {
+		if isAdminMode {
+			return fmt.Sprintf(" (admin edit by user %d)", user.ID)
+		}
+		return ""
+	}())
 
 	// For HTMX requests, return success message instead of redirect
 	if r.Header.Get("HX-Request") == "true" {

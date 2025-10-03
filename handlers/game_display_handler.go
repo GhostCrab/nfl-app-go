@@ -115,6 +115,13 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	// Get current user from context (if authenticated)
 	user := middleware.GetUserFromContext(r)
 
+	// Check if admin mode is enabled (only for user ID 4 - RYAN)
+	isAdminMode := false
+	if user != nil && user.ID == 4 && r.URL.Query().Get("admin") == "true" {
+		isAdminMode = true
+		logger.Infof("Admin mode enabled for user %s (ID: %d)", user.Name, user.ID)
+	}
+
 	// Generate week list (1-18 for regular season)
 	weeks := generateWeekList()
 
@@ -204,6 +211,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		CurrentWeek       int
 		CurrentSeason     int
 		DisplayIDTooltips bool
+		IsAdminMode       bool
 	}{
 		Games:             games,
 		Title:             fmt.Sprintf("PC '%d - Dashboard", season%100),
@@ -214,6 +222,7 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 		CurrentWeek:       currentWeek,
 		CurrentSeason:     season,
 		DisplayIDTooltips: h.config != nil && h.config.App.DisplayIDTooltips,
+		IsAdminMode:       isAdminMode,
 	}
 
 	// Check if this is an HTMX request
