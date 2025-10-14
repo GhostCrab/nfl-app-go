@@ -575,7 +575,8 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 	var gamesSkippedByCutoff []models.Game
 
 	for _, game := range dbGames {
-		if game.Odds == nil && game.State == models.GameStateScheduled {
+		// if game.Odds == nil && game.State == models.GameStateScheduled {
+		if game.State == models.GameStateScheduled {
 			// Check if odds cutoff has passed for this game's week
 			if bu.isAfterOddsCutoff(game.Week) {
 				gamesSkippedByCutoff = append(gamesSkippedByCutoff, *game)
@@ -614,7 +615,7 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 	var gamesToUpdate []*models.Game
 	oddsAdded := 0
 	for i, game := range enrichedGames {
-		if game.Odds != nil && i < len(gamesNeedingOdds) && gamesNeedingOdds[i].Odds == nil {
+		if game.Odds != nil && i < len(gamesNeedingOdds) {
 			gamesToUpdate = append(gamesToUpdate, &game)
 			oddsAdded++
 
@@ -625,10 +626,17 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 			bu.logger.Infof("ODDS UPDATE for Game %d (Week %d: %s vs %s)",
 				game.ID, game.Week, game.Away, game.Home)
 			bu.logger.Infof("  Game Time: %s Pacific", gameTimePacific.Format("Mon 1/2/2006 3:04 PM MST"))
-			bu.logger.Info("  BEFORE: Odds = nil (no odds available)")
+
+			// Show before/after values
+			if gamesNeedingOdds[i].Odds == nil {
+				bu.logger.Info("  BEFORE: Odds = nil (no odds available)")
+			} else {
+				bu.logger.Infof("  BEFORE: Odds = Spread: %.1f, O/U: %.1f",
+					gamesNeedingOdds[i].Odds.Spread, gamesNeedingOdds[i].Odds.OU)
+			}
 			bu.logger.Infof("  AFTER:  Odds = Spread: %.1f, O/U: %.1f",
 				game.Odds.Spread, game.Odds.OU)
-			bu.logger.Info("  STATUS: SUCCESS - Added new odds to database")
+			bu.logger.Info("  STATUS: SUCCESS - Updated odds in database")
 		}
 	}
 

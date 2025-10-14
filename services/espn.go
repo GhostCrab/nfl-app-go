@@ -35,11 +35,11 @@ type ESPNResponse struct {
 }
 
 type ESPNEvent struct {
-	ID           string         `json:"id"`
-	Date         string         `json:"date"`
-	Week         ESPNWeek       `json:"week"`
-	Season       ESPNSeason     `json:"season"`
-	Status       ESPNStatus     `json:"status"`
+	ID           string            `json:"id"`
+	Date         string            `json:"date"`
+	Week         ESPNWeek          `json:"week"`
+	Season       ESPNSeason        `json:"season"`
+	Status       ESPNStatus        `json:"status"`
 	Competitions []ESPNCompetition `json:"competitions"`
 }
 
@@ -72,10 +72,10 @@ type ESPNCompetition struct {
 }
 
 type ESPNCompetitor struct {
-	ID         string    `json:"id"`
-	HomeAway   string    `json:"homeAway"`
-	Score      string    `json:"score"`
-	Team       ESPNTeam  `json:"team"`
+	ID       string   `json:"id"`
+	HomeAway string   `json:"homeAway"`
+	Score    string   `json:"score"`
+	Team     ESPNTeam `json:"team"`
 }
 
 type ESPNTeam struct {
@@ -88,17 +88,17 @@ type ESPNTeam struct {
 
 // ESPNSituation represents live game situation data
 type ESPNSituation struct {
-	LastPlay               ESPNLastPlay `json:"lastPlay,omitempty"`
-	Down                   int          `json:"down,omitempty"`
-	YardLine               int          `json:"yardLine,omitempty"`
-	Distance               int          `json:"distance,omitempty"`
-	IsRedZone              bool         `json:"isRedZone"`
-	HomeTimeouts           int          `json:"homeTimeouts"`
-	AwayTimeouts           int          `json:"awayTimeouts"`
-	DownDistanceText       string       `json:"downDistanceText,omitempty"`
-	ShortDownDistanceText  string       `json:"shortDownDistanceText,omitempty"`
-	PossessionText         string       `json:"possessionText,omitempty"`
-	Possession             string       `json:"possession,omitempty"`
+	LastPlay              ESPNLastPlay `json:"lastPlay,omitempty"`
+	Down                  int          `json:"down,omitempty"`
+	YardLine              int          `json:"yardLine,omitempty"`
+	Distance              int          `json:"distance,omitempty"`
+	IsRedZone             bool         `json:"isRedZone"`
+	HomeTimeouts          int          `json:"homeTimeouts"`
+	AwayTimeouts          int          `json:"awayTimeouts"`
+	DownDistanceText      string       `json:"downDistanceText,omitempty"`
+	ShortDownDistanceText string       `json:"shortDownDistanceText,omitempty"`
+	PossessionText        string       `json:"possessionText,omitempty"`
+	Possession            string       `json:"possession,omitempty"`
 }
 
 // ESPNLastPlay represents the last play in a game
@@ -131,8 +131,8 @@ type ESPNProvider struct {
 }
 
 type ESPNTeamOdds struct {
-	MoneyLine  float64 `json:"moneyLine"`
-	SpreadOdds float64 `json:"spreadOdds"`
+	MoneyLine  float64         `json:"moneyLine"`
+	SpreadOdds float64         `json:"spreadOdds"`
 	Team       ESPNOddsTeamRef `json:"team"`
 }
 
@@ -149,10 +149,10 @@ func (e *ESPNService) GetScoreboard() ([]models.Game, error) {
 // Uses date range from July to January to capture full season including Week 18
 func (e *ESPNService) GetScoreboardForYear(year int) ([]models.Game, error) {
 	// NFL season runs from July (year) to January (year+1) to capture Week 18
-	startDate := fmt.Sprintf("%d0701", year)     // July 1st
-	endDate := fmt.Sprintf("%d0131", year+1)     // January 31st next year
+	startDate := fmt.Sprintf("%d0701", year) // July 1st
+	endDate := fmt.Sprintf("%d0131", year+1) // January 31st next year
 	url := fmt.Sprintf("%s?dates=%s-%s&limit=1000", e.baseURL, startDate, endDate)
-	
+
 	resp, err := e.client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch ESPN data: %w", err)
@@ -181,7 +181,7 @@ func (e *ESPNService) convertToGames(events []ESPNEvent) []models.Game {
 		if event.Season.Type != 2 {
 			continue
 		}
-		
+
 		if len(event.Competitions) == 0 || len(event.Competitions[0].Competitors) < 2 {
 			continue
 		}
@@ -196,10 +196,10 @@ func (e *ESPNService) convertToGames(events []ESPNEvent) []models.Game {
 // convertEvent converts a single ESPN event to our Game model
 func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 	competition := event.Competitions[0]
-	
+
 	// Parse game ID
 	gameID, _ := strconv.Atoi(event.ID)
-	
+
 	// Parse date - ESPN uses format like "2024-09-08T00:20Z"
 	gameDate, err := time.Parse("2006-01-02T15:04Z", event.Date)
 	if err != nil {
@@ -210,14 +210,14 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 			gameDate = time.Now() // Fallback to current time
 		}
 	}
-	
+
 	// Determine home/away teams and scores
 	var homeTeam, awayTeam string
 	var homeScore, awayScore int
-	
+
 	for _, competitor := range competition.Competitors {
 		score, _ := strconv.Atoi(competitor.Score)
-		
+
 		if competitor.HomeAway == "home" {
 			homeTeam = competitor.Team.Abbreviation
 			homeScore = score
@@ -226,14 +226,14 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 			awayScore = score
 		}
 	}
-	
+
 	// Convert status
 	state := e.convertGameState(event.Status)
-	
+
 	// Debug log the parsing result
 	// e.logger.Debugf("Game %s (%s vs %s) parsed date from '%s' to '%s'",
 	// 	event.ID, awayTeam, homeTeam, event.Date, gameDate.Format("2006-01-02 15:04:05"))
-	
+
 	game := models.Game{
 		ID:        gameID,
 		Season:    event.Season.Year,
@@ -246,25 +246,25 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 		HomeScore: homeScore,
 		Quarter:   event.Status.Period,
 	}
-	
+
 	// Add live status data if game is in progress and situation data is available
 	if state == models.GameStateInPlay && competition.Situation != nil {
 		situation := competition.Situation
 		game.SetStatus(
-			event.Status.DisplayClock,        // displayClock
-			event.Status.Type.Name,           // statusName (e.g., "STATUS_HALFTIME")
-			situation.Possession,             // possession
-			situation.PossessionText,         // possessionText  
-			situation.DownDistanceText,       // downDistanceText
-			situation.ShortDownDistanceText,  // shortDownDistanceText
-			situation.Down,                   // down
-			situation.YardLine,               // yardLine
-			situation.Distance,               // distance
-			situation.HomeTimeouts,           // homeTimeouts
-			situation.AwayTimeouts,           // awayTimeouts
-			situation.IsRedZone,              // isRedZone
+			event.Status.DisplayClock,       // displayClock
+			event.Status.Type.Name,          // statusName (e.g., "STATUS_HALFTIME")
+			situation.Possession,            // possession
+			situation.PossessionText,        // possessionText
+			situation.DownDistanceText,      // downDistanceText
+			situation.ShortDownDistanceText, // shortDownDistanceText
+			situation.Down,                  // down
+			situation.YardLine,              // yardLine
+			situation.Distance,              // distance
+			situation.HomeTimeouts,          // homeTimeouts
+			situation.AwayTimeouts,          // awayTimeouts
+			situation.IsRedZone,             // isRedZone
 		)
-		
+
 		// Debug logging for halftime detection
 		if event.ID == "401772510" {
 			e.logger.Debugf("Game %s DEBUG - Period=%d, DisplayClock=%s, StatusName=%s, StatusDesc=%s",
@@ -280,12 +280,12 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 				// Update the possession field with team abbreviation instead of ID
 				game.Status.Possession = teamAbbr
 			}
-			
+
 			e.logger.Infof("Game %s live status - %s %s at %s",
 				event.ID, situation.Possession, situation.ShortDownDistanceText, situation.PossessionText)
 		}
 	}
-	
+
 	return game
 }
 
@@ -298,11 +298,11 @@ func (e *ESPNService) getTeamAbbrFromID(teamIDStr string) string {
 		"17": "NE", "18": "NO", "19": "NYG", "20": "NYJ", "21": "PHI", "22": "ARI", "23": "PIT", "24": "LAC",
 		"25": "SF", "26": "SEA", "27": "TB", "28": "WSH", "29": "CAR", "30": "JAX", "33": "BAL", "34": "HOU",
 	}
-	
+
 	if abbr, exists := teamIDMap[teamIDStr]; exists {
 		return abbr
 	}
-	
+
 	// Fallback: return empty string if team not found
 	e.logger.Warnf("Unknown ESPN team ID '%s'", teamIDStr)
 	return ""
@@ -338,10 +338,11 @@ func (e *ESPNService) HealthCheck() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/401772941/competitions/401772941/odds
 // GetOdds fetches betting odds for a specific game from ESPN
 func (e *ESPNService) GetOdds(gameID int) (*models.Odds, error) {
 	url := fmt.Sprintf("https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/%d/competitions/%d/odds", gameID, gameID)
-	
+
 	resp, err := e.client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch odds: %w", err)
@@ -380,43 +381,20 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 	copy(enrichedGames, games)
 
 	e.logger.Infof("Starting odds enrichment for up to %d games", maxGames)
-	
+
 	count := 0
 	successCount := 0
 	failedCount := 0
-	
+
 	// First pass: prioritize scheduled games without odds
 	for i := range enrichedGames {
 		if count >= maxGames {
 			break
 		}
-		
-		if !enrichedGames[i].HasOdds() && enrichedGames[i].State == models.GameStateScheduled {
-			e.logger.Infof("Fetching odds for Game %d (%s vs %s)",
-				enrichedGames[i].ID, enrichedGames[i].Away, enrichedGames[i].Home)
 
-			if odds, err := e.GetOdds(enrichedGames[i].ID); err == nil {
-				e.logger.Infof("SUCCESS - Game %d got odds: Spread=%.1f, O/U=%.1f",
-					enrichedGames[i].ID, odds.Spread, odds.OU)
-				enrichedGames[i].Odds = odds
-				successCount++
-			} else {
-				e.logger.Errorf("FAILED - Game %d odds fetch error: %v", enrichedGames[i].ID, err)
-				failedCount++
-			}
-			count++
-		}
-	}
-	
-	// Second pass: any remaining games without odds (if we haven't hit the limit)
-	for i := range enrichedGames {
-		if count >= maxGames {
-			break
-		}
-		
-		if !enrichedGames[i].HasOdds() {
-			e.logger.Infof("Fetching odds for Game %d (%s vs %s) [second pass]",
-				enrichedGames[i].ID, enrichedGames[i].Away, enrichedGames[i].Home)
+		if enrichedGames[i].State == models.GameStateScheduled {
+			e.logger.Infof("Fetching odds for Game %d Week %d (%s vs %s)",
+				enrichedGames[i].ID, enrichedGames[i].Week, enrichedGames[i].Away, enrichedGames[i].Home)
 
 			if odds, err := e.GetOdds(enrichedGames[i].ID); err == nil {
 				e.logger.Infof("SUCCESS - Game %d got odds: Spread=%.1f, O/U=%.1f",
