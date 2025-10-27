@@ -59,6 +59,11 @@ func (s *PickService) SetMemoryScorer(memoryScorer *MemoryParlayScorer) {
 	s.memoryScorer = memoryScorer
 }
 
+// GetMemoryScorer returns the memory scorer instance
+func (s *PickService) GetMemoryScorer() *MemoryParlayScorer {
+	return s.memoryScorer
+}
+
 // CreatePick creates a new pick with validation
 func (s *PickService) CreatePick(ctx context.Context, userID, gameID, teamID, season, week int) (*models.Pick, error) {
 	logger := logging.WithPrefix("PickService")

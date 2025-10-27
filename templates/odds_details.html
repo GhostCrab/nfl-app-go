@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            if (savedTheme === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=block" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <style>
+        .odds-container {
+            margin-top: 64px;
+            min-height: calc(100vh - 64px);
+            padding: 24px;
+        }
+
+        .odds-content {
+            width: clamp(800px, 100vw - 2rem, 1400px);
+            margin: 0 auto;
+        }
+
+        .odds-header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .odds-header h1 {
+            font-size: 28px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin: 0 0 8px 0;
+        }
+
+        .cache-info {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin: 8px 0 0 0;
+        }
+
+        .week-nav {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .week-nav button, .week-nav select {
+            padding: 8px 16px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            font-family: 'Roboto', sans-serif;
+        }
+
+        .week-nav button:hover {
+            background: var(--nav-bg);
+            border-color: var(--nav-bg);
+            color: white;
+        }
+
+        .week-nav select {
+            min-width: 120px;
+        }
+
+        .lock-info {
+            text-align: center;
+            padding: 12px 16px;
+            background: var(--card-bg);
+            border-radius: 4px;
+            margin: 16px auto;
+            max-width: 800px;
+            font-size: 14px;
+            box-shadow: 0 2px 4px var(--shadow);
+        }
+
+        .lock-info.locked {
+            border-left: 4px solid var(--success-color);
+        }
+
+        .lock-info.unlocked {
+            border-left: 4px solid var(--warning-color);
+        }
+
+        .games-grid {
+            display: grid;
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .game-card {
+            background: var(--card-bg);
+            border-radius: 4px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.14), 0 3px 4px rgba(0,0,0,0.12), 0 1px 5px rgba(0,0,0,0.2);
+            transition: box-shadow 0.2s ease;
+            display: grid;
+            gap: 20px;
+        }
+
+        .game-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.18), 0 6px 8px rgba(0,0,0,0.16), 0 2px 10px rgba(0,0,0,0.24);
+        }
+
+        .game-matchup-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .teams-display {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex: 1;
+        }
+
+        .team-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .team-img {
+            width: 32px;
+            height: 32px;
+            object-fit: contain;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+        }
+
+        .team-abbr {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-primary);
+            min-width: 40px;
+        }
+
+        .team-score {
+            font-size: 18px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-left: auto;
+        }
+
+        .game-meta {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            min-width: 120px;
+        }
+
+        .game-time {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .game-result {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
+
+        .spread-result, .ou-result {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .result-icon {
+            width: 18px;
+            height: 18px;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+        }
+
+        .odds-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .odds-box {
+            padding: 16px;
+            background: var(--bg-color);
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .odds-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .odds-value {
+            font-size: 24px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .odds-delta {
+            font-size: 13px;
+            font-weight: 500;
+            margin-top: 4px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+
+        .delta-positive {
+            background: rgba(244, 67, 54, 0.15);
+            color: #ef5350;
+        }
+
+        .delta-negative {
+            background: rgba(76, 175, 80, 0.15);
+            color: #66bb6a;
+        }
+
+        .delta-neutral {
+            color: var(--text-secondary);
+        }
+
+        .records-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .record-box {
+            padding: 12px;
+            background: var(--bg-color);
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .record-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .record-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .record-value {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .record-pct {
+            font-size: 12px;
+            margin-top: 2px;
+            font-weight: 500;
+            padding: 2px 6px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+
+        .fetch-error {
+            color: var(--error-color);
+            padding: 12px;
+            background: rgba(244, 67, 54, 0.1);
+            border-radius: 4px;
+            font-size: 14px;
+            border: 1px solid rgba(244, 67, 54, 0.3);
+        }
+
+        .recommendations-section {
+            margin: 24px 0;
+        }
+
+        .recommendations-section h2 {
+            font-size: 22px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin: 0 0 16px 0;
+        }
+
+        .daily-picks {
+            margin-bottom: 24px;
+        }
+
+        .daily-picks h3 {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin: 0 0 12px 0;
+        }
+
+        .picks-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 12px;
+        }
+
+        .pick-card {
+            background: var(--card-bg);
+            border-radius: 4px;
+            padding: 16px;
+            border: 2px solid var(--success-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.14);
+        }
+
+        .pick-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .pick-type-badge {
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .ats-badge {
+            background: rgba(33, 150, 243, 0.2);
+            color: #42a5f5;
+        }
+
+        .ou-badge {
+            background: rgba(255, 152, 0, 0.2);
+            color: #ffa726;
+        }
+
+        .pick-score {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--success-color);
+        }
+
+        .pick-team {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+
+        .pick-game {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .pick-time {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .pick-explanation {
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding-top: 8px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        @media (max-width: 840px) {
+            .odds-container {
+                padding: 16px 8px;
+            }
+
+            .odds-content {
+                width: calc(100vw - 1rem);
+            }
+
+            .game-matchup-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .game-meta {
+                align-items: flex-start;
+            }
+
+            .odds-grid, .records-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <mat-toolbar class="mat-toolbar">
+        <a href="/" class="nav-brand">PC '25</a>
+        <div class="nav-links">
+            <a href="/" class="nav-link">Dashboard</a>
+            <a href="/analytics" class="nav-link">Statistics</a>
+            {{if and .User (eq .User.ID 4)}}
+            <a href="/odds-details" class="nav-link active">Odds Details</a>
+            {{end}}
+        </div>
+        <div class="flex-expand"></div>
+        <div class="nav-controls">
+            {{if .User}}
+                <span class="user-info">{{.User.Name}}</span>
+                <a href="/logout" class="logout-button">Logout</a>
+            {{else}}
+                <a href="/login" class="login-button">Login</a>
+            {{end}}
+            <button class="theme-toggle" id="theme-toggle">☀️</button>
+        </div>
+    </mat-toolbar>
+
+    <div class="odds-container">
+        <div class="odds-content">
+            <div class="odds-header">
+                <h1>{{.Title}}</h1>
+                <div class="cache-info">
+                    Last updated: {{.LastUpdated.Format "Jan 02, 2006 3:04 PM MST"}} | Cache expires: {{.CacheExpires.Format "3:04 PM MST"}}
+                </div>
+            </div>
+
+            <div class="week-nav">
+                <button onclick="changeWeek(-1)">← Previous</button>
+                <select id="week-select" onchange="changeToWeek(this.value)">
+                    {{range $i := seq 1 18}}
+                    <option value="{{$i}}" {{if eq $i $.Week}}selected{{end}}>Week {{$i}}</option>
+                    {{end}}
+                </select>
+                <button onclick="changeWeek(1)">Next →</button>
+                <button onclick="window.location.reload()">Refresh</button>
+            </div>
+
+            {{if .IsLocked}}
+            <div class="lock-info locked">
+                🔒 Lines locked at {{.LockTime.Format "Mon Jan 02, 3:04 PM MST"}}. Showing locked vs. current odds comparison.
+            </div>
+            {{else}}
+            <div class="lock-info unlocked">
+                ⏰ Lines lock at {{.LockTime.Format "Mon Jan 02, 3:04 PM MST"}}. Showing current line movement.
+            </div>
+            {{end}}
+
+            {{if .DailyPicks}}
+            <div class="recommendations-section">
+                <h2>Recommended Picks</h2>
+                {{range .DailyPicks}}
+                <div class="daily-picks">
+                    <h3>{{.Date}}</h3>
+                    <div class="picks-grid">
+                        {{range .Picks}}
+                        <div class="pick-card">
+                            <div class="pick-header">
+                                <span class="pick-type-badge {{if eq .PickType "ATS"}}ats-badge{{else}}ou-badge{{end}}">{{.PickType}}</span>
+                                <span class="pick-score">Score: {{.Score}}</span>
+                            </div>
+                            <div class="pick-team">{{.PickTeam}} {{.PickValue}}</div>
+                            <div class="pick-game">{{.GameDesc}}</div>
+                            <div class="pick-time">{{.GameTime.Format "3:04 PM"}} PT</div>
+                            <div class="pick-explanation">{{.Explanation}}</div>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+            {{end}}
+
+            <div class="games-grid">
+                {{range .Games}}
+                <div class="game-card">
+                    <!-- Game Matchup Section -->
+                    <div class="game-matchup-section">
+                        <div class="teams-display">
+                            <div class="team-row">
+                                <img class="team-img" src="{{.Game.GetAwayTeamIconURL}}" alt="{{.Game.Away}}" onerror="this.style.display='none'">
+                                <span class="team-abbr">{{.Game.Away}}</span>
+                                {{if .Game.IsCompleted}}
+                                    <span class="team-score">{{.Game.AwayScore}}</span>
+                                {{end}}
+                            </div>
+                            <div class="team-row">
+                                <img class="team-img" src="{{.Game.GetHomeTeamIconURL}}" alt="{{.Game.Home}}" onerror="this.style.display='none'">
+                                <span class="team-abbr">{{.Game.Home}}</span>
+                                {{if .Game.IsCompleted}}
+                                    <span class="team-score">{{.Game.HomeScore}}</span>
+                                {{end}}
+                            </div>
+                        </div>
+                        <div class="game-meta">
+                            {{if .Game.IsCompleted}}
+                                <div class="game-result">
+                                    {{$spreadResult := .Game.SpreadResult}}
+                                    {{if eq $spreadResult "home-covered"}}
+                                        <div class="spread-result">
+                                            <img class="result-icon" src="{{.Game.GetHomeTeamIconURL}}" alt="{{.Game.Home}}">
+                                            <span>{{.Game.Home}} covered</span>
+                                        </div>
+                                    {{else if eq $spreadResult "away-covered"}}
+                                        <div class="spread-result">
+                                            <img class="result-icon" src="{{.Game.GetAwayTeamIconURL}}" alt="{{.Game.Away}}">
+                                            <span>{{.Game.Away}} covered</span>
+                                        </div>
+                                    {{else if eq $spreadResult "push"}}
+                                        <div class="spread-result">
+                                            <span>PUSH</span>
+                                        </div>
+                                    {{end}}
+                                    {{if .Game.HasOdds}}
+                                        {{$totalPoints := add .Game.HomeScore .Game.AwayScore}}
+                                        {{$totalPointsFloat := float64 $totalPoints}}
+                                        {{if gt $totalPointsFloat .Game.Odds.OU}}
+                                            <div class="ou-result">
+                                                <img class="result-icon" src="https://api.iconify.design/mdi/chevron-double-up.svg" alt="Over">
+                                                <span>Over {{$totalPoints}}</span>
+                                            </div>
+                                        {{else if lt $totalPointsFloat .Game.Odds.OU}}
+                                            <div class="ou-result">
+                                                <img class="result-icon" src="https://api.iconify.design/mdi/chevron-double-down.svg" alt="Under">
+                                                <span>Under {{$totalPoints}}</span>
+                                            </div>
+                                        {{else}}
+                                            <div class="ou-result">
+                                                <span>O/U Push {{$totalPoints}}</span>
+                                            </div>
+                                        {{end}}
+                                    {{end}}
+                                </div>
+                            {{else}}
+                                <div class="game-time">{{(toPacific .Game.Date).Format "Mon 1/2 3:04 PM"}} PT</div>
+                            {{end}}
+                        </div>
+                    </div>
+
+                    {{if .FetchError}}
+                    <div class="fetch-error">
+                        ⚠️ Failed to load odds: {{.FetchError}}
+                    </div>
+                    {{else if .ComprehensiveOdds}}
+
+                    <!-- Odds Grid -->
+                    <div class="odds-grid">
+                        {{if .ComprehensiveOdds.CurrentOdds}}
+                        <div class="odds-box">
+                            {{if and .IsLocked .LockedOdds}}
+                                <div class="odds-label">Locked Spread</div>
+                                <div class="odds-value">{{printf "%.1f" .LockedOdds.Spread}}</div>
+                            {{else}}
+                                <div class="odds-label">Current Spread</div>
+                                <div class="odds-value">{{.ComprehensiveOdds.CurrentOdds.Details}}</div>
+                            {{end}}
+                        </div>
+
+                        <div class="odds-box">
+                            {{if and .IsLocked .LockedOdds}}
+                                <div class="odds-label">Current Spread</div>
+                                <div class="odds-value">{{.ComprehensiveOdds.CurrentOdds.Details}}</div>
+                                {{if ne .SpreadDelta 0.0}}
+                                <div class="odds-delta {{if gt .SpreadDelta 0.0}}delta-positive{{else}}delta-negative{{end}}">
+                                    {{if gt .SpreadDelta 0.0}}+{{end}}{{printf "%.1f" .SpreadDelta}}
+                                </div>
+                                {{end}}
+                            {{else}}
+                                <div class="odds-label">Locked Spread</div>
+                                <div class="odds-value">—</div>
+                            {{end}}
+                        </div>
+
+                        <div class="odds-box">
+                            {{if and .IsLocked .LockedOdds}}
+                                <div class="odds-label">Locked Over/Under</div>
+                                <div class="odds-value">{{printf "%.1f" .LockedOdds.OU}}</div>
+                            {{else}}
+                                <div class="odds-label">Current Over/Under</div>
+                                <div class="odds-value">{{printf "%.1f" .ComprehensiveOdds.CurrentOdds.OverUnder}}</div>
+                            {{end}}
+                        </div>
+
+                        <div class="odds-box">
+                            {{if and .IsLocked .LockedOdds}}
+                                <div class="odds-label">Current Over/Under</div>
+                                <div class="odds-value">{{printf "%.1f" .ComprehensiveOdds.CurrentOdds.OverUnder}}</div>
+                                {{if ne .OUDelta 0.0}}
+                                <div class="odds-delta {{if gt .OUDelta 0.0}}delta-positive{{else}}delta-negative{{end}}">
+                                    {{if gt .OUDelta 0.0}}+{{end}}{{printf "%.1f" .OUDelta}}
+                                </div>
+                                {{end}}
+                            {{else}}
+                                <div class="odds-label">Locked Over/Under</div>
+                                <div class="odds-value">—</div>
+                            {{end}}
+                        </div>
+                        {{end}}
+                    </div>
+
+                    <!-- Season Records -->
+                    {{if or .ATSRecords .OURecords}}
+                    <div class="records-grid">
+                        {{if .ATSRecords}}
+                        <div class="record-box">
+                            <div class="record-header">
+                                <img class="team-img" style="width: 18px; height: 18px;" src="{{.Game.GetAwayTeamIconURL}}" alt="{{.Game.Away}}" onerror="this.style.display='none'">
+                                <span class="record-label">{{.Game.Away}} ATS</span>
+                            </div>
+                            <div class="record-value">{{.ATSRecords.AwayRecord}}</div>
+                            {{if gt .ATSRecords.AwayWinPct 0.0}}
+                            {{$deviation := minus .ATSRecords.AwayWinPct 50.0}}
+                            {{$absDeviation := abs $deviation}}
+                            {{$intensity := clamp (div $absDeviation 50.0) 0.0 1.0}}
+                            {{$bgOpacity := mul $intensity 0.4}}
+                            <div class="record-pct" style="{{if gt $deviation 0.0}}background: rgba(244, 67, 54, {{printf "%.2f" $bgOpacity}});{{else}}background: rgba(33, 150, 243, {{printf "%.2f" $bgOpacity}});{{end}} color: var(--text-primary);">
+                                {{printf "%.1f" .ATSRecords.AwayWinPct}}%
+                            </div>
+                            {{end}}
+                        </div>
+
+                        <div class="record-box">
+                            <div class="record-header">
+                                <img class="team-img" style="width: 18px; height: 18px;" src="{{.Game.GetHomeTeamIconURL}}" alt="{{.Game.Home}}" onerror="this.style.display='none'">
+                                <span class="record-label">{{.Game.Home}} ATS</span>
+                            </div>
+                            <div class="record-value">{{.ATSRecords.HomeRecord}}</div>
+                            {{if gt .ATSRecords.HomeWinPct 0.0}}
+                            {{$deviation := minus .ATSRecords.HomeWinPct 50.0}}
+                            {{$absDeviation := abs $deviation}}
+                            {{$intensity := clamp (div $absDeviation 50.0) 0.0 1.0}}
+                            {{$bgOpacity := mul $intensity 0.4}}
+                            <div class="record-pct" style="{{if gt $deviation 0.0}}background: rgba(244, 67, 54, {{printf "%.2f" $bgOpacity}});{{else}}background: rgba(33, 150, 243, {{printf "%.2f" $bgOpacity}});{{end}} color: var(--text-primary);">
+                                {{printf "%.1f" .ATSRecords.HomeWinPct}}%
+                            </div>
+                            {{end}}
+                        </div>
+                        {{end}}
+
+                        {{if .OURecords}}
+                        <div class="record-box">
+                            <div class="record-header">
+                                <img class="team-img" style="width: 18px; height: 18px;" src="{{.Game.GetAwayTeamIconURL}}" alt="{{.Game.Away}}" onerror="this.style.display='none'">
+                                <span class="record-label">{{.Game.Away}} O/U</span>
+                            </div>
+                            <div class="record-value">{{.OURecords.AwayRecord}}</div>
+                            {{if gt .OURecords.AwayWinPct 0.0}}
+                            {{$deviation := minus .OURecords.AwayWinPct 50.0}}
+                            {{$absDeviation := abs $deviation}}
+                            {{$intensity := clamp (div $absDeviation 50.0) 0.0 1.0}}
+                            {{$bgOpacity := mul $intensity 0.4}}
+                            <div class="record-pct" style="{{if gt $deviation 0.0}}background: rgba(244, 67, 54, {{printf "%.2f" $bgOpacity}});{{else}}background: rgba(33, 150, 243, {{printf "%.2f" $bgOpacity}});{{end}} color: var(--text-primary);">
+                                {{printf "%.1f" .OURecords.AwayWinPct}}% Over
+                            </div>
+                            {{end}}
+                        </div>
+
+                        <div class="record-box">
+                            <div class="record-header">
+                                <img class="team-img" style="width: 18px; height: 18px;" src="{{.Game.GetHomeTeamIconURL}}" alt="{{.Game.Home}}" onerror="this.style.display='none'">
+                                <span class="record-label">{{.Game.Home}} O/U</span>
+                            </div>
+                            <div class="record-value">{{.OURecords.HomeRecord}}</div>
+                            {{if gt .OURecords.HomeWinPct 0.0}}
+                            {{$deviation := minus .OURecords.HomeWinPct 50.0}}
+                            {{$absDeviation := abs $deviation}}
+                            {{$intensity := clamp (div $absDeviation 50.0) 0.0 1.0}}
+                            {{$bgOpacity := mul $intensity 0.4}}
+                            <div class="record-pct" style="{{if gt $deviation 0.0}}background: rgba(244, 67, 54, {{printf "%.2f" $bgOpacity}});{{else}}background: rgba(33, 150, 243, {{printf "%.2f" $bgOpacity}});{{end}} color: var(--text-primary);">
+                                {{printf "%.1f" .OURecords.HomeWinPct}}% Over
+                            </div>
+                            {{end}}
+                        </div>
+                        {{end}}
+                    </div>
+                    {{end}}
+
+                    {{else}}
+                    <div class="fetch-error">No odds data available</div>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function changeWeek(delta) {
+            const currentWeek = {{.Week}};
+            const newWeek = Math.max(1, Math.min(18, currentWeek + delta));
+            window.location.href = '/odds-details?week=' + newWeek + '&season={{.Season}}';
+        }
+
+        function changeToWeek(week) {
+            window.location.href = '/odds-details?week=' + week + '&season={{.Season}}';
+        }
+
+        // Theme toggle
+        document.addEventListener('DOMContentLoaded', function() {
+            const themeToggle = document.getElementById('theme-toggle');
+            const currentTheme = localStorage.getItem('theme') || 'dark';
+            themeToggle.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+
+            themeToggle.addEventListener('click', function() {
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+            });
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(event) {
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') return;
+            if (event.key === 'ArrowLeft') changeWeek(-1);
+            else if (event.key === 'ArrowRight') changeWeek(1);
+            else if (event.key === 'r' || event.key === 'R') window.location.reload();
+        });
+    </script>
+</body>
+</html>

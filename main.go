@@ -274,6 +274,9 @@ func main() {
 	// Create analytics handler
 	analyticsHandler := handlers.NewAnalyticsHandler(templates, gameService, pickService, userService, teamService)
 
+	// Create odds details handler
+	oddsDetailHandler := handlers.NewOddsDetailHandler(templates, espnService, gameService, analyticsService)
+
 	// Auth routes (public)
 	r.HandleFunc("/login", authHandler.LoginPage).Methods("GET")
 	r.HandleFunc("/login", authHandler.Login).Methods("POST")
@@ -306,6 +309,9 @@ func main() {
 	// Analytics routes
 	r.Handle("/analytics", authMiddleware.OptionalAuth(http.HandlerFunc(analyticsHandler.ShowAnalytics))).Methods("GET")
 	r.Handle("/api/analytics", authMiddleware.OptionalAuth(http.HandlerFunc(analyticsHandler.GetAnalyticsAPI))).Methods("GET")
+
+	// Odds details routes
+	r.Handle("/odds-details", authMiddleware.OptionalAuth(http.HandlerFunc(oddsDetailHandler.ShowOddsDetails))).Methods("GET")
 
 	// Pick management routes (require authentication)
 	r.Handle("/pick-picker", authMiddleware.RequireAuth(http.HandlerFunc(pickManagementHandler.ShowPickPicker))).Methods("GET")

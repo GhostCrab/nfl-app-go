@@ -294,19 +294,18 @@ func (h *AnalyticsHandler) GetAnalyticsAPI(w http.ResponseWriter, r *http.Reques
 	logger.Debugf("Analytics API data returned for season %d", season)
 }
 
-// Helper functions for calculations - using proven dashboard approach
+// Helper functions for calculations - directly process the picks we already have
 func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []models.Pick, games []models.Game) []UserStats {
 	logger := logging.WithPrefix("Analytics")
-	// Instead of manually processing picks, use the proven GetAllUserPicksForWeek approach
-	// Get the pick service from analytics handler
-	if h.pickService == nil {
-		logger.Warn("No pick service available")
-		return []UserStats{}
+
+	// Build game map for quick lookups
+	gameMap := make(map[int]*models.Game)
+	for i := range games {
+		gameMap[games[i].ID] = &games[i]
 	}
-	
+
+	// Initialize user stats map
 	userStatsMap := make(map[int]*UserStats)
-	
-	// Initialize user stats
 	for _, user := range users {
 		userStatsMap[user.ID] = &UserStats{
 			UserID:   user.ID,
@@ -314,99 +313,101 @@ func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []model
 			TeamStats: make(map[string]TeamPickStats),
 		}
 	}
-	
-	// Determine which weeks to process based on available games
-	weekSet := make(map[int]bool)
+
+	// Process all picks directly
+	for _, pick := range picks {
+		stats, exists := userStatsMap[pick.UserID]
+		if !exists {
+			logger.Warnf("Pick for unknown user ID %d", pick.UserID)
+			continue
+		}
+
+		// Skip pending picks
+		if pick.Result == models.PickResultPending {
+			continue
+		}
+
+		// Process based on pick type
+		if pick.PickType == models.PickTypeSpread {
+			// ATS pick
+			stats.ATSRecord.Total++
+			switch pick.Result {
+			case models.PickResultWin:
+				stats.ATSRecord.Wins++
+			case models.PickResultLoss:
+				stats.ATSRecord.Losses++
+			case models.PickResultPush:
+				stats.ATSRecord.Pushes++
+			}
+
+			// Calculate point differential if game is complete
+			if game, ok := gameMap[pick.GameID]; ok && game.IsCompleted() {
+				stats.ATSPoints += h.calculatePointDifferential(pick, *game)
+			}
+
+		} else if pick.PickType == models.PickTypeOverUnder {
+			// O/U pick
+			stats.OURecord.Total++
+			switch pick.Result {
+			case models.PickResultWin:
+				stats.OURecord.Wins++
+			case models.PickResultLoss:
+				stats.OURecord.Losses++
+			case models.PickResultPush:
+				stats.OURecord.Pushes++
+			}
+
+			// Calculate point differential if game is complete
+			if game, ok := gameMap[pick.GameID]; ok && game.IsCompleted() {
+				stats.OUPoints += h.calculatePointDifferential(pick, *game)
+			}
+		}
+	}
+
+	// Now get parlay scores directly from memory scorer for all users
+	// Determine which seasons we need to query based on available picks or games
 	seasonSet := make(map[int]bool)
-	for _, game := range games {
-		weekSet[game.Week] = true
-		seasonSet[game.Season] = true
+	for _, pick := range picks {
+		seasonSet[pick.Season] = true
 	}
-	
-	logger.Debugf("Processing weeks %v for seasons %v", getKeysFromIntMap(weekSet), getKeysFromIntMap(seasonSet))
-	
-	totalRecordsProcessed := 0
-	
-	// Process each season and get the FINAL week's cumulative totals
-	for season := range seasonSet {
-		// Get final week for this season to get cumulative totals
-		maxWeek := 0
-		for week := range weekSet {
-			if week > maxWeek {
-				maxWeek = week
-			}
+
+	// If no picks, try to use games to determine seasons
+	if len(seasonSet) == 0 {
+		for _, game := range games {
+			seasonSet[game.Season] = true
 		}
-		
-		if maxWeek == 0 {
-			continue
-		}
-		
-		// Use the same method the dashboard uses - but only for the final week to get cumulative totals
-		userPicks, err := h.pickService.GetAllUserPicksForWeek(context.Background(), season, maxWeek)
-		if err != nil {
-			logger.Errorf("Error getting picks for season %d week %d: %v", season, maxWeek, err)
-			continue
-		}
-		
-		// Get the cumulative totals from the final week (ParlayPoints is cumulative)
-		for _, userPicksData := range userPicks {
-			if userStats, exists := userStatsMap[userPicksData.UserID]; exists {
-				record := userPicksData.Record
-				
-				// ParlayPoints is cumulative, so just use it from final week
-				userStats.TotalScore = record.ParlayPoints
-				
-				// Now separate ATS vs O/U picks by examining actual picks across all weeks
-				for week := range weekSet {
-					weekUserPicks, err := h.pickService.GetUserPicksForWeek(context.Background(), userPicksData.UserID, season, week)
-					if err != nil {
-						continue
-					}
-					
-					// Count ATS vs O/U picks from actual pick data
-					for _, pick := range weekUserPicks.Picks {
-						if pick.Result == models.PickResultPending {
-							continue // Skip pending picks
-						}
-						
-						if pick.PickType == models.PickTypeSpread {
-							// ATS pick
-							switch pick.Result {
-							case models.PickResultWin:
-								userStats.ATSRecord.Wins++
-							case models.PickResultLoss:
-								userStats.ATSRecord.Losses++
-							case models.PickResultPush:
-								userStats.ATSRecord.Pushes++
-							}
-							userStats.ATSRecord.Total++
-						} else if pick.PickType == models.PickTypeOverUnder {
-							// O/U pick
-							switch pick.Result {
-							case models.PickResultWin:
-								userStats.OURecord.Wins++
-							case models.PickResultLoss:
-								userStats.OURecord.Losses++
-							case models.PickResultPush:
-								userStats.OURecord.Pushes++
-							}
-							userStats.OURecord.Total++
-						}
-					}
+	}
+
+	// Get the memory scorer from pick service
+	memoryScorer := h.pickService.GetMemoryScorer()
+	if memoryScorer == nil {
+		logger.Error("Memory scorer not available, cannot fetch parlay scores")
+	} else {
+		// Get parlay scores for each user from each season
+		for season := range seasonSet {
+			// For each season, we need to find the maximum week to query cumulative through
+			maxWeek := 0
+			for _, game := range games {
+				if game.Season == season && game.Week > maxWeek {
+					maxWeek = game.Week
 				}
-				
-				totalRecordsProcessed++
-				logger.Debugf("User %s season %d: ATS %d-%d-%d, OU %d-%d-%d, Score: %d",
-					userPicksData.UserName, season,
-					userStats.ATSRecord.Wins, userStats.ATSRecord.Losses, userStats.ATSRecord.Pushes,
-					userStats.OURecord.Wins, userStats.OURecord.Losses, userStats.OURecord.Pushes,
-					userStats.TotalScore)
+			}
+
+			if maxWeek == 0 {
+				continue
+			}
+
+			// Get cumulative scores for ALL users directly from memory scorer
+			for _, user := range users {
+				if stats, exists := userStatsMap[user.ID]; exists {
+					// Get cumulative season total directly from memory scorer
+					seasonTotal := memoryScorer.GetUserSeasonTotal(season, maxWeek, user.ID)
+					stats.TotalScore += seasonTotal
+				}
 			}
 		}
 	}
-	
-	logger.Debugf("Processed %d user-week records using dashboard approach", totalRecordsProcessed)
-	
+
 	// Convert map to slice and finalize calculations
 	var result []UserStats
 	for _, stats := range userStatsMap {
@@ -417,7 +418,7 @@ func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []model
 		if stats.OURecord.Total > 0 {
 			stats.OURecord.WinPct = float64(stats.OURecord.Wins) / float64(stats.OURecord.Total)
 		}
-		
+
 		// Calculate combined totals
 		stats.TotalRecord.Wins = stats.ATSRecord.Wins + stats.OURecord.Wins
 		stats.TotalRecord.Losses = stats.ATSRecord.Losses + stats.OURecord.Losses
@@ -426,23 +427,62 @@ func (h *AnalyticsHandler) calculateUserStats(users []models.User, picks []model
 		if stats.TotalRecord.Total > 0 {
 			stats.TotalRecord.WinPct = float64(stats.TotalRecord.Wins) / float64(stats.TotalRecord.Total)
 		}
-		
-		logger.Debugf("User %s final - ATS: %d-%d-%d (%.1f%%), OU: %d-%d-%d (%.1f%%), Total: %d-%d-%d (%.1f%%), Score: %d", 
-			stats.UserName,
-			stats.ATSRecord.Wins, stats.ATSRecord.Losses, stats.ATSRecord.Pushes, stats.ATSRecord.WinPct*100,
-			stats.OURecord.Wins, stats.OURecord.Losses, stats.OURecord.Pushes, stats.OURecord.WinPct*100,
-			stats.TotalRecord.Wins, stats.TotalRecord.Losses, stats.TotalRecord.Pushes, stats.TotalRecord.WinPct*100,
-			stats.TotalScore)
-		
+
+		// Calculate total point differential
+		stats.TotalPoints = stats.ATSPoints + stats.OUPoints
+
 		result = append(result, *stats)
 	}
-	
+
 	// Sort by total score (highest first)
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].TotalScore > result[j].TotalScore
 	})
-	
+
 	return result
+}
+
+// calculatePointDifferential calculates the point differential for a pick
+func (h *AnalyticsHandler) calculatePointDifferential(pick models.Pick, game models.Game) int {
+	if !game.IsCompleted() {
+		return 0
+	}
+
+	scoreDiff := game.HomeScore - game.AwayScore
+
+	if pick.PickType == models.PickTypeSpread {
+		// For spread picks, return how much the pick won/lost by
+		if pick.TeamName == game.Home {
+			// Picked home team
+			adjustedDiff := float64(scoreDiff) + game.Odds.Spread
+			if adjustedDiff > 0 {
+				return int(adjustedDiff)
+			} else if adjustedDiff < 0 {
+				return int(adjustedDiff)
+			}
+			return 0
+		} else {
+			// Picked away team
+			adjustedDiff := float64(-scoreDiff) - game.Odds.Spread
+			if adjustedDiff > 0 {
+				return int(adjustedDiff)
+			} else if adjustedDiff < 0 {
+				return int(adjustedDiff)
+			}
+			return 0
+		}
+	} else if pick.PickType == models.PickTypeOverUnder {
+		// For O/U picks, return how much over/under the total was
+		totalPoints := game.HomeScore + game.AwayScore
+		diff := float64(totalPoints) - game.Odds.OU
+		if pick.TeamID == 99 { // Over
+			return int(diff)
+		} else if pick.TeamID == 98 { // Under
+			return -int(diff)
+		}
+	}
+
+	return 0
 }
 
 // Helper function to get keys from int map

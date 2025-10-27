@@ -140,6 +140,37 @@ type ESPNOddsTeamRef struct {
 	Ref string `json:"$ref"`
 }
 
+// Detailed odds structures for individual provider endpoint
+type ESPNDetailedOddsResponse struct {
+	Provider     ESPNProvider          `json:"provider"`
+	Details      string                `json:"details"`
+	OverUnder    float64               `json:"overUnder"`
+	Spread       float64               `json:"spread"`
+	OverOdds     float64               `json:"overOdds"`
+	UnderOdds    float64               `json:"underOdds"`
+	HomeTeamOdds ESPNDetailedTeamOdds  `json:"homeTeamOdds"`
+	AwayTeamOdds ESPNDetailedTeamOdds  `json:"awayTeamOdds"`
+	Open         *ESPNDetailedOpenOdds `json:"open,omitempty"`
+	Current      *ESPNDetailedOpenOdds `json:"current,omitempty"`
+}
+
+type ESPNDetailedTeamOdds struct {
+	MoneyLine  float64 `json:"moneyLine"`
+	SpreadOdds float64 `json:"spreadOdds"`
+	Favorite   bool    `json:"favorite"`
+	Underdog   bool    `json:"underdog"`
+}
+
+type ESPNDetailedOpenOdds struct {
+	Total *ESPNOddsTotal `json:"total,omitempty"`
+}
+
+type ESPNOddsTotal struct {
+	AlternateDisplayValue string  `json:"alternateDisplayValue,omitempty"`
+	American              string  `json:"american,omitempty"`
+	Value                 float64 `json:"value,omitempty"`
+}
+
 // GetScoreboard fetches current NFL scoreboard from ESPN
 func (e *ESPNService) GetScoreboard() ([]models.Game, error) {
 	return e.GetScoreboardForYear(time.Now().Year())
@@ -291,7 +322,7 @@ func (e *ESPNService) convertEvent(event ESPNEvent) models.Game {
 
 // getTeamAbbrFromID converts ESPN team ID to team abbreviation
 func (e *ESPNService) getTeamAbbrFromID(teamIDStr string) string {
-	// ESPN team ID mapping (reverse of getESPNTeamID)
+	// ESPN team ID mapping (reverse of GetESPNTeamID)
 	teamIDMap := map[string]string{
 		"1": "ATL", "2": "BUF", "3": "CHI", "4": "CIN", "5": "CLE", "6": "DAL", "7": "DEN", "8": "DET",
 		"9": "GB", "10": "TEN", "11": "IND", "12": "KC", "13": "LV", "14": "LAR", "15": "MIA", "16": "MIN",
@@ -306,6 +337,22 @@ func (e *ESPNService) getTeamAbbrFromID(teamIDStr string) string {
 	// Fallback: return empty string if team not found
 	e.logger.Warnf("Unknown ESPN team ID '%s'", teamIDStr)
 	return ""
+}
+
+// GetESPNTeamID converts team abbreviation to ESPN team ID
+func GetESPNTeamID(abbr string) int {
+	teamIDMap := map[string]int{
+		"ATL": 1, "BUF": 2, "CHI": 3, "CIN": 4, "CLE": 5, "DAL": 6, "DEN": 7, "DET": 8,
+		"GB": 9, "TEN": 10, "IND": 11, "KC": 12, "LV": 13, "LAR": 14, "MIA": 15, "MIN": 16,
+		"NE": 17, "NO": 18, "NYG": 19, "NYJ": 20, "PHI": 21, "ARI": 22, "PIT": 23, "LAC": 24,
+		"SF": 25, "SEA": 26, "TB": 27, "WSH": 28, "CAR": 29, "JAX": 30, "BAL": 33, "HOU": 34,
+	}
+
+	if id, exists := teamIDMap[abbr]; exists {
+		return id
+	}
+
+	return 0 // Unknown team
 }
 
 // convertGameState converts ESPN status to our GameState
@@ -412,4 +459,233 @@ func (e *ESPNService) EnrichGamesWithOddsLimited(games []models.Game, maxGames i
 	e.logger.Infof("Enrichment complete - %d attempts, %d successful, %d failed",
 		count, successCount, failedCount)
 	return enrichedGames
+}
+
+// ComprehensiveOddsData aggregates all odds information for a game
+type ComprehensiveOddsData struct {
+	CurrentOdds   *CurrentOdds
+	OpeningOdds   *OpeningOdds
+	OddsMovement  []OddsSnapshot
+	HomeTeamStats *TeamOddsStats
+	AwayTeamStats *TeamOddsStats
+}
+
+// CurrentOdds represents current betting lines
+type CurrentOdds struct {
+	Spread    float64
+	OverUnder float64
+	Details   string
+}
+
+// OpeningOdds represents opening betting lines
+type OpeningOdds struct {
+	Spread    float64
+	OverUnder float64
+}
+
+// OddsSnapshot represents odds at a specific point in time
+type OddsSnapshot struct {
+	Timestamp time.Time
+	Spread    float64
+	OverUnder float64
+}
+
+// TeamOddsStats represents historical performance metrics for a team
+type TeamOddsStats struct {
+	TeamAbbr      string
+	ATSRecord     string // e.g., "8-5-1" (wins-losses-pushes)
+	ATSPercentage float64
+	OURecord      string
+	OUPercentage  float64
+}
+
+// ESPN Odds Records response structures (for /odds-records endpoint)
+type ESPNOddsRecordsResponse struct {
+	Count int                  `json:"count"`
+	Items []ESPNOddsRecordItem `json:"items"`
+}
+
+type ESPNOddsRecordItem struct {
+	Abbreviation     string               `json:"abbreviation"`
+	DisplayName      string               `json:"displayName"`
+	ShortDisplayName string               `json:"shortDisplayName"`
+	Type             string               `json:"type"`
+	Stats            []ESPNOddsRecordStat `json:"stats"`
+}
+
+type ESPNOddsRecordStat struct {
+	DisplayName  string  `json:"displayName"`
+	Abbreviation string  `json:"abbreviation"`
+	Type         string  `json:"type"`
+	Value        float64 `json:"value"`
+	DisplayValue string  `json:"displayValue"`
+}
+
+// ESPN Odds History/Movement response structures
+type ESPNOddsMovementResponse struct {
+	Count int                    `json:"count"`
+	Items []ESPNOddsMovementItem `json:"items"`
+}
+
+type ESPNOddsMovementItem struct {
+	Timestamp string  `json:"timestamp"`
+	Spread    float64 `json:"spread"`
+	OverUnder float64 `json:"overUnder"`
+}
+
+// GetComprehensiveOdds fetches all odds data from ESPN API Section 7 endpoints
+func (e *ESPNService) GetComprehensiveOdds(gameID int, homeTeamID, awayTeamID int, season int) (*ComprehensiveOddsData, error) {
+	data := &ComprehensiveOddsData{}
+
+	// 1. Fetch current/opening odds from provider 58
+	currentOdds, openOdds, err := e.fetchCurrentAndOpenOdds(gameID)
+	if err != nil {
+		e.logger.Warnf("Failed to fetch current odds for game %d: %v", gameID, err)
+	} else {
+		data.CurrentOdds = currentOdds
+		data.OpeningOdds = openOdds
+	}
+
+	// 3. Fetch team ATS records and stats for both teams
+	homeStats, err := e.fetchTeamATSStats(homeTeamID, season)
+	if err != nil {
+		e.logger.Warnf("Failed to fetch home team ATS stats: %v", err)
+	} else {
+		data.HomeTeamStats = homeStats
+	}
+
+	awayStats, err := e.fetchTeamATSStats(awayTeamID, season)
+	if err != nil {
+		e.logger.Warnf("Failed to fetch away team ATS stats: %v", err)
+	} else {
+		data.AwayTeamStats = awayStats
+	}
+
+	return data, nil
+}
+
+// fetchCurrentAndOpenOdds fetches current and opening odds from provider 58
+func (e *ESPNService) fetchCurrentAndOpenOdds(gameID int) (*CurrentOdds, *OpeningOdds, error) {
+	url := fmt.Sprintf("https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/%d/competitions/%d/odds/58", gameID, gameID)
+
+	resp, err := e.client.Get(url)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch odds: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("odds API returned status %d", resp.StatusCode)
+	}
+
+	var oddsResp ESPNDetailedOddsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&oddsResp); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode odds response: %w", err)
+	}
+
+	// Current odds
+	current := &CurrentOdds{
+		Spread:    oddsResp.Spread,
+		OverUnder: oddsResp.OverUnder,
+		Details:   oddsResp.Details,
+	}
+
+	// Opening odds
+	opening := &OpeningOdds{
+		Spread:    oddsResp.Spread, // Default to current if no open data
+		OverUnder: oddsResp.OverUnder,
+	}
+
+	// Extract opening odds if available
+	if oddsResp.Open != nil && oddsResp.Open.Total != nil {
+		if oddsResp.Open.Total.Value > 0 {
+			opening.OverUnder = oddsResp.Open.Total.Value
+		} else if oddsResp.Open.Total.AlternateDisplayValue != "" {
+			// Try parsing from alternate display value
+			var parsedOU float64
+			if _, err := fmt.Sscanf(oddsResp.Open.Total.AlternateDisplayValue, "%f", &parsedOU); err == nil {
+				opening.OverUnder = parsedOU
+			}
+		}
+	}
+
+	// Extract opening spread from team odds if available
+	if oddsResp.HomeTeamOdds.Favorite && oddsResp.AwayTeamOdds.Underdog {
+		// Home team is favored, so spread should be negative
+		opening.Spread = oddsResp.Spread
+	} else if oddsResp.AwayTeamOdds.Favorite && oddsResp.HomeTeamOdds.Underdog {
+		// Away team is favored, so spread should be positive
+		opening.Spread = oddsResp.Spread
+	}
+
+	return current, opening, nil
+}
+
+// fetchTeamATSStats fetches Against-the-Spread records for a team using odds-records endpoint
+func (e *ESPNService) fetchTeamATSStats(teamID int, season int) (*TeamOddsStats, error) {
+	// Use type 0 for season-wide records
+	url := fmt.Sprintf("https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/%d/types/0/teams/%d/odds-records", season, teamID)
+
+	resp, err := e.client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch odds records: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("odds records API returned status %d", resp.StatusCode)
+	}
+
+	var recordsResp ESPNOddsRecordsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&recordsResp); err != nil {
+		return nil, fmt.Errorf("failed to decode odds records response: %w", err)
+	}
+
+	stats := &TeamOddsStats{}
+
+	// Find ATS (spread) overall record and O/U records
+	for _, item := range recordsResp.Items {
+		if item.Type == "spreadOverall" {
+			var wins, losses, pushes int
+			for _, stat := range item.Stats {
+				switch stat.Type {
+				case "win":
+					wins = int(stat.Value)
+				case "loss":
+					losses = int(stat.Value)
+				case "push":
+					pushes = int(stat.Value)
+				}
+			}
+
+			stats.ATSRecord = fmt.Sprintf("%d-%d-%d", wins, losses, pushes)
+			totalGames := wins + losses
+			if totalGames > 0 {
+				stats.ATSPercentage = float64(wins) / float64(totalGames) * 100
+			}
+		}
+
+		// Track O/U records
+		if item.Type == "overUnderOverall" {
+			var overs, unders, pushes int
+			for _, stat := range item.Stats {
+				switch stat.Type {
+				case "over":
+					overs = int(stat.Value)
+				case "under":
+					unders = int(stat.Value)
+				case "push":
+					pushes = int(stat.Value)
+				}
+			}
+
+			stats.OURecord = fmt.Sprintf("%d-%d-%d", overs, unders, pushes)
+			totalGames := overs + unders
+			if totalGames > 0 {
+				stats.OUPercentage = float64(overs) / float64(totalGames) * 100
+			}
+		}
+	}
+
+	return stats, nil
 }

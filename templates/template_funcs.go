@@ -16,13 +16,49 @@ import (
 func GetTemplateFuncs() template.FuncMap {
 	return template.FuncMap{
 		// Basic math functions
-		"add":     func(a, b int) int { return a + b },
-		"sub":     func(a, b float64) float64 { return a - b },
-		"minus":   func(a, b int) int { return a - b },
-		"plus":    func(a, b int) int { return a + b },
+		"add":   func(a, b int) int { return a + b },
+		"sub":   func(a, b float64) float64 { return a - b },
+		"minus": func(a, b interface{}) interface{} {
+			// Handle both int and float64
+			switch va := a.(type) {
+			case int:
+				if vb, ok := b.(int); ok {
+					return va - vb
+				}
+			case float64:
+				if vb, ok := b.(float64); ok {
+					return va - vb
+				}
+			}
+			return 0
+		},
+		"plus": func(a, b int) int { return a + b },
 		"mul":     func(a, b float64) float64 { return a * b },
+		"abs":     func(a float64) float64 { if a < 0 { return -a }; return a },
 		"float64": func(i int) float64 { return float64(i) },
 		"ceil":    func(f float64) int { return int(f + 0.999999) },
+		"clamp": func(val, min, max float64) float64 {
+			if val < min {
+				return min
+			}
+			if val > max {
+				return max
+			}
+			return val
+		},
+		"div": func(a, b float64) float64 {
+			if b == 0 {
+				return 0
+			}
+			return a / b
+		},
+		"toPacific": func(t time.Time) time.Time {
+			loc, err := time.LoadLocation("America/Los_Angeles")
+			if err != nil {
+				return t
+			}
+			return t.In(loc)
+		},
 
 		// Utility functions
 		"sequence": func(start, end int) []int {

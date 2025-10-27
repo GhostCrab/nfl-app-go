@@ -284,6 +284,9 @@
         <div class="nav-links">
             <a href="/" class="nav-link">Dashboard</a>
             <a href="/analytics" class="nav-link active">Statistics</a>
+            {{if and .User (eq .User.ID 4)}}
+            <a href="/odds-details" class="nav-link">Odds Details</a>
+            {{end}}
             <a href="/survivor" class="nav-link">Survivor</a>
         </div>
         <div class="flex-expand"></div>

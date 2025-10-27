@@ -196,6 +196,8 @@ func (wp *WeeklyPicks) ToIndividualPicks() []Pick {
 	for i, pick := range wp.Picks {
 		individualPicks[i] = pick
 		individualPicks[i].UserID = wp.UserID // Populate UserID from document level
+		individualPicks[i].Season = wp.Season // Populate Season from document level
+		individualPicks[i].Week = wp.Week     // Populate Week from document level
 	}
 	return individualPicks
 }

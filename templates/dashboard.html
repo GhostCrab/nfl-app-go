@@ -28,6 +28,9 @@
         <div class="nav-links">
             <a href="/" class="nav-link active">Dashboard</a>
             <a href="/analytics" class="nav-link">Statistics</a>
+            {{if and .User (eq .User.ID 4)}}
+            <a href="/odds-details" class="nav-link">Odds Details</a>
+            {{end}}
         </div>
         <div class="flex-expand"></div>
         <div class="nav-controls">
