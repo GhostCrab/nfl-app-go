@@ -182,6 +182,11 @@ func main() {
 		logging.Infof("Backup service started - nightly backups at %s, retention: %d days", cfg.GetBackupTime(), cfg.GetBackupRetentionDays())
 	}
 
+	// Create and start pick reminder service
+	pickReminderService := services.NewPickReminderService(emailService, userRepo, pickService, gameService, currentSeason)
+	pickReminderService.StartScheduler(ctx)
+	logging.Info("Pick reminder service started - checks at 12PM PT weekdays, 8AM PT weekends")
+
 	// Create middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
 
