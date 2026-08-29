@@ -62,7 +62,7 @@ func (s *LegacyImportService) ImportAllLegacyData(legacyDbsPath string) error {
 	log.Println("LegacyImport: Starting legacy data import...")
 	
 	// Import games for each season
-	seasons := []int{2023, 2024, 2025}
+	seasons := []int{2023, 2024, 2025, 2026}
 	
 	for _, season := range seasons {
 		log.Printf("LegacyImport: Importing %d season data...", season)
@@ -313,7 +313,7 @@ func (s *LegacyImportService) ImportPicks(filePath string, season int) error {
 func (s *LegacyImportService) GetImportSummary(legacyDbsPath string) error {
 	log.Println("LegacyImport: Analyzing legacy data files...")
 	
-	seasons := []int{2023, 2024, 2025}
+	seasons := []int{2023, 2024, 2025, 2026}
 	totalGames := 0
 	totalPicks := 0
 	

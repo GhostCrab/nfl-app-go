@@ -125,7 +125,7 @@ func (h *AnalyticsHandler) ShowAnalytics(w http.ResponseWriter, r *http.Request)
 	allSeasonsStr := r.URL.Query().Get("all_seasons")
 	
 	// Default to current season
-	season := 2025
+	season := 2026
 	if seasonStr != "" {
 		if parsedSeason, err := strconv.Atoi(seasonStr); err == nil {
 			season = parsedSeason
@@ -247,7 +247,7 @@ func (h *AnalyticsHandler) GetAnalyticsData(ctx context.Context, season int, wee
 		UserStats:  h.calculateUserStats(users, picks, games),
 		TeamStats:  h.calculateTeamStats(games),
 		LeagueStats: h.calculateLeagueStats(games),
-		AvailableSeasons: []int{2023, 2024, 2025}, // Could be dynamic
+		AvailableSeasons: []int{2023, 2024, 2025, 2026}, // Could be dynamic
 	}
 	
 	return analyticsData, nil
@@ -263,7 +263,7 @@ func (h *AnalyticsHandler) GetAnalyticsAPI(w http.ResponseWriter, r *http.Reques
 	weekStr := r.URL.Query().Get("week")
 	allSeasonsStr := r.URL.Query().Get("all_seasons")
 	
-	season := 2025
+	season := 2026
 	if seasonStr != "" {
 		if parsedSeason, err := strconv.Atoi(seasonStr); err == nil {
 			season = parsedSeason

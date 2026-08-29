@@ -331,7 +331,7 @@ func (g *Game) GetLiveStatusString() string {
 
 // IsModernSeason returns true for seasons that use daily scoring (2025+)
 func IsModernSeason(season int) bool {
-	return season >= 2025
+	return season >= 2026
 }
 
 // GetPacificTimeLocation returns Pacific timezone location, with fallback

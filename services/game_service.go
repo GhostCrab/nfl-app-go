@@ -28,9 +28,9 @@ func NewDemoGameService() *DemoGameService {
 	}
 }
 
-// GetGames returns games for current season (2025) modified for demo purposes
+// GetGames returns games for current season (2026) modified for demo purposes
 func (d *DemoGameService) GetGames() ([]models.Game, error) {
-	return d.GetGamesBySeason(2025)
+	return d.GetGamesBySeason(2026)
 }
 
 // GetGamesBySeason returns games for specified season modified for demo purposes
@@ -52,7 +52,7 @@ func (d *DemoGameService) GetGamesBySeason(season int) ([]models.Game, error) {
 	return demoGames, nil
 }
 
-// GetGameByID returns a specific game by ID for the current season (2025)
+// GetGameByID returns a specific game by ID for the current season (2026)
 func (d *DemoGameService) GetGameByID(gameID int) (*models.Game, error) {
 	games, err := d.GetGames()
 	if err != nil {
@@ -76,7 +76,7 @@ func (d *DemoGameService) HealthCheck() bool {
 // makeDemoGames modifies real games to create live demo scenarios
 func (d *DemoGameService) makeDemoGames(games []models.Game) []models.Game {
 	if len(games) == 0 {
-		return d.getSampleGames(2025)
+		return d.getSampleGames(2026)
 	}
 
 	demoGames := make([]models.Game, len(games))

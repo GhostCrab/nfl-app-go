@@ -22,7 +22,7 @@ func NewDatabaseGameService(gameRepo *database.MongoGameRepository) GameService 
 }
 
 func (s *DatabaseGameService) GetGames() ([]models.Game, error) {
-	return s.GetGamesBySeason(2025)
+	return s.GetGamesBySeason(2026)
 }
 
 func (s *DatabaseGameService) GetGamesBySeason(season int) ([]models.Game, error) {

@@ -30,11 +30,11 @@ func NewMongoConnection(config Config) (*MongoDB, error) {
 
 	var uri string
 	if config.Username != "" && config.Password != "" {
-		uri = fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?authSource=%s",
+		uri = fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?authSource=%s&directConnection=true",
 			config.Username, config.Password, config.Host, config.Port, config.Database, config.Database)
 		logger.Infof("Connecting with authentication as user: %s", config.Username)
 	} else {
-		uri = fmt.Sprintf("mongodb://%s:%s/%s",
+		uri = fmt.Sprintf("mongodb://%s:%s/%s?directConnection=true",
 			config.Host, config.Port, config.Database)
 		logger.Info("Connecting without authentication")
 	}

@@ -113,7 +113,7 @@ func (h *OddsDetailHandler) ShowOddsDetails(w http.ResponseWriter, r *http.Reque
 
 	// Default to current week/season
 	now := time.Now()
-	season := 2025
+	season := 2026
 	if seasonStr != "" {
 		if parsedSeason, err := strconv.Atoi(seasonStr); err == nil {
 			season = parsedSeason

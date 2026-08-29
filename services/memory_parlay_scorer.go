@@ -158,7 +158,7 @@ func (mps *MemoryParlayScorer) InitializeClubScores(ctx context.Context, current
 	}
 
 	// Initialize scores for all seasons with data (2023, 2024, 2025)
-	seasons := []int{2023, 2024, 2025}
+	seasons := []int{2023, 2024, 2025, 2026}
 	for _, season := range seasons {
 		mps.logger.Infof("Calculating scores for season %d", season)
 		for week := 1; week <= 18; week++ {

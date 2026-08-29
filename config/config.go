@@ -163,7 +163,7 @@ func Load() (*Config, error) {
 			JWTSecret: getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 		},
 		App: AppConfig{
-			CurrentSeason:            getIntEnv("CURRENT_SEASON", 2025),
+			CurrentSeason:            getIntEnv("CURRENT_SEASON", 2026),
 			IsDevelopment:            isDevelopment,
 			BackgroundUpdaterEnabled: getBoolEnv("BACKGROUND_UPDATER_ENABLED", true),
 			MockUpdaterEnabled:       getBoolEnv("MOCK_UPDATER_ENABLED", false),
@@ -248,14 +248,19 @@ func (c *Config) GetServerAddress() string {
 
 // GetMongoURI returns the MongoDB connection URI
 func (c *Config) GetMongoURI() string {
+	directConnection := ""
+	if os.Getenv("MONGO_DIRECT_CONNECTION") == "true" {
+		directConnection = "&directConnection=true"
+	}
+
 	if c.Database.Username != "" && c.Database.Password != "" {
-		return fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?authSource=%s",
+		return fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?authSource=%s%s",
 			c.Database.Username, c.Database.Password,
 			c.Database.Host, c.Database.Port,
-			c.Database.Database, c.Database.Database)
+			c.Database.Database, c.Database.Database, directConnection)
 	}
-	return fmt.Sprintf("mongodb://%s:%s/%s",
-		c.Database.Host, c.Database.Port, c.Database.Database)
+	return fmt.Sprintf("mongodb://%s:%s/%s?%s",
+		c.Database.Host, c.Database.Port, c.Database.Database, directConnection)
 }
 
 func (c *Config) IsBackgroundUpdaterEnabled() bool {

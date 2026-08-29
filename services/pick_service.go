@@ -467,7 +467,7 @@ func (s *PickService) GetPickStats(ctx context.Context) (map[string]interface{},
 	}
 
 	// Add season-specific stats
-	seasons := []int{2023, 2024, 2025}
+	seasons := []int{2023, 2024, 2025, 2026}
 	for _, season := range seasons {
 		// This would require additional aggregation queries to get detailed stats per season
 		stats[fmt.Sprintf("season_%d", season)] = fmt.Sprintf("Season %d data", season)
