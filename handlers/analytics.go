@@ -21,16 +21,18 @@ type AnalyticsHandler struct {
 	pickService     *services.PickService
 	userService     services.UserService
 	teamService     services.TeamService
+	currentSeason   int
 }
 
 // NewAnalyticsHandler creates a new analytics handler
-func NewAnalyticsHandler(templates *template.Template, gameService services.GameService, pickService *services.PickService, userService services.UserService, teamService services.TeamService) *AnalyticsHandler {
+func NewAnalyticsHandler(templates *template.Template, gameService services.GameService, pickService *services.PickService, userService services.UserService, teamService services.TeamService, currentSeason int) *AnalyticsHandler {
 	return &AnalyticsHandler{
-		templates:   templates,
-		gameService: gameService,
-		pickService: pickService,
-		userService: userService,
-		teamService: teamService,
+		templates:     templates,
+		gameService:   gameService,
+		pickService:   pickService,
+		userService:   userService,
+		teamService:   teamService,
+		currentSeason: currentSeason,
 	}
 }
 
@@ -123,9 +125,9 @@ func (h *AnalyticsHandler) ShowAnalytics(w http.ResponseWriter, r *http.Request)
 	seasonStr := r.URL.Query().Get("season")
 	weekStr := r.URL.Query().Get("week")
 	allSeasonsStr := r.URL.Query().Get("all_seasons")
-	
+
 	// Default to current season
-	season := 2026
+	season := h.currentSeason
 	if seasonStr != "" {
 		if parsedSeason, err := strconv.Atoi(seasonStr); err == nil {
 			season = parsedSeason
@@ -247,7 +249,7 @@ func (h *AnalyticsHandler) GetAnalyticsData(ctx context.Context, season int, wee
 		UserStats:  h.calculateUserStats(users, picks, games),
 		TeamStats:  h.calculateTeamStats(games),
 		LeagueStats: h.calculateLeagueStats(games),
-		AvailableSeasons: []int{2023, 2024, 2025, 2026}, // Could be dynamic
+		AvailableSeasons: h.getAvailableSeasons(), // Dynamic based on current season
 	}
 	
 	return analyticsData, nil
@@ -262,8 +264,8 @@ func (h *AnalyticsHandler) GetAnalyticsAPI(w http.ResponseWriter, r *http.Reques
 	seasonStr := r.URL.Query().Get("season")
 	weekStr := r.URL.Query().Get("week")
 	allSeasonsStr := r.URL.Query().Get("all_seasons")
-	
-	season := 2026
+
+	season := h.currentSeason
 	if seasonStr != "" {
 		if parsedSeason, err := strconv.Atoi(seasonStr); err == nil {
 			season = parsedSeason
@@ -874,4 +876,13 @@ func (h *AnalyticsHandler) updateOUStats(record *Record, result string, game mod
 	if record.Total > 0 {
 		record.WinPct = float64(record.Wins) / float64(record.Total)
 	}
+}
+
+// getAvailableSeasons returns list of seasons from 2023 to current season
+func (h *AnalyticsHandler) getAvailableSeasons() []int {
+	seasons := []int{}
+	for year := 2023; year <= h.currentSeason; year++ {
+		seasons = append(seasons, year)
+	}
+	return seasons
 }

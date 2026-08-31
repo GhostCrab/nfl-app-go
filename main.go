@@ -143,7 +143,7 @@ func main() {
 
 	// Create services using centralized config
 	authService := services.NewAuthService(userRepo, cfg.Auth.JWTSecret)
-	gameService := services.NewDatabaseGameService(gameRepo)
+	gameService := services.NewDatabaseGameService(gameRepo, currentSeason)
 	pickService := services.NewPickService(weeklyPicksRepo, gameRepo, userRepo)
 	visibilityService := services.NewPickVisibilityService(gameService)
 
@@ -277,10 +277,10 @@ func main() {
 	teamService := services.NewStaticTeamService()
 
 	// Create analytics handler
-	analyticsHandler := handlers.NewAnalyticsHandler(templates, gameService, pickService, userService, teamService)
+	analyticsHandler := handlers.NewAnalyticsHandler(templates, gameService, pickService, userService, teamService, currentSeason)
 
 	// Create odds details handler
-	oddsDetailHandler := handlers.NewOddsDetailHandler(templates, espnService, gameService, analyticsService)
+	oddsDetailHandler := handlers.NewOddsDetailHandler(templates, espnService, gameService, analyticsService, currentSeason)
 
 	// Auth routes (public)
 	r.HandleFunc("/login", authHandler.LoginPage).Methods("GET")

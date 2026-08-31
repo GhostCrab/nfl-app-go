@@ -20,12 +20,13 @@ type PickVisibility struct {
 
 // VisibilityRule constants
 const (
-	VisibilityRuleThursday5PM      = "thursday_5pm_pt"
-	VisibilityRuleThanksgiving10AM = "thanksgiving_10am_pt"
-	VisibilityRuleWeekend10AM      = "weekend_10am_pt"
-	VisibilityRuleGameInProgress   = "game_in_progress"
-	VisibilityRuleGameCompleted    = "game_completed"
-	VisibilityRuleAlwaysVisible    = "always_visible"
+	VisibilityRuleWednesdayMidnight = "wednesday_midnight_pt"
+	VisibilityRuleThursday5PM       = "thursday_5pm_pt"
+	VisibilityRuleThanksgiving10AM  = "thanksgiving_10am_pt"
+	VisibilityRuleWeekend10AM       = "weekend_10am_pt"
+	VisibilityRuleGameInProgress    = "game_in_progress"
+	VisibilityRuleGameCompleted     = "game_completed"
+	VisibilityRuleAlwaysVisible     = "always_visible"
 )
 
 // PickVisibilityService calculates when picks should become visible
@@ -177,6 +178,12 @@ func (s *PickVisibilityService) CalculateVisibilityWithSeason(game Game, season 
 		visibleAt = gameDate.Add(-24 * time.Hour) // Set to past time
 		rule = VisibilityRuleGameCompleted
 
+	case weekday == time.Wednesday:
+		// Wednesday games (2026+): picks become visible when the game kicks off
+		// Odds lock at midnight Wednesday (start of Wednesday), picks visible at kickoff
+		visibleAt = gameDate // Game kickoff time
+		rule = VisibilityRuleWednesdayMidnight
+
 	case weekday == time.Thursday && isThanksgiving:
 		// Thanksgiving Thursday games visible at 10:00 AM PT
 		visibleAt = time.Date(gameDate.Year(), gameDate.Month(), gameDate.Day(), 10, 0, 0, 0, gameDate.Location())
@@ -285,13 +292,14 @@ func (s *PickVisibilityService) GetHiddenPickCounts(picks []Pick, games []Game, 
 
 	var counts map[string]int
 	if isModern {
-		// Modern seasons: separate Sunday and Monday
+		// Modern seasons (2025+): separate Sunday and Monday, add Wednesday for 2026+
 		counts = map[string]int{
-			"Thursday": 0,
-			"Friday":   0,
-			"Saturday": 0,
-			"Sunday":   0,
-			"Monday":   0,
+			"Wednesday": 0,
+			"Thursday":  0,
+			"Friday":    0,
+			"Saturday":  0,
+			"Sunday":    0,
+			"Monday":    0,
 		}
 	} else {
 		// Legacy seasons: group Sunday/Monday
@@ -314,8 +322,10 @@ func (s *PickVisibilityService) GetHiddenPickCounts(picks []Pick, games []Game, 
 			if !visibility.IsVisible {
 				// Count hidden pick by day
 				if isModern {
-					// Modern seasons: separate counting
+					// Modern seasons: separate counting including Wednesday
 					switch visibility.Weekday {
+					case time.Wednesday:
+						counts["Wednesday"]++
 					case time.Thursday:
 						counts["Thursday"]++
 					case time.Friday:

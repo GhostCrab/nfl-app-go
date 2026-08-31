@@ -532,13 +532,11 @@ func (bu *BackgroundUpdater) isAfterOddsCutoff(week int) bool {
 	nowPacific := now.In(pacificLoc)
 
 	// Calculate the Wednesday cutoff for the specified week
-	year := nowPacific.Year()
-	if nowPacific.Month() < 9 {
-		year-- // If before September, we're in previous year's season
-	}
+	// Use the current season being tracked by the background updater
+	year := bu.currentSeason
 
-	// NFL 2025 season opener is September 5, 2025 (which is actually a Friday)
-	// Week 1 runs Tuesday Sept 3 - Monday Sept 9
+	// NFL season opener (adjust based on actual season start)
+	// For 2026: Season starts early September
 	seasonOpener := time.Date(year, 9, 5, 0, 0, 0, 0, pacificLoc)
 
 	// Find what day of week the season opener falls on

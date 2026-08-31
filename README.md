@@ -1,6 +1,8 @@
 # NFL Parlay Club - Go Edition
 
-A real-time NFL pick'em and parlay scoring web application built with Go, MongoDB, and HTMX. Features live game updates, user pick management, parlay scoring, and comprehensive analytics.
+A real-time NFL pick'em and parlay scoring web application built with Go, MongoDB, and HTMX. Unlike traditional pick'em pools that score weekly results, NFL Parlay Club implements a unique **daily parlay scoring system** where each day's picks must form a winning parlay (minimum 2 picks, all must win) to earn points. This creates strategic depth as users must balance risk across multiple game days per week—Wednesday, Thursday, Friday, Saturday, Sunday, and Monday games each score independently.
+
+The application features **intelligent pick visibility rules** that reveal opponents' picks at different times based on game schedules (e.g., Thursday 5 PM PT, weekend 10 AM PT, Wednesday at kickoff), preventing early-week information advantages while maintaining competitive transparency. Real-time ESPN API integration keeps scores and odds current, with automated pick reminders ensuring users never miss a game day. Built for performance and reliability with SSE-based live updates, automated backups, and comprehensive analytics tracking every user's parlay success throughout the season.
 
 ## 🏈 Features
 
@@ -397,6 +399,65 @@ air
 go build -o scripts/restore_backup scripts/restore_backup.go
 go build -o scripts/manual_backup scripts/manual_backup.go
 ```
+
+## 🔄 Annual Season Updates
+
+When transitioning to a new NFL season (e.g., 2026 → 2027), follow these steps:
+
+### Required Updates
+
+1. **Update Environment Configuration** (`.env`):
+   ```env
+   CURRENT_SEASON=2027
+   ```
+
+2. **Update Season Arrays** (3 locations):
+
+   **File: `services/legacy_import.go`** (lines 65 and 316):
+   ```go
+   seasons := []int{2023, 2024, 2025, 2026, 2027}  // Add new season
+   ```
+
+   **File: `services/memory_parlay_scorer.go`** (line 161):
+   ```go
+   seasons := []int{2023, 2024, 2025, 2026, 2027}  // Add new season
+   ```
+
+   **File: `services/pick_service.go`** (line 470):
+   ```go
+   seasons := []int{2023, 2024, 2025, 2026, 2027}  // Add new season
+   ```
+
+3. **Rebuild and Deploy**:
+   ```bash
+   # Build new binary
+   go build -o nfl-app
+
+   # For production
+   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o nfl-app
+
+   # Restart service
+   sudo systemctl restart nfl-app
+   ```
+
+### What Updates Automatically
+
+The following components will automatically use the new season from `CURRENT_SEASON`:
+- Analytics dashboard and season dropdown
+- Game display and odds details pages
+- Background game updates and odds enrichment
+- Pick reminder emails
+- All season-based queries and filters
+
+### Verification Checklist
+
+After updating to a new season:
+- [ ] Verify `.env` has correct `CURRENT_SEASON`
+- [ ] Confirm all 3 season arrays updated
+- [ ] Test analytics page shows new season in dropdown
+- [ ] Check odds updates are working for new season games
+- [ ] Verify pick reminders trigger correctly
+- [ ] Ensure database has new season's games loaded
 
 ## 📜 License
 

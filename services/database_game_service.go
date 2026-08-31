@@ -12,17 +12,19 @@ import (
 )
 
 type DatabaseGameService struct {
-	gameRepo *database.MongoGameRepository
+	gameRepo      *database.MongoGameRepository
+	currentSeason int
 }
 
-func NewDatabaseGameService(gameRepo *database.MongoGameRepository) GameService {
+func NewDatabaseGameService(gameRepo *database.MongoGameRepository, currentSeason int) GameService {
 	return &DatabaseGameService{
-		gameRepo: gameRepo,
+		gameRepo:      gameRepo,
+		currentSeason: currentSeason,
 	}
 }
 
 func (s *DatabaseGameService) GetGames() ([]models.Game, error) {
-	return s.GetGamesBySeason(2026)
+	return s.GetGamesBySeason(s.currentSeason)
 }
 
 func (s *DatabaseGameService) GetGamesBySeason(season int) ([]models.Game, error) {

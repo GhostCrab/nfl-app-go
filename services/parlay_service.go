@@ -126,14 +126,15 @@ func (s *ParlayService) calculateModernSeasonParlayScore(ctx context.Context, us
 		scores[models.ParlayBonusFriday] = fridayPoints
 	}
 
-	// Weekend days (Saturday, Sunday, Monday) map to regular category
-	weekendTotal := 0
-	for _, day := range []string{"Saturday", "Sunday", "Monday"} {
+	// Weekend/regular days (Wednesday, Saturday, Sunday, Monday) map to regular category
+	// Each day scores independently, but they're grouped under "regular" for legacy compatibility
+	regularTotal := 0
+	for _, day := range []string{"Wednesday", "Saturday", "Sunday", "Monday"} {
 		if points, exists := dailyScores[day]; exists {
-			weekendTotal += points
+			regularTotal += points
 		}
 	}
-	scores[models.ParlayRegular] = weekendTotal
+	scores[models.ParlayRegular] = regularTotal
 
 	return scores, nil
 }

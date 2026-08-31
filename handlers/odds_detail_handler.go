@@ -23,6 +23,7 @@ type OddsDetailHandler struct {
 	analyticsService *services.AnalyticsService
 	logger           *logging.Logger
 	cache            *OddsCache
+	currentSeason    int
 }
 
 // OddsCache stores fetched odds data with expiration
@@ -87,7 +88,7 @@ type DailyPicks struct {
 }
 
 // NewOddsDetailHandler creates a new odds detail handler
-func NewOddsDetailHandler(templates *template.Template, espnService *services.ESPNService, gameService services.GameService, analyticsService *services.AnalyticsService) *OddsDetailHandler {
+func NewOddsDetailHandler(templates *template.Template, espnService *services.ESPNService, gameService services.GameService, analyticsService *services.AnalyticsService, currentSeason int) *OddsDetailHandler {
 	return &OddsDetailHandler{
 		templates:        templates,
 		espnService:      espnService,
@@ -97,6 +98,7 @@ func NewOddsDetailHandler(templates *template.Template, espnService *services.ES
 		cache: &OddsCache{
 			data: make(map[string]*CachedOddsData),
 		},
+		currentSeason: currentSeason,
 	}
 }
 
@@ -113,7 +115,7 @@ func (h *OddsDetailHandler) ShowOddsDetails(w http.ResponseWriter, r *http.Reque
 
 	// Default to current week/season
 	now := time.Now()
-	season := 2026
+	season := h.currentSeason
 	if seasonStr != "" {
 		if parsedSeason, err := strconv.Atoi(seasonStr); err == nil {
 			season = parsedSeason

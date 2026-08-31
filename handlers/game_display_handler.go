@@ -72,8 +72,8 @@ func (h *GameDisplayHandler) GetGames(w http.ResponseWriter, r *http.Request) {
 	var season int
 	var err error
 
-	// Default to current season (2026)
-	season = 2026
+	// Default to current season
+	season = h.config.App.CurrentSeason
 	if seasonStr != "" {
 		if s, err := strconv.Atoi(seasonStr); err == nil && s >= 2020 && s <= 2030 {
 			season = s

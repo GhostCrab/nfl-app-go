@@ -320,8 +320,8 @@ This prevents the picks-container from becoming empty during week switching.
 {{if index $userPicks.HiddenPickCounts "Monday"}}{{$isModernSeason = true}}{{end -}}
 
 {{if $isModernSeason -}}
-    {{/* Modern seasons: separate Sunday and Monday */}}
-    {{$orderedDays := (slice "Thursday" "Friday" "Saturday" "Sunday" "Monday") -}}
+    {{/* Modern seasons: separate Sunday and Monday, include Wednesday for 2026+ */}}
+    {{$orderedDays := (slice "Wednesday" "Thursday" "Friday" "Saturday" "Sunday" "Monday") -}}
     {{range $orderedDays -}}
     {{$count := index $userPicks.HiddenPickCounts . -}}
     {{if gt $count 0 -}}

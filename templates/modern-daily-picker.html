@@ -1,5 +1,21 @@
 {{define "modern-daily-picker"}}
 {{$games := .Games}}{{$pickState := .PickState}}{{$canSubmitPicks := .CanSubmitPicks -}}
+{{/* Wednesday Games */}}
+{{$hasWednesdayGames := false -}}
+{{range $games -}}{{if eq (.GetGameDayName) "Wednesday"}}{{$hasWednesdayGames = true}}{{end}}{{end -}}
+{{if $hasWednesdayGames -}}
+<div class="pick-day-section">
+    <div class="pick-day-header">WEDNESDAY GAMES</div>
+    <div class="pick-picker-grid">
+        {{range $games -}}
+            {{if eq (.GetGameDayName) "Wednesday" -}}
+                {{template "pick-game-row" dict "Game" . "PickState" $pickState "CanSubmitPicks" $canSubmitPicks}}
+            {{end -}}
+        {{end -}}
+    </div>
+</div>
+{{end -}}
+
 {{/* Thursday Games */}}
 {{$hasThursdayGames := false -}}
 {{range $games -}}{{if eq (.GetGameDayName) "Thursday"}}{{$hasThursdayGames = true}}{{end}}{{end -}}
