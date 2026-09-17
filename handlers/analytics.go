@@ -487,16 +487,6 @@ func (h *AnalyticsHandler) calculatePointDifferential(pick models.Pick, game mod
 	return 0
 }
 
-// Helper function to get keys from int map
-func getKeysFromIntMap(m map[int]bool) []int {
-	keys := make([]int, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Ints(keys)
-	return keys
-}
-
 func (h *AnalyticsHandler) calculateTeamStats(games []models.Game) []TeamLeagueStats {
 	// Get all teams
 	allTeams, err := h.teamService.GetAllTeams()
@@ -789,93 +779,6 @@ func (h *AnalyticsHandler) calculateLeagueStats(games []models.Game) LeagueStats
 	}
 	
 	return leagueStats
-}
-
-// Helper functions
-func (h *AnalyticsHandler) calculatePickResult(pick models.Pick, game models.Game) string {
-	if !game.IsCompleted() || !game.HasOdds() {
-		return "pending"
-	}
-	
-	if pick.PickType == "spread" {
-		// Get spread result from game
-		spreadResult := game.SpreadResult()
-		
-		// Determine if the picked team covered
-		var pickWon bool
-		if pick.TeamName == game.Home {
-			pickWon = (spreadResult == "home-covered")
-		} else if pick.TeamName == game.Away {
-			pickWon = (spreadResult == "away-covered")
-		}
-		
-		if spreadResult == "push" {
-			return "push"
-		} else if pickWon {
-			return "win"
-		} else {
-			return "loss"
-		}
-		
-	} else if pick.PickType == "over_under" {
-		// Calculate total points
-		totalPoints := game.HomeScore + game.AwayScore
-		
-		// Compare with over/under line
-		if float64(totalPoints) > game.Odds.OU {
-			// Game went over
-			if pick.TeamName == "OVR" || pick.TeamName == "Over" {
-				return "win"
-			} else if pick.TeamName == "UND" || pick.TeamName == "Under" {
-				return "loss"
-			}
-		} else if float64(totalPoints) < game.Odds.OU {
-			// Game went under
-			if pick.TeamName == "UND" || pick.TeamName == "Under" {
-				return "win"
-			} else if pick.TeamName == "OVR" || pick.TeamName == "Over" {
-				return "loss"
-			}
-		} else {
-			// Exact total - push
-			return "push"
-		}
-	}
-	
-	// Default fallback
-	return "loss"
-}
-
-func (h *AnalyticsHandler) updateATSStats(record *Record, result string, game models.Game) {
-	record.Total++
-	switch result {
-	case "win":
-		record.Wins++
-	case "loss":
-		record.Losses++
-	case "push":
-		record.Pushes++
-	}
-	
-	if record.Total > 0 {
-		record.WinPct = float64(record.Wins) / float64(record.Total)
-	}
-}
-
-func (h *AnalyticsHandler) updateOUStats(record *Record, result string, game models.Game) {
-	record.Total++
-	switch result {
-	case "win":
-		record.Wins++
-	case "loss":
-		record.Losses++
-	case "push":
-		record.Pushes++
-	}
-	
-	if record.Total > 0 {
-		record.WinPct = float64(record.Wins) / float64(record.Total)
-	}
 }
 
 // getAvailableSeasons returns list of seasons from 2023 to current season

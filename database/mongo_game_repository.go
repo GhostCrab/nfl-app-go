@@ -41,24 +41,6 @@ func NewMongoGameRepository(db *MongoDB) *MongoGameRepository {
 	}
 }
 
-func (r *MongoGameRepository) UpsertGame(game *models.Game) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Use both ID and season for unique identification across seasons
-	filter := bson.M{"id": game.ID, "season": game.Season}
-
-	// Use ReplaceOne with upsert option
-	opts := options.Replace().SetUpsert(true)
-
-	_, err := r.collection.ReplaceOne(ctx, filter, game, opts)
-	if err != nil {
-		return fmt.Errorf("failed to upsert game %d: %w", game.ID, err)
-	}
-
-	return nil
-}
-
 func (r *MongoGameRepository) GetAllGames() ([]*models.Game, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -203,18 +185,5 @@ func (r *MongoGameRepository) BulkUpsertGames(games []*models.Game) error {
 	r.logger.Infof("Successfully processed %d games: %d upserted, %d modified",
 		len(games), result.UpsertedCount, result.ModifiedCount)
 
-	return nil
-}
-
-func (r *MongoGameRepository) ClearAllGames() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	result, err := r.collection.DeleteMany(ctx, bson.M{})
-	if err != nil {
-		return fmt.Errorf("failed to clear games collection: %w", err)
-	}
-
-	r.logger.Infof("Cleared %d games from MongoDB", result.DeletedCount)
 	return nil
 }

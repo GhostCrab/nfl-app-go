@@ -432,9 +432,23 @@ func GetThanksgivingDate(year int) time.Time {
 	return thanksgiving
 }
 
-// GetNFLWeekForDate calculates which NFL week a given date falls into
-// NFL seasons typically start the first Thursday after Labor Day (first Monday of September)
+// GetNFLWeekForDate returns the NFL week a date falls into.
+//
+// It prefers the real schedule when one has been registered via
+// RegisterSchedule, and only falls back to the calendar heuristic below when no
+// schedule is available. The heuristic assumes a Thursday opener after Labor
+// Day, which misplaces midweek games (it put the 2024 Christmas Day games in
+// week 16 instead of 17), so the schedule path should be the norm.
 func GetNFLWeekForDate(gameDate time.Time, season int) int {
+	if week, ok := weekFromSchedule(season, gameDate); ok {
+		return week
+	}
+	return nflWeekFromCalendar(gameDate, season)
+}
+
+// nflWeekFromCalendar estimates a week from the calendar alone, assuming the
+// season opens the first Thursday after Labor Day. Fallback only.
+func nflWeekFromCalendar(gameDate time.Time, season int) int {
 	// Estimate season start - typically the Thursday after Labor Day
 	// Labor Day is first Monday of September
 	sep1 := time.Date(season, time.September, 1, 0, 0, 0, 0, time.UTC)

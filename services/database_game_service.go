@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"nfl-app-go/database"
 	"nfl-app-go/models"
@@ -79,18 +78,6 @@ func (s *DatabaseGameService) GetGameByID(gameID int) (*models.Game, error) {
 		return nil, fmt.Errorf("game with ID %d not found", gameID)
 	}
 	return game, nil
-}
-
-func (s *DatabaseGameService) GetGamesByWeek(week, season int) ([]*models.Game, error) {
-	log.Printf("DatabaseGameService: Fetching games from database for week %d, season %d", week, season)
-	
-	games, err := s.gameRepo.GetGamesByWeekSeason(week, season)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Printf("DatabaseGameService: Retrieved %d games from database for week %d", len(games), week)
-	return games, nil
 }
 
 func (s *DatabaseGameService) HealthCheck() bool {

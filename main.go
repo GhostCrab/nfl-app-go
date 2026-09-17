@@ -9,6 +9,7 @@ import (
 	"nfl-app-go/handlers"
 	"nfl-app-go/logging"
 	"nfl-app-go/middleware"
+	"nfl-app-go/models"
 	"nfl-app-go/services"
 	"nfl-app-go/templates"
 	"os"
@@ -104,6 +105,15 @@ func main() {
 		}
 	} else {
 		logging.Infof("Found %d existing games for %d season", len(existingGames), currentSeason)
+	}
+
+	// Index the real schedule so week lookups use actual kickoff times rather
+	// than a calendar heuristic (openers and holiday games move year to year).
+	if scheduleGames, err := gameRepo.GetGamesBySeason(currentSeason); err != nil {
+		logging.Errorf("Failed to load schedule index for %d: %v", currentSeason, err)
+	} else {
+		models.RegisterScheduleFromPtrs(currentSeason, scheduleGames)
+		logging.Infof("Indexed %d games for %d week lookups", len(scheduleGames), currentSeason)
 	}
 
 	// Seed users if needed

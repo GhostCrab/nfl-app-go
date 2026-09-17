@@ -108,6 +108,10 @@ func (bu *BackgroundUpdater) updateGames() {
 	// Note: Scoreboard API doesn't include odds data, so don't try to enrich here
 	// Odds enrichment will be handled separately after database update
 
+	// Keep the week index in step with ESPN, which reshuffles weeks (flex
+	// scheduling, midweek holiday games) during the season.
+	models.RegisterSchedule(bu.currentSeason, games)
+
 	// Get existing games from database for comparison
 	existingGames, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)
 	if err != nil {
@@ -474,35 +478,6 @@ func (bu *BackgroundUpdater) logUpcomingGames() {
 	}
 }
 
-// getCurrentNFLWeek determines current NFL week based on date
-func (bu *BackgroundUpdater) getCurrentNFLWeek(now time.Time) int {
-	// Simple approximation: NFL season starts around September 5th, week 1
-	// Each week is 7 days, so we can estimate current week
-	year := now.Year()
-	if now.Month() < 9 {
-		year-- // If before September, we're in previous year's season
-	}
-
-	// Approximate NFL season start (first Thursday in September)
-	seasonStart := time.Date(year, 9, 5, 0, 0, 0, 0, time.UTC)
-	// Adjust to first Thursday
-	for seasonStart.Weekday() != time.Thursday {
-		seasonStart = seasonStart.AddDate(0, 0, 1)
-	}
-
-	daysSinceStart := int(now.Sub(seasonStart).Hours() / 24)
-	week := (daysSinceStart / 7) + 1
-
-	// NFL regular season is weeks 1-18
-	if week < 1 {
-		week = 1
-	} else if week > 18 {
-		week = 18
-	}
-
-	return week
-}
-
 func (bu *BackgroundUpdater) getUpdateInterval() time.Duration {
 	now := time.Now()
 	month := now.Month()
@@ -517,11 +492,17 @@ func (bu *BackgroundUpdater) getUpdateInterval() time.Duration {
 	}
 }
 
-// isAfterOddsCutoff checks if current time is after Wednesday 10 PM Pacific for the given week
-func (bu *BackgroundUpdater) isAfterOddsCutoff(week int) bool {
-	now := time.Now()
-
-	// Load Pacific timezone
+// oddsCutoffForWeek returns the odds lock time for a week, derived from that week's
+// actual scheduled games rather than an assumed season-start calendar.
+//
+// Normal weeks lock at Wednesday 10 PM Pacific - the Wednesday immediately before the
+// week's first game. Weeks whose first game falls on a Wednesday lock at Tuesday midnight
+// instead, because a Wednesday 10 PM lock would land after that game has kicked off.
+// In 2026 that covers both the season opener and Thanksgiving Eve (week 12); keying off
+// the schedule rather than a week number means future midweek games need no code change.
+//
+// Returns ok=false when the week has no games, in which case the caller should not lock.
+func (bu *BackgroundUpdater) oddsCutoffForWeek(week int, games []*models.Game) (time.Time, bool) {
 	pacificLoc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		bu.logger.Errorf("Failed to load Pacific timezone: %v", err)
@@ -529,33 +510,44 @@ func (bu *BackgroundUpdater) isAfterOddsCutoff(week int) bool {
 		pacificLoc = time.FixedZone("PST", -8*3600)
 	}
 
-	nowPacific := now.In(pacificLoc)
+	// Find the earliest scheduled kickoff in this week
+	var firstGame time.Time
+	found := false
+	for _, game := range games {
+		if game.Week != week {
+			continue
+		}
+		gameTime := game.Date.In(pacificLoc)
+		if !found || gameTime.Before(firstGame) {
+			firstGame = gameTime
+			found = true
+		}
+	}
+	if !found {
+		return time.Time{}, false
+	}
 
-	// Calculate the Wednesday cutoff for the specified week
-	// Use the current season being tracked by the background updater
-	year := bu.currentSeason
+	// Special case: a Wednesday opener locks the night before, at Tuesday midnight
+	if firstGame.Weekday() == time.Wednesday {
+		tuesday := firstGame.AddDate(0, 0, -1)
+		return time.Date(tuesday.Year(), tuesday.Month(), tuesday.Day(), 23, 59, 59, 0, pacificLoc), true
+	}
 
-	// NFL season opener (adjust based on actual season start)
-	// For 2026: Season starts early September
-	seasonOpener := time.Date(year, 9, 5, 0, 0, 0, 0, pacificLoc)
+	// Normal case: the Wednesday on or before the week's first game, at 10 PM
+	daysBackToWednesday := int((firstGame.Weekday() - time.Wednesday + 7) % 7)
+	wednesday := firstGame.AddDate(0, 0, -daysBackToWednesday)
+	return time.Date(wednesday.Year(), wednesday.Month(), wednesday.Day(), 22, 0, 0, 0, pacificLoc), true
+}
 
-	// Find what day of week the season opener falls on
-	openerWeekday := seasonOpener.Weekday()
+// isAfterOddsCutoff reports whether odds for the given week are locked as of now.
+func (bu *BackgroundUpdater) isAfterOddsCutoff(week int, games []*models.Game) bool {
+	cutoffTime, ok := bu.oddsCutoffForWeek(week, games)
+	if !ok {
+		// No games scheduled for this week - nothing to lock
+		return false
+	}
 
-	// Calculate days back to Tuesday of that week
-	daysBackToTuesday := int((openerWeekday - time.Tuesday + 7) % 7)
-	week1Tuesday := seasonOpener.AddDate(0, 0, -daysBackToTuesday)
-
-	// Calculate the Tuesday that starts the given week
-	weekStartTuesday := week1Tuesday.AddDate(0, 0, (week-1)*7)
-
-	// Wednesday is 1 day after Tuesday
-	wednesday := weekStartTuesday.AddDate(0, 0, 1)
-
-	// Set cutoff time to 10 PM Pacific on Wednesday
-	cutoffTime := time.Date(wednesday.Year(), wednesday.Month(), wednesday.Day(), 22, 0, 0, 0, pacificLoc)
-
-	return nowPacific.After(cutoffTime)
+	return time.Now().In(cutoffTime.Location()).After(cutoffTime)
 }
 
 // enrichOddsForMissingGames checks database for games without odds and enriches them
@@ -576,7 +568,7 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 		// if game.Odds == nil && game.State == models.GameStateScheduled {
 		if game.State == models.GameStateScheduled {
 			// Check if odds cutoff has passed for this game's week
-			if bu.isAfterOddsCutoff(game.Week) {
+			if bu.isAfterOddsCutoff(game.Week, dbGames) {
 				gamesSkippedByCutoff = append(gamesSkippedByCutoff, *game)
 				continue // Skip this game - odds are locked for this week
 			}
@@ -645,7 +637,7 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 		var blockedByPolicy []models.Game
 
 		for _, game := range gamesToUpdate {
-			if bu.isAfterOddsCutoff(game.Week) {
+			if bu.isAfterOddsCutoff(game.Week, dbGames) {
 				// Block this odds update - past cutoff
 				blockedByPolicy = append(blockedByPolicy, *game)
 				bu.logger.Warnf("🚫 SANITY CHECK BLOCK - Game %d (%s vs %s) Week %d odds update blocked (past Wednesday 10 PM Pacific cutoff)",
