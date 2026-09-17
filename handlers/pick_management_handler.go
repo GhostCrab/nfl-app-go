@@ -494,15 +494,13 @@ func (h *PickManagementHandler) canSubmitPicksArray(games []models.Game) map[int
 	return canPickArr
 }
 
-// getCurrentWeek determines the current NFL week using the proper GetNFLWeekForDate function
+// getCurrentWeek determines which week the pick picker should open on.
 func (h *PickManagementHandler) getCurrentWeek(games []models.Game) int {
-	// Use the proper week calculation that accounts for NFL season timing
+	season := time.Now().Year()
 	if len(games) > 0 {
-		// Use the season from the games
-		return models.GetNFLWeekForDate(time.Now(), games[0].Season)
+		season = games[0].Season
 	}
-	// Fallback to current year if no games available
-	return models.GetNFLWeekForDate(time.Now(), time.Now().Year())
+	return models.CurrentWeekOrFallback(season, time.Now())
 }
 
 // getTeamIDFromAbbreviation maps team abbreviation to ESPN team ID

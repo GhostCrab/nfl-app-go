@@ -110,3 +110,62 @@ func TestRegisterScheduleIgnoresJunk(t *testing.T) {
 		t.Errorf("got week %d, want 1", got)
 	}
 }
+
+// The dashboard default week must roll forward once a week's games are done,
+// rather than waiting for the next week's kickoff - otherwise the app sits on a
+// finished week while people are trying to pick the next one.
+func TestCurrentWeekRollsForwardWhenAWeekFinishes(t *testing.T) {
+	const season = 2026
+	pacific := GetPacificTimeLocation()
+
+	RegisterSchedule(season, gamesAt(t, season, map[int]string{
+		1: "2026-09-10T00:20:00Z", // Wed Sep 9 PT opener
+		2: "2026-09-18T00:15:00Z", // Thu Sep 17 PT
+		3: "2026-09-25T00:15:00Z", // Thu Sep 24 PT
+	}))
+	// Week 1 also has a Monday nighter; week 2 likewise.
+	RegisterSchedule(season, append(
+		gamesAt(t, season, map[int]string{
+			1: "2026-09-10T00:20:00Z",
+			2: "2026-09-18T00:15:00Z",
+			3: "2026-09-25T00:15:00Z",
+		}),
+		gamesAt(t, season, map[int]string{
+			1: "2026-09-15T00:15:00Z", // Mon Sep 14 PT
+			2: "2026-09-22T00:15:00Z", // Mon Sep 21 PT
+		})...,
+	))
+
+	tests := []struct {
+		when time.Time
+		want int
+		why  string
+	}{
+		{time.Date(2026, 9, 14, 12, 0, 0, 0, pacific), 1, "week 1 MNF still to come"},
+		{time.Date(2026, 9, 15, 9, 0, 0, 0, pacific), 2, "week 1 done, week 2 is next up"},
+		{time.Date(2026, 9, 17, 14, 0, 0, 0, pacific), 2, "Thursday afternoon before kickoff"},
+		{time.Date(2026, 9, 20, 12, 0, 0, 0, pacific), 2, "week 2 Sunday"},
+		{time.Date(2026, 9, 22, 9, 0, 0, 0, pacific), 3, "week 2 done, week 3 is next up"},
+	}
+	for _, tc := range tests {
+		got, ok := CurrentWeek(season, tc.when)
+		if !ok {
+			t.Fatalf("%s: no current week", tc.when)
+		}
+		if got != tc.want {
+			t.Errorf("%s: got week %d, want %d (%s)",
+				tc.when.Format("Mon 01-02 15:04"), got, tc.want, tc.why)
+		}
+	}
+}
+
+func TestCurrentWeekFallsBackWithoutSchedule(t *testing.T) {
+	const season = 1998 // never registered
+	if _, ok := CurrentWeek(season, time.Now()); ok {
+		t.Error("expected no current week without a schedule")
+	}
+	now := mustTime(t, "1998-09-24T00:00:00Z")
+	if CurrentWeekOrFallback(season, now) != nflWeekFromCalendar(now, season) {
+		t.Error("expected fallback to the calendar heuristic")
+	}
+}

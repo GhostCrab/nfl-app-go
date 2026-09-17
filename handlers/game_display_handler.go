@@ -429,16 +429,15 @@ func (h *GameDisplayHandler) GetGamesAPI(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// getCurrentWeek determines the current NFL week using the proper GetNFLWeekForDate function
-// This utility function helps determine which week to display by default
+// getCurrentWeek determines which week the dashboard should open on.
+// It uses the real schedule, rolling forward once a week's games have finished
+// so people land on the week they are picking next.
 func (h *GameDisplayHandler) getCurrentWeek(games []models.Game) int {
-	// Use the proper week calculation that accounts for NFL season timing
+	season := time.Now().Year()
 	if len(games) > 0 {
-		// Use the season from the games
-		return models.GetNFLWeekForDate(time.Now(), games[0].Season)
+		season = games[0].Season
 	}
-	// Fallback to current year if no games available
-	return models.GetNFLWeekForDate(time.Now(), time.Now().Year())
+	return models.CurrentWeekOrFallback(season, time.Now())
 }
 
 // generateWeekList creates a list of weeks 1-18 for template rendering

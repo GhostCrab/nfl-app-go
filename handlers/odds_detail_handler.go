@@ -128,8 +128,8 @@ func (h *OddsDetailHandler) ShowOddsDetails(w http.ResponseWriter, r *http.Reque
 			week = parsedWeek
 		}
 	} else {
-		// Get current week using models function
-		week = models.GetNFLWeekForDate(now, season)
+		// Default to the week the league is on, per the real schedule
+		week = models.CurrentWeekOrFallback(season, now)
 	}
 
 	// Get odds data (from cache or fetch fresh)

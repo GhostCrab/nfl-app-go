@@ -252,9 +252,9 @@ func (mu *MockBackgroundUpdater) generateRandomClock() string {
 	return fmt.Sprintf("%d:%02d", minutes, seconds)
 }
 
-// getCurrentWeek determines the current NFL week using the proper GetNFLWeekForDate function
+// getCurrentWeek determines the week the mock updater should generate data for.
 func (mu *MockBackgroundUpdater) getCurrentWeek() int {
-	return models.GetNFLWeekForDate(time.Now(), mu.currentSeason)
+	return models.CurrentWeekOrFallback(mu.currentSeason, time.Now())
 }
 
 // IsRunning returns whether the mock updater is currently running

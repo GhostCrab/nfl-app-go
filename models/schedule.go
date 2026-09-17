@@ -14,10 +14,26 @@ import (
 // Instead we index the real schedule once it is loaded, and answer week lookups
 // from actual kickoff times. The calendar heuristic remains only as a fallback
 // for contexts with no schedule available (demo mode, tests, pre-load startup).
+//
+// Two different questions get asked of this index, and they have different
+// answers:
+//
+//   - "which week does this date belong to?" - used to classify a game.
+//     Answered by weekFromSchedule, which maps a date into the week whose games
+//     surround it.
+//   - "which week is the league on right now?" - used to pick the default view.
+//     Answered by CurrentWeek, which rolls forward as soon as a week's games
+//     finish, so people see the week they are picking rather than the one that
+//     just ended.
+
+// typicalGameDuration is how long after kickoff a game is assumed complete. Used
+// only to decide when a week is over for CurrentWeek.
+const typicalGameDuration = 4 * time.Hour
 
 type weekWindow struct {
 	week  int
 	start time.Time // first kickoff of that week
+	last  time.Time // last kickoff of that week
 }
 
 var (
@@ -30,24 +46,35 @@ var (
 // times rather than the calendar heuristic. Safe to call repeatedly; each call
 // replaces that season's index. Games with week <= 0 are ignored.
 func RegisterSchedule(season int, games []Game) {
-	firstKickoff := make(map[int]time.Time)
+	type span struct{ first, last time.Time }
+	spans := make(map[int]span)
+
 	for i := range games {
 		g := &games[i]
 		if g.Week <= 0 {
 			continue
 		}
-		if existing, ok := firstKickoff[g.Week]; !ok || g.Date.Before(existing) {
-			firstKickoff[g.Week] = g.Date
+		s, ok := spans[g.Week]
+		if !ok {
+			spans[g.Week] = span{first: g.Date, last: g.Date}
+			continue
 		}
+		if g.Date.Before(s.first) {
+			s.first = g.Date
+		}
+		if g.Date.After(s.last) {
+			s.last = g.Date
+		}
+		spans[g.Week] = s
 	}
 
-	if len(firstKickoff) == 0 {
+	if len(spans) == 0 {
 		return
 	}
 
-	windows := make([]weekWindow, 0, len(firstKickoff))
-	for week, start := range firstKickoff {
-		windows = append(windows, weekWindow{week: week, start: start})
+	windows := make([]weekWindow, 0, len(spans))
+	for week, s := range spans {
+		windows = append(windows, weekWindow{week: week, start: s.first, last: s.last})
 	}
 	sort.Slice(windows, func(i, j int) bool { return windows[i].start.Before(windows[j].start) })
 
@@ -75,15 +102,20 @@ func HasSchedule(season int) bool {
 	return len(scheduleIndex[season]) > 0
 }
 
-// weekFromSchedule resolves a date to a week using indexed kickoff times.
-// A week owns the span from its first kickoff until the next week's first
-// kickoff, so it stays current through its own final game. Dates before the
-// season resolve to the first week, dates after it to the last.
-func weekFromSchedule(season int, date time.Time) (int, bool) {
+func windowsFor(season int) []weekWindow {
 	scheduleMu.RLock()
-	windows := scheduleIndex[season]
-	scheduleMu.RUnlock()
+	defer scheduleMu.RUnlock()
+	return scheduleIndex[season]
+}
 
+// weekFromSchedule resolves a date to the week whose games surround it. A week
+// owns the span from its first kickoff until the next week's first kickoff.
+// Dates before the season resolve to the first week, dates after it to the last.
+//
+// This answers "which week is this game in", so it deliberately does not roll
+// forward early - use CurrentWeek for the default view instead.
+func weekFromSchedule(season int, date time.Time) (int, bool) {
+	windows := windowsFor(season)
 	if len(windows) == 0 {
 		return 0, false
 	}
@@ -92,7 +124,6 @@ func weekFromSchedule(season int, date time.Time) (int, bool) {
 		return windows[0].week, true
 	}
 
-	// Last window whose start is at or before the date
 	current := windows[0].week
 	for _, w := range windows {
 		if w.start.After(date) {
@@ -101,4 +132,35 @@ func weekFromSchedule(season int, date time.Time) (int, bool) {
 		current = w.week
 	}
 	return current, true
+}
+
+// CurrentWeek returns the week the league is on at the given time: the earliest
+// week that has not finished yet. It advances as soon as a week's last game
+// wraps up, so during the gap between weeks people see the week they are about
+// to pick rather than the one that just ended.
+//
+// Returns ok=false when the season has no indexed schedule.
+func CurrentWeek(season int, now time.Time) (int, bool) {
+	windows := windowsFor(season)
+	if len(windows) == 0 {
+		return 0, false
+	}
+
+	for _, w := range windows {
+		if now.Before(w.last.Add(typicalGameDuration)) {
+			return w.week, true
+		}
+	}
+
+	// Season is over - stay on the final week.
+	return windows[len(windows)-1].week, true
+}
+
+// CurrentWeekOrFallback is CurrentWeek with the calendar heuristic as a backstop
+// for when no schedule has been indexed.
+func CurrentWeekOrFallback(season int, now time.Time) int {
+	if week, ok := CurrentWeek(season, now); ok {
+		return week
+	}
+	return nflWeekFromCalendar(now, season)
 }
