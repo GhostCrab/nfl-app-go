@@ -180,38 +180,9 @@ func (r *MongoWeeklyPicksRepository) FindByUserAndSeason(ctx context.Context, us
 	return weeklyPicksList, nil
 }
 
-// Delete removes weekly picks for a specific user, season, and week
-func (r *MongoWeeklyPicksRepository) Delete(ctx context.Context, userID, season, week int) error {
-	filter := bson.M{
-		"user_id": userID,
-		"season":  season,
-		"week":    week,
-	}
-
-	result, err := r.collection.DeleteOne(ctx, filter)
-	if err != nil {
-		return fmt.Errorf("failed to delete weekly picks: %w", err)
-	}
-
-	if result.DeletedCount == 0 {
-		return fmt.Errorf("no weekly picks found to delete")
-	}
-
-	return nil
-}
-
 // Count returns the total number of weekly picks documents
 func (r *MongoWeeklyPicksRepository) Count(ctx context.Context) (int64, error) {
 	return r.collection.CountDocuments(ctx, bson.M{})
-}
-
-// CountBySeasonAndWeek returns the number of users who have submitted picks for a specific season and week
-func (r *MongoWeeklyPicksRepository) CountBySeasonAndWeek(ctx context.Context, season, week int) (int64, error) {
-	filter := bson.M{
-		"season": season,
-		"week":   week,
-	}
-	return r.collection.CountDocuments(ctx, filter)
 }
 
 // UpdatePickResults updates the results for specific picks within weekly pick documents

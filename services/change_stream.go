@@ -39,17 +39,6 @@ func NewChangeStreamWatcher(db *database.MongoDB, onUpdate func(event ChangeEven
 	}
 }
 
-// ForceRestart forces the change streams to reconnect (useful for config changes)
-func (w *ChangeStreamWatcher) ForceRestart() {
-	select {
-	case w.restart <- true:
-		logger := logging.WithPrefix("ChangeStream")
-		logger.Info("Force restart requested")
-	default:
-		// Channel is full, restart already pending
-	}
-}
-
 // StartWatching begins watching for changes in games and weekly_picks collections
 func (w *ChangeStreamWatcher) StartWatching() {
 	// Start watching games collection

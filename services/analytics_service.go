@@ -536,45 +536,6 @@ func (s *AnalyticsService) getTeamIDFromAbbreviation(abbr string) int {
 	return 0
 }
 
-// GetLeagueStats returns overall league statistics for a season
-func (s *AnalyticsService) GetLeagueStats(ctx context.Context, season int) (*LeagueStats, error) {
-	// Get all picks for the season from WeeklyPicks documents
-	picks, err := s.getPicksBySeason(ctx, season)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get picks: %w", err)
-	}
-
-	stats := &LeagueStats{
-		Season:          season,
-		TotalPicks:      len(picks),
-		ResultBreakdown: make(map[models.PickResult]int),
-		TypeBreakdown:   make(map[models.PickType]int),
-		WeeklyStats:     make(map[int]WeekStats),
-	}
-
-	// Analyze all picks
-	for _, pick := range picks {
-		stats.ResultBreakdown[pick.Result]++
-		stats.TypeBreakdown[pick.PickType]++
-		
-		// Weekly stats
-		if stats.WeeklyStats[pick.Week].Week == 0 {
-			stats.WeeklyStats[pick.Week] = WeekStats{Week: pick.Week}
-		}
-		weekStats := stats.WeeklyStats[pick.Week]
-		weekStats.TotalPicks++
-		weekStats.Results[pick.Result]++
-		stats.WeeklyStats[pick.Week] = weekStats
-	}
-
-	// Calculate overall win rate
-	if wins, exists := stats.ResultBreakdown[models.PickResultWin]; exists && stats.TotalPicks > 0 {
-		stats.OverallWinRate = float64(wins) / float64(stats.TotalPicks)
-	}
-
-	return stats, nil
-}
-
 // LeagueStats represents league-wide statistics
 type LeagueStats struct {
 	Season          int                             `json:"season"`
@@ -590,62 +551,6 @@ type WeekStats struct {
 	Week       int                           `json:"week"`
 	TotalPicks int                           `json:"total_picks"`
 	Results    map[models.PickResult]int     `json:"results"`
-}
-
-// GetGameAnalytics returns detailed analytics for a specific game
-func (s *AnalyticsService) GetGameAnalytics(ctx context.Context, gameID int) (*GameAnalytics, error) {
-	// Get game information
-	game, err := s.gameRepo.FindByESPNID(ctx, gameID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get game: %w", err)
-	}
-
-	// Get all picks for this game from WeeklyPicks documents
-	picks, err := s.getPicksByGameID(ctx, gameID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get picks: %w", err)
-	}
-
-	analytics := &GameAnalytics{
-		GameID:        gameID,
-		Game:          game,
-		TotalPicks:    len(picks),
-		PicksByType:   make(map[models.PickType]int),
-		PicksByResult: make(map[models.PickResult]int),
-		UserPicks:     make([]UserGamePick, 0),
-	}
-
-	// Analyze picks
-	for _, pick := range picks {
-		analytics.PicksByType[pick.PickType]++
-		analytics.PicksByResult[pick.Result]++
-		
-		// Get user info
-		user, err := s.userRepo.FindByID(ctx, pick.UserID)
-		if err == nil {
-			userPick := UserGamePick{
-				UserID:     pick.UserID,
-				UserName:   user.Name,
-				PickType:   pick.PickType,
-				TeamID:     pick.TeamID,
-				Result:     pick.Result,
-				TeamName:   pick.TeamName,
-			}
-			analytics.UserPicks = append(analytics.UserPicks, userPick)
-		}
-	}
-
-	// Calculate public pick percentages
-	if analytics.TotalPicks > 0 {
-		analytics.PublicPickPercentages = make(map[string]float64)
-		
-		for pickType, count := range analytics.PicksByType {
-			percentage := float64(count) / float64(analytics.TotalPicks) * 100
-			analytics.PublicPickPercentages[string(pickType)] = percentage
-		}
-	}
-
-	return analytics, nil
 }
 
 // GameAnalytics represents detailed analytics for a specific game

@@ -9,7 +9,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // MongoUserRepository implements UserRepository for MongoDB
@@ -131,17 +130,3 @@ func (r *MongoUserRepository) DeleteUser(id int) error {
 	return err
 }
 
-// EnsureIndexes creates necessary indexes for the users collection
-func (r *MongoUserRepository) EnsureIndexes() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create unique index on email
-	emailIndexModel := mongo.IndexModel{
-		Keys: bson.D{{Key: "email", Value: 1}},
-		Options: options.Index().SetUnique(true),
-	}
-
-	_, err := r.collection.Indexes().CreateOne(ctx, emailIndexModel)
-	return err
-}

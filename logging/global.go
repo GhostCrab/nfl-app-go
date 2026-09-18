@@ -26,16 +26,6 @@ func init() {
 	globalLogger = New(config)
 }
 
-// GetGlobalLogger returns the global logger instance
-func GetGlobalLogger() *Logger {
-	return globalLogger
-}
-
-// SetGlobalLogger sets the global logger instance
-func SetGlobalLogger(logger *Logger) {
-	globalLogger = logger
-}
-
 // Configure configures the global logger
 func Configure(config Config) {
 	globalLogger = New(config)

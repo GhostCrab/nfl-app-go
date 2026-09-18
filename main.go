@@ -69,7 +69,6 @@ func main() {
 		r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
 		r.HandleFunc("/", gameDisplayHandler.GetGames).Methods("GET")
 		r.HandleFunc("/games", gameDisplayHandler.GetGames).Methods("GET")
-		r.HandleFunc("/games/refresh", gameDisplayHandler.RefreshGames).Methods("GET")
 
 		// Start server using centralized config
 		demoServerAddr := cfg.GetServerAddress()
@@ -307,7 +306,6 @@ func main() {
 	// Game display routes (with optional auth to show user info)
 	r.Handle("/", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.GetGames))).Methods("GET")
 	r.Handle("/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.GetGames))).Methods("GET")
-	r.Handle("/games/refresh", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.RefreshGames))).Methods("GET")
 	r.Handle("/api/games", authMiddleware.OptionalAuth(http.HandlerFunc(gameDisplayHandler.GetGamesAPI))).Methods("GET")
 
 	// SSE and real-time updates

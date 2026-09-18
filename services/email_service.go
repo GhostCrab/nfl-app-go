@@ -292,24 +292,3 @@ func (e *EmailService) TestConnection() error {
 	return nil
 }
 
-// GetSupportedProviders returns commonly used email providers and their settings
-func GetSupportedProviders() map[string]EmailConfig {
-	return map[string]EmailConfig{
-		"gmail": {
-			SMTPHost: "smtp.gmail.com",
-			SMTPPort: "587",
-		},
-		"outlook": {
-			SMTPHost: "smtp-mail.outlook.com",
-			SMTPPort: "587",
-		},
-		"yahoo": {
-			SMTPHost: "smtp.mail.yahoo.com",
-			SMTPPort: "587",
-		},
-		"smtp2go": {
-			SMTPHost: "mail.smtp2go.com",
-			SMTPPort: "587",
-		},
-	}
-}

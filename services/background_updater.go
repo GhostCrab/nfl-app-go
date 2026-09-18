@@ -22,7 +22,6 @@ type BackgroundUpdater struct {
 	pickService         *PickService
 	parlayService       *ParlayService // New specialized service for parlay operations
 	currentSeason       int
-	ticker              *time.Ticker
 	stopChan            chan bool
 	running             bool
 	lastUpdateType      string                // Track what type of update we last do
@@ -79,10 +78,6 @@ func (bu *BackgroundUpdater) Stop() {
 
 	bu.logger.Info("Stopping...")
 	bu.running = false
-
-	if bu.ticker != nil {
-		bu.ticker.Stop()
-	}
 
 	close(bu.stopChan)
 }
@@ -507,20 +502,6 @@ func (bu *BackgroundUpdater) logUpcomingGames() {
 	}
 }
 
-func (bu *BackgroundUpdater) getUpdateInterval() time.Duration {
-	now := time.Now()
-	month := now.Month()
-
-	// NFL season runs roughly September through February
-	if month >= 9 || month <= 2 {
-		// During season: poll every 2 minutes
-		return 2 * time.Minute
-	} else {
-		// Off-season: poll every 30 minutes
-		return 30 * time.Minute
-	}
-}
-
 // oddsCutoffForWeek returns the odds lock time for a week, derived from that week's
 // actual scheduled games rather than an assumed season-start calendar.
 //
@@ -721,7 +702,3 @@ func (bu *BackgroundUpdater) enrichOddsForMissingGames() {
 	}
 }
 
-// IsRunning returns whether the background updater is currently running
-func (bu *BackgroundUpdater) IsRunning() bool {
-	return bu.running
-}

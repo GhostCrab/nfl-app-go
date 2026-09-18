@@ -171,11 +171,6 @@ type ESPNOddsTotal struct {
 	Value                 float64 `json:"value,omitempty"`
 }
 
-// GetScoreboard fetches current NFL scoreboard from ESPN
-func (e *ESPNService) GetScoreboard() ([]models.Game, error) {
-	return e.GetScoreboardForYear(time.Now().Year())
-}
-
 // RegularSeasonWeeks is the number of weeks in an NFL regular season.
 const RegularSeasonWeeks = 18
 

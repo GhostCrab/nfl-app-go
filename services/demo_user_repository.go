@@ -12,18 +12,6 @@ type DemoUserRepository struct {
 	nextID int
 }
 
-// NewDemoUserRepository creates a new in-memory user repository
-func NewDemoUserRepository() *DemoUserRepository {
-	repo := &DemoUserRepository{
-		users:  make(map[string]*models.User),
-		nextID: 0,
-	}
-	
-	// Seed with default users
-	repo.seedUsers()
-	return repo
-}
-
 // seedUsers creates the initial users
 func (r *DemoUserRepository) seedUsers() {
 	users := []struct {

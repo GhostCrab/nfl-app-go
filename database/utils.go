@@ -31,17 +31,3 @@ func WithShortTimeout() (context.Context, context.CancelFunc) {
 	return ContextWithTimeout(ShortTimeout)
 }
 
-// WithMediumTimeout creates a context with MediumTimeout (10 seconds) 
-func WithMediumTimeout() (context.Context, context.CancelFunc) {
-	return ContextWithTimeout(MediumTimeout)
-}
-
-// WithLongTimeout creates a context with LongTimeout (30 seconds)
-func WithLongTimeout() (context.Context, context.CancelFunc) {
-	return ContextWithTimeout(LongTimeout)
-}
-
-// WithVeryLongTimeout creates a context with VeryLongTimeout (60 seconds)
-func WithVeryLongTimeout() (context.Context, context.CancelFunc) {
-	return ContextWithTimeout(VeryLongTimeout)
-}

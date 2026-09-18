@@ -120,18 +120,6 @@ func New(config Config) *Logger {
 	return logger
 }
 
-// NewDefault creates a logger with default configuration
-func NewDefault() *Logger {
-	return New(DefaultConfig())
-}
-
-// SetLevel sets the minimum log level
-func (l *Logger) SetLevel(level LogLevel) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.level = level
-}
-
 // SetOutput sets the output destination
 func (l *Logger) SetOutput(w io.Writer) {
 	l.mu.Lock()

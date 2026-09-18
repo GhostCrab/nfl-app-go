@@ -33,7 +33,7 @@
         </header>
         
         <main hx-ext="sse" sse-connect="/events">
-            <div class="games-grid" sse-swap="gameUpdate">
+            <div class="games-grid">
                 {{template "game-list" .}}
             </div>
         </main>

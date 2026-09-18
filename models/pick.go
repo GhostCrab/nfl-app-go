@@ -148,20 +148,6 @@ func (r *UserRecord) String() string {
 	return fmt.Sprintf("%d", r.ParlayPoints)
 }
 
-// LegacyString returns the record in "W-L-P" format (for backwards compatibility)
-func (r *UserRecord) LegacyString() string {
-	return fmt.Sprintf("%d-%d-%d", r.Wins, r.Losses, r.Pushes)
-}
-
-// GetWinPercentage calculates win percentage (pushes count as 0.5)
-func (r *UserRecord) GetWinPercentage() float64 {
-	total := r.Wins + r.Losses + r.Pushes
-	if total == 0 {
-		return 0.0
-	}
-	return (float64(r.Wins) + float64(r.Pushes)*0.5) / float64(total)
-}
-
 // DeterminePickTypeFromLegacyTeamID determines pick type from legacy team ID
 // Legacy format: team IDs 98/99 represent over/under, actual team IDs represent spread picks
 func DeterminePickTypeFromLegacyTeamID(teamID int) PickType {
@@ -169,11 +155,6 @@ func DeterminePickTypeFromLegacyTeamID(teamID int) PickType {
 		return PickTypeOverUnder
 	}
 	return PickTypeSpread
-}
-
-// IsLegacyOverUnderPick returns true if the team ID represents an over/under pick
-func IsLegacyOverUnderPick(teamID int) bool {
-	return teamID == 98 || teamID == 99
 }
 
 // CreatePickFromLegacyData creates a Pick from legacy import data
@@ -210,34 +191,6 @@ func (wp *WeeklyPicks) ToUserPicks() *UserPicks {
 		Picks:    wp.ToIndividualPicks(), // Use individual picks with UserID populated
 		Record:   wp.Record,
 	}
-}
-
-// AddPick adds a new pick to the weekly picks
-func (wp *WeeklyPicks) AddPick(pick Pick) {
-	wp.Picks = append(wp.Picks, pick)
-	wp.UpdatedAt = time.Now()
-}
-
-// RemovePick removes a pick for a specific game
-func (wp *WeeklyPicks) RemovePick(gameID int) bool {
-	for i, pick := range wp.Picks {
-		if pick.GameID == gameID {
-			wp.Picks = append(wp.Picks[:i], wp.Picks[i+1:]...)
-			wp.UpdatedAt = time.Now()
-			return true
-		}
-	}
-	return false
-}
-
-// GetPickByGame returns the pick for a specific game, if it exists
-func (wp *WeeklyPicks) GetPickByGame(gameID int) (*Pick, bool) {
-	for i, pick := range wp.Picks {
-		if pick.GameID == gameID {
-			return &wp.Picks[i], true
-		}
-	}
-	return nil, false
 }
 
 // ReplacePicksForScheduledGames replaces picks for specific games
@@ -330,23 +283,6 @@ func GroupPicksByDay(picks []Pick, games []Game) map[string][]Pick {
 		dayKey := pick.GetPickGameDate(games)
 		if dayKey != "" { // Only group if we found the game
 			dayGroups[dayKey] = append(dayGroups[dayKey], pick)
-		}
-	}
-
-	return dayGroups
-}
-
-// GroupPicksByDayName groups picks by their associated game's Pacific timezone day name
-func GroupPicksByDayName(picks []Pick, games []Game) map[string][]Pick {
-	dayGroups := make(map[string][]Pick)
-
-	for _, pick := range picks {
-		for _, game := range games {
-			if game.ID == pick.GameID {
-				dayName := game.GetGameDayName()
-				dayGroups[dayName] = append(dayGroups[dayName], pick)
-				break
-			}
 		}
 	}
 

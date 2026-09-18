@@ -257,7 +257,3 @@ func (mu *MockBackgroundUpdater) getCurrentWeek() int {
 	return models.CurrentWeekOrFallback(mu.currentSeason, time.Now())
 }
 
-// IsRunning returns whether the mock updater is currently running
-func (mu *MockBackgroundUpdater) IsRunning() bool {
-	return mu.running
-}

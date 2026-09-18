@@ -1,25 +1,13 @@
 package services
 
 import (
-	"fmt"
 	"nfl-app-go/models"
-	"strings"
 )
 
 // TeamData holds team information including logo URLs
 type TeamData struct {
 	Name string
 	City string
-}
-
-// GetTeamIconURL returns the ESPN logo URL for a given team abbreviation
-func GetTeamIconURL(teamAbbr string) string {
-	if teamAbbr == "" {
-		return ""
-	}
-	// Convert to lowercase for ESPN API
-	teamLower := strings.ToLower(teamAbbr)
-	return fmt.Sprintf("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/scoreboard/%s.png", teamLower)
 }
 
 // GetTeamData returns team information for all NFL teams
@@ -74,15 +62,6 @@ func GetTeamData() map[string]TeamData {
 		"SF":  {Name: "49ers", City: "San Francisco"},
 		"SEA": {Name: "Seahawks", City: "Seattle"},
 	}
-}
-
-// GetTeamName returns the full team name for a given team abbreviation
-func GetTeamName(teamAbbr string) string {
-	teams := GetTeamData()
-	if team, exists := teams[teamAbbr]; exists {
-		return team.City + " " + team.Name
-	}
-	return teamAbbr // Return abbreviation if team not found
 }
 
 // TeamService interface for analytics

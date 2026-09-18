@@ -246,23 +246,6 @@ func (c *Config) GetServerAddress() string {
 	return c.Server.Host + ":" + c.Server.Port
 }
 
-// GetMongoURI returns the MongoDB connection URI
-func (c *Config) GetMongoURI() string {
-	directConnection := ""
-	if os.Getenv("MONGO_DIRECT_CONNECTION") == "true" {
-		directConnection = "&directConnection=true"
-	}
-
-	if c.Database.Username != "" && c.Database.Password != "" {
-		return fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?authSource=%s%s",
-			c.Database.Username, c.Database.Password,
-			c.Database.Host, c.Database.Port,
-			c.Database.Database, c.Database.Database, directConnection)
-	}
-	return fmt.Sprintf("mongodb://%s:%s/%s?%s",
-		c.Database.Host, c.Database.Port, c.Database.Database, directConnection)
-}
-
 func (c *Config) IsBackgroundUpdaterEnabled() bool {
 	logging.Warnf("IsBackgroundUpdaterEnabled() => %t", c.App.BackgroundUpdaterEnabled)
 	return c.App.BackgroundUpdaterEnabled

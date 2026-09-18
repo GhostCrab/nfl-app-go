@@ -238,29 +238,6 @@ func (s *ResultCalculationService) getTeamIDFromAbbreviation(abbr string) int {
 	return 0
 }
 
-// GetPickStatisticsForGame returns statistics for picks on a specific game
-func (s *ResultCalculationService) GetPickStatisticsForGame(ctx context.Context, gameID int) (GamePickStats, error) {
-	picks, err := s.getPicksByGameID(ctx, gameID)
-	if err != nil {
-		return GamePickStats{}, fmt.Errorf("failed to get picks: %w", err)
-	}
-
-	stats := GamePickStats{
-		GameID:     gameID,
-		TotalPicks: len(picks),
-		Results:    make(map[models.PickResult]int),
-		PickTypes:  make(map[models.PickType]int),
-	}
-
-	// Count results and pick types
-	for _, pick := range picks {
-		stats.Results[pick.Result]++
-		stats.PickTypes[pick.PickType]++
-	}
-
-	return stats, nil
-}
-
 // GamePickStats represents statistics for picks on a specific game
 type GamePickStats struct {
 	GameID     int                               `json:"game_id"`

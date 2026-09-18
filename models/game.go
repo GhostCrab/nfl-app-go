@@ -77,14 +77,6 @@ func (g *Game) Winner() string {
 	return "" // tie
 }
 
-// ScoreString returns a formatted score string
-func (g *Game) ScoreString() string {
-	if g.State == GameStateScheduled {
-		return "vs"
-	}
-	return ""
-}
-
 // roundToHalf rounds a float to the nearest 0.5 increment
 func roundToHalf(val float64) float64 {
 	return float64(int(val*2+0.5)) / 2
@@ -93,14 +85,6 @@ func roundToHalf(val float64) float64 {
 // HasOdds returns true if betting odds are available
 func (g *Game) HasOdds() bool {
 	return g.Odds != nil
-}
-
-// SetOdds sets the betting odds for the game with sanitization
-func (g *Game) SetOdds(spread, ou float64) {
-	g.Odds = &Odds{
-		Spread: roundToHalf(spread),
-		OU:     roundToHalf(ou),
-	}
 }
 
 // SpreadResult returns the result of the spread bet: "covered", "push", or empty if no odds/not completed
@@ -284,51 +268,6 @@ func (g *Game) GetPossessionString() string {
 	return ""
 }
 
-// GetLiveStatusString returns formatted live status like "Q1 12:34: NYG 1st & 10 at NYG 25"
-func (g *Game) GetLiveStatusString() string {
-	if !g.IsInProgress() {
-		return ""
-	}
-	
-	parts := []string{}
-	
-	// Quarter and clock
-	quarterStr := fmt.Sprintf("Q%d", g.Quarter)
-	if g.Quarter == 5 {
-		quarterStr = "OT"
-	} else if g.Quarter == 6 {
-		quarterStr = "Halftime"
-	}
-	
-	if g.HasStatus() {
-		// Check ESPN StatusName for special game states
-		if strings.Contains(strings.ToUpper(g.Status.StatusName), "HALFTIME") {
-			quarterStr = "Halftime"
-		} else if strings.Contains(strings.ToUpper(g.Status.StatusName), "DELAYED") {
-			quarterStr = "Delayed"
-		} else if g.Status.DisplayClock != "" {
-			if g.Status.DisplayClock == "0:00" {
-				if g.Quarter == 2 {
-					quarterStr = "Halftime"
-				} else {
-					quarterStr = fmt.Sprintf("End %s", quarterStr)
-				}
-			} else {
-				quarterStr = fmt.Sprintf("%s %s", quarterStr, g.Status.DisplayClock)
-			}
-		}
-	}
-	parts = append(parts, quarterStr)
-	
-	// Possession info
-	possessionStr := g.GetPossessionString()
-	if possessionStr != "" {
-		parts = append(parts, possessionStr)
-	}
-	
-	return strings.Join(parts, ": ")
-}
-
 // IsModernSeason returns true for seasons that use daily scoring (2025+)
 func IsModernSeason(season int) bool {
 	return season >= 2025
@@ -356,18 +295,6 @@ func (g *Game) GetGameDateInPacific() string {
 func (g *Game) GetGameDayName() string {
 	pacificLoc := GetPacificTimeLocation()
 	return g.Date.In(pacificLoc).Format("Monday")
-}
-
-// GroupGamesByDay groups games by their Pacific timezone date
-func GroupGamesByDay(games []Game) map[string][]Game {
-	dayGroups := make(map[string][]Game)
-	
-	for _, game := range games {
-		dayKey := game.GetGameDateInPacific()
-		dayGroups[dayKey] = append(dayGroups[dayKey], game)
-	}
-	
-	return dayGroups
 }
 
 // GroupGamesByDayName groups games by day name (Thursday, Friday, etc.) in Pacific timezone

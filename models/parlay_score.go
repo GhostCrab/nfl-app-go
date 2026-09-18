@@ -36,16 +36,6 @@ type ParlaySeasonRecord struct {
 	UpdatedAt   time.Time                   `bson:"updated_at" json:"updated_at"`
 }
 
-// RecalculateTotals recalculates season totals from weekly scores
-func (r *ParlaySeasonRecord) RecalculateTotals() {
-	total := 0
-	for _, week := range r.WeekScores {
-		total += week.TotalPoints
-	}
-	r.TotalPoints = total
-	r.UpdatedAt = time.Now()
-}
-
 // ParlayWeekScore represents parlay scores for a specific week
 type ParlayWeekScore struct {
 	Week               int            `bson:"week" json:"week"`

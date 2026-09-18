@@ -10,11 +10,6 @@ type Team struct {
 	Active   bool   `json:"active"`
 }
 
-// IsActive returns whether the team is currently active
-func (t *Team) IsActive() bool {
-	return t.Active
-}
-
 // String returns a string representation of the team
 func (t *Team) String() string {
 	return t.City + " " + t.Name

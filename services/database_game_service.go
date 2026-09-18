@@ -86,27 +86,6 @@ func (s *DatabaseGameService) HealthCheck() bool {
 	return err == nil
 }
 
-// applyDemoEffects modifies games for live demo simulation (does not affect database)
-func (s *DatabaseGameService) applyDemoEffects(games []models.Game) []models.Game {
-	if len(games) == 0 {
-		return games
-	}
-
-	// Create a copy to avoid modifying the original slice
-	demoGames := make([]models.Game, len(games))
-	copy(demoGames, games)
-
-	// Make all Week 1 games appear live for demo
-	for i := range demoGames {
-		// Only modify Week 1 games that are completed or scheduled
-		if demoGames[i].Week == 1 && (demoGames[i].State == models.GameStateCompleted || demoGames[i].State == models.GameStateScheduled) {
-			demoGames[i] = s.makeGameLive(demoGames[i])
-		}
-	}
-
-	return demoGames
-}
-
 // makeGameLive converts a game to appear as if it's currently live
 func (s *DatabaseGameService) makeGameLive(game models.Game) models.Game {
 	// Seed random with game ID for consistent results that change every 30 seconds

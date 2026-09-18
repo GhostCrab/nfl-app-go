@@ -200,25 +200,3 @@ func (mps *MemoryParlayScorer) GetUserSeasonTotal(season, throughWeek, userID in
 	return totalPoints
 }
 
-// GetMemoryStats returns statistics about the in-memory data
-func (mps *MemoryParlayScorer) GetMemoryStats() map[string]interface{} {
-	mps.mu.RLock()
-	defer mps.mu.RUnlock()
-
-	totalUsers := 0
-	for _, weekScores := range mps.weeklyScores {
-		totalUsers += len(weekScores.UserScores)
-	}
-
-	return map[string]interface{}{
-		"total_weeks_stored": len(mps.weeklyScores),
-		"total_user_scores":  totalUsers,
-		"weeks": func() []string {
-			weeks := make([]string, 0, len(mps.weeklyScores))
-			for key := range mps.weeklyScores {
-				weeks = append(weeks, key)
-			}
-			return weeks
-		}(),
-	}
-}

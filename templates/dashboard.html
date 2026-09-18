@@ -49,18 +49,10 @@
     <div id="sse-listener" 
          hx-ext="sse" 
          sse-connect="/events">
-        <!-- User picks updates listener - OOB only (renamed from user-picks-updated) -->
-        <div sse-swap="user-section-updated"
-             hx-swap="none"></div>
-
         <!-- Pick state updates listener - for game state changes affecting multiple picks -->
         <div sse-swap="pick-state-updated"
              hx-swap="none"></div>
         
-        <!-- Dashboard updates listener -->
-        <div sse-swap="dashboard-update" 
-             hx-swap="innerHTML" 
-             hx-target="#dashboard-content"></div>
              
         <!-- Visibility change updates listener -->
         <div sse-swap="visibility-change"
@@ -77,22 +69,8 @@
         <div sse-swap="game-state-update"
              hx-swap="none"></div>
 
-        <!-- Game status updates listener - OOB approach -->
-        <div sse-swap="gameStatus"
-             hx-swap="none"></div>
-
-        <!-- Game scores updates listener - OOB approach -->
-        <div sse-swap="gameScores"
-             hx-swap="none"></div>
              
-        <!-- Pick updates listener - OOB approach -->
-        <div sse-swap="pickUpdates"
-             hx-swap="none"></div>
              
-        <!-- Individual game score updates listener -->
-        <div sse-swap="gameScoreUpdate" 
-             hx-swap="outerHTML"
-             hx-target-404="#nonexistent"></div>
              
         <!-- Parlay score updates listener -->
         <div sse-swap="parlay-scores-updated"
@@ -1005,15 +983,20 @@ This prevents the picks-container from becoming empty during week switching.
         // });
 
         // ---- Connection freshness -------------------------------------------
-        // Mobile browsers suspend background tabs, which quietly kills the SSE
-        // stream. Nothing arrives on return, so the page can sit on stale scores
-        // until the user reloads or flips weeks by hand. Track when we last heard
-        // from the server, and resync whenever the page wakes or the stream goes
-        // quiet.
+        // Steady state is OOB deltas. They cannot be replayed though: the server
+        // stamps each message with an id but keeps no history, so anything missed
+        // while a phone had the tab suspended is gone for good.
+        //
+        // So there are exactly two recovery paths:
+        //   - still connected, just missed a message -> refetch the content
+        //   - stream presumed dead (woke up, or gone quiet) -> reload the page
+        //
+        // A content refetch cannot revive a dead stream, because the SSE listener
+        // sits outside #dashboard-content and is never swapped. Reload is the only
+        // thing that rebuilds it, so that is what desync does.
 
-        const HEARTBEAT_MS = 30000;                   // server heartbeat cadence
-        const SILENT_RESYNC_MS = HEARTBEAT_MS * 2.5;  // 75s - assume missed updates
-        const SILENT_RELOAD_MS = HEARTBEAT_MS * 5;    // 150s - stream is gone
+        const HEARTBEAT_MS = 30000;              // server heartbeat cadence
+        const STALE_MS = HEARTBEAT_MS * 2.5;     // 75s of silence = presumed dead
         const RESYNC_THROTTLE_MS = 3000;
 
         let lastServerContactAt = Date.now();
@@ -1024,24 +1007,34 @@ This prevents the picks-container from becoming empty during week switching.
             return Date.now() - lastServerContactAt;
         }
 
-        // Refetch dashboard content for the week currently on screen. The SSE
-        // listener lives outside #dashboard-content, so this leaves it untouched.
+        // True while the pick picker is open, so recovery never discards
+        // selections someone has not submitted yet.
+        function pickerIsOpen() {
+            return !!document.getElementById('pick-picker-overlay');
+        }
+
+        // Connection is alive, we just missed a delta - refetch content only.
         function resyncDashboard(reason) {
             if (Date.now() - lastResyncAt < RESYNC_THROTTLE_MS) return;
             lastResyncAt = Date.now();
 
             const weekSelect = document.getElementById('week-select');
             if (!weekSelect) {
-                window.location.reload();
+                recoverConnection(reason);
                 return;
             }
-            console.log('Resyncing dashboard (' + reason + ')');
+            console.log('Resyncing dashboard content (' + reason + ')');
             htmx.trigger(weekSelect, 'change');
         }
 
-        // A reload is the only reliable way to rebuild a dead stream, since the
-        // SSE listener element is never swapped out.
+        // Stream is presumed dead - rebuild everything.
         function recoverConnection(reason) {
+            if (pickerIsOpen()) {
+                // Unsubmitted picks are on screen; try again once it is closed.
+                console.warn('Deferring reload, pick picker is open (' + reason + ')');
+                armWatchdog();
+                return;
+            }
             console.warn('Reloading to rebuild SSE connection (' + reason + ')');
             window.location.reload();
         }
@@ -1049,7 +1042,7 @@ This prevents the picks-container from becoming empty during week switching.
         // Restart the silence timer without claiming we heard from the server.
         function armWatchdog() {
             if (messageTimeoutId) clearTimeout(messageTimeoutId);
-            messageTimeoutId = setTimeout(onWatchdogFire, SILENT_RESYNC_MS);
+            messageTimeoutId = setTimeout(onWatchdogFire, STALE_MS);
         }
 
         function onWatchdogFire() {
@@ -1058,13 +1051,7 @@ This prevents the picks-container from becoming empty during week switching.
                 armWatchdog();
                 return;
             }
-            const silentFor = Math.round(msSinceServerContact() / 1000) + 's';
-            if (msSinceServerContact() >= SILENT_RELOAD_MS) {
-                recoverConnection('silent ' + silentFor);
-                return;
-            }
-            resyncDashboard('silent ' + silentFor);
-            armWatchdog();
+            recoverConnection('silent ' + Math.round(msSinceServerContact() / 1000) + 's');
         }
 
         // Called whenever the server contacts us.
@@ -1073,20 +1060,17 @@ This prevents the picks-container from becoming empty during week switching.
             armWatchdog();
         }
 
-        // Page returned to the foreground - the common mobile case.
+        // Page returned to the foreground - the common mobile case. Anything past
+        // one heartbeat of silence is treated as a dead stream rather than guessed
+        // at, since the missed deltas cannot be recovered.
         function handleWake(reason) {
             if (document.visibilityState !== 'visible') return;
 
-            const silent = msSinceServerContact();
-            if (silent >= SILENT_RELOAD_MS) {
-                recoverConnection(reason);
+            if (msSinceServerContact() < HEARTBEAT_MS) {
+                armWatchdog();   // stream is healthy, leave it alone
                 return;
             }
-            // Heard from the server within a heartbeat: stream is healthy, leave it.
-            if (silent >= HEARTBEAT_MS) {
-                resyncDashboard(reason);
-            }
-            armWatchdog();
+            recoverConnection(reason);
         }
 
         document.addEventListener('visibilitychange', function () {
@@ -1209,94 +1193,6 @@ This prevents the picks-container from becoming empty during week switching.
         }
     </script>
 
-    <!-- Pick Picker Modal JavaScript -->
-    <script>
-        // Set up mutual exclusion for pick checkboxes
-        function setupPickMutualExclusion(container) {
-            const checkboxes = container.querySelectorAll('.pick-checkbox');
-            
-            checkboxes.forEach(checkbox => {
-                checkbox.addEventListener('change', function() {
-                    if (this.checked) {
-                        const parts = this.name.split('-');
-                        if (parts.length === 3) {
-                            const gameId = parts[1];
-                            const selectedType = parts[2];
-                            
-                            // Find mutually exclusive checkbox
-                            let exclusiveType;
-                            if (selectedType === 'away') {
-                                exclusiveType = 'home';
-                            } else if (selectedType === 'home') {
-                                exclusiveType = 'away';
-                            } else if (selectedType === '98') { // Under
-                                exclusiveType = '99'; // Over
-                            } else if (selectedType === '99') { // Over
-                                exclusiveType = '98'; // Under
-                            }
-                            
-                            if (exclusiveType) {
-                                const exclusiveCheckbox = container.querySelector(`input[name="pick-${gameId}-${exclusiveType}"]`);
-                                if (exclusiveCheckbox && exclusiveCheckbox.checked) {
-                                    exclusiveCheckbox.checked = false;
-                                }
-                            }
-                        }
-                    }
-                });
-            });
-        }
-
-        // Modal management event listeners (CSP-compliant)
-        document.addEventListener('htmx:afterSettle', function(event) {
-            // Set up modal event listeners when pick picker is loaded
-            const overlay = document.getElementById('pick-picker-overlay');
-            if (overlay) {
-                // Lock body scroll when modal opens
-                document.body.classList.add('modal-open');
-                
-                // Set up mutual exclusion for pick checkboxes
-                setupPickMutualExclusion(overlay);
-                
-                // Click outside modal to close
-                overlay.addEventListener('click', function(e) {
-                    if (e.target === overlay) {
-                        document.body.classList.remove('modal-open');
-                        overlay.remove();
-                    }
-                });
-                
-                // Close button
-                const closeBtn = overlay.querySelector('.close-picker');
-                if (closeBtn) {
-                    closeBtn.addEventListener('click', function() {
-                        document.body.classList.remove('modal-open');
-                        overlay.remove();
-                    });
-                }
-                
-                // Cancel button
-                const cancelBtn = overlay.querySelector('.cancel-picks-btn');
-                if (cancelBtn) {
-                    cancelBtn.addEventListener('click', function() {
-                        document.body.classList.remove('modal-open');
-                        overlay.remove();
-                    });
-                }
-                
-                // Form submission success
-                const form = overlay.querySelector('#pick-form');
-                if (form) {
-                    form.addEventListener('htmx:afterRequest', function(e) {
-                        if (e.detail.xhr.status === 200) {
-                            document.body.classList.remove('modal-open');
-                            overlay.remove();
-                        }
-                    });
-                }
-            }
-        });
-    </script>
 </body>
 </html>
 
