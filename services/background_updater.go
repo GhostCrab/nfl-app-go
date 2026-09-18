@@ -27,6 +27,7 @@ type BackgroundUpdater struct {
 	running             bool
 	lastUpdateType      string                // Track what type of update we last do
 	lastOddsUpdate      time.Time             // Track when we last fetched odds
+	lastFullSync        time.Time             // Track when we last reconciled the whole season
 	processedWeeks      map[int]bool          // Track which weeks have already been scored
 	processedCategories map[WeekCategory]bool // Track which categories have already been scored
 	logger              *logging.Logger       // Structured logger for background operations
@@ -86,6 +87,31 @@ func (bu *BackgroundUpdater) Stop() {
 	close(bu.stopChan)
 }
 
+// fullSyncInterval is how often the updater reconciles the entire season rather
+// than just the week in play.
+const fullSyncInterval = 30 * time.Minute
+
+// fetchGamesForUpdate returns the games to reconcile this cycle.
+//
+// Routine polls pull only the current week: during live games the scheduler
+// ticks every five seconds, and a whole-season sweep costs one request per week.
+// The full season is reconciled on a slower cadence, and whenever the current
+// week cannot be determined or its fetch fails.
+func (bu *BackgroundUpdater) fetchGamesForUpdate() ([]models.Game, bool, error) {
+	if time.Since(bu.lastFullSync) < fullSyncInterval {
+		if week, ok := models.CurrentWeek(bu.currentSeason, time.Now()); ok {
+			games, err := bu.espnService.GetScoreboardForWeek(bu.currentSeason, week)
+			if err == nil {
+				return games, false, nil
+			}
+			bu.logger.Warnf("Week %d fetch failed, falling back to full season: %v", week, err)
+		}
+	}
+
+	games, err := bu.espnService.GetScoreboardForYear(bu.currentSeason)
+	return games, true, err
+}
+
 // updateGames fetches latest data from ESPN and updates the database
 func (bu *BackgroundUpdater) updateGames() {
 	ctx := context.Background()
@@ -94,7 +120,7 @@ func (bu *BackgroundUpdater) updateGames() {
 	bu.logger.Infof("Starting ESPN API update for season %d", bu.currentSeason)
 
 	// Fetch games from ESPN
-	games, err := bu.espnService.GetScoreboardForYear(bu.currentSeason)
+	games, fullSync, err := bu.fetchGamesForUpdate()
 	if err != nil {
 		bu.logger.Errorf("Failed to fetch ESPN data: %v", err)
 		return
@@ -108,9 +134,12 @@ func (bu *BackgroundUpdater) updateGames() {
 	// Note: Scoreboard API doesn't include odds data, so don't try to enrich here
 	// Odds enrichment will be handled separately after database update
 
-	// Keep the week index in step with ESPN, which reshuffles weeks (flex
-	// scheduling, midweek holiday games) during the season.
-	models.RegisterSchedule(bu.currentSeason, games)
+	if fullSync {
+		bu.lastFullSync = time.Now()
+		// Keep the week index in step with ESPN, which reshuffles weeks (flex
+		// scheduling, midweek holiday games) during the season.
+		models.RegisterSchedule(bu.currentSeason, games)
+	}
 
 	// Get existing games from database for comparison
 	existingGames, err := bu.gameRepo.GetGamesBySeason(bu.currentSeason)

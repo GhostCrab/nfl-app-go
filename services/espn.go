@@ -176,31 +176,66 @@ func (e *ESPNService) GetScoreboard() ([]models.Game, error) {
 	return e.GetScoreboardForYear(time.Now().Year())
 }
 
-// GetScoreboardForYear fetches NFL scoreboard for a specific year (regular season only)
-// Uses date range from July to January to capture full season including Week 18
-func (e *ESPNService) GetScoreboardForYear(year int) ([]models.Game, error) {
-	// NFL season runs from July (year) to January (year+1) to capture Week 18
-	startDate := fmt.Sprintf("%d0701", year) // July 1st
-	endDate := fmt.Sprintf("%d0131", year+1) // January 31st next year
-	url := fmt.Sprintf("%s?dates=%s-%s&limit=1000", e.baseURL, startDate, endDate)
+// RegularSeasonWeeks is the number of weeks in an NFL regular season.
+const RegularSeasonWeeks = 18
+
+// GetScoreboardForWeek fetches one week of the regular season.
+//
+// ESPN dropped support for the hyphenated "dates=START-END" range syntax this
+// endpoint used to accept - every range form now returns HTTP 400, even a
+// single-day range. Querying by season and week is the supported replacement
+// and is also far cheaper than pulling the whole season for a live-score poll.
+func (e *ESPNService) GetScoreboardForWeek(year, week int) ([]models.Game, error) {
+	url := fmt.Sprintf("%s?dates=%d&seasontype=2&week=%d", e.baseURL, year, week)
 
 	resp, err := e.client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch ESPN data: %w", err)
+		return nil, fmt.Errorf("failed to fetch ESPN data for %d week %d: %w", year, week, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ESPN API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("ESPN API returned status %d for %d week %d", resp.StatusCode, year, week)
 	}
 
 	var espnResp ESPNResponse
 	if err := json.NewDecoder(resp.Body).Decode(&espnResp); err != nil {
-		return nil, fmt.Errorf("failed to decode ESPN response: %w", err)
+		return nil, fmt.Errorf("failed to decode ESPN response for %d week %d: %w", year, week, err)
 	}
 
-	games := e.convertToGames(espnResp.Events)
-	return games, nil
+	return e.convertToGames(espnResp.Events), nil
+}
+
+// GetScoreboardForYear fetches the full regular season, week by week.
+//
+// A failed week is logged and skipped rather than failing the whole season, so
+// one bad response cannot blank out an otherwise good sync. An error is only
+// returned when nothing at all could be fetched.
+func (e *ESPNService) GetScoreboardForYear(year int) ([]models.Game, error) {
+	var all []models.Game
+	var firstErr error
+	failed := 0
+
+	for week := 1; week <= RegularSeasonWeeks; week++ {
+		games, err := e.GetScoreboardForWeek(year, week)
+		if err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		all = append(all, games...)
+	}
+
+	if len(all) == 0 {
+		if firstErr != nil {
+			return nil, fmt.Errorf("no games fetched for %d (%d weeks failed): %w", year, failed, firstErr)
+		}
+		return nil, fmt.Errorf("no games returned for %d", year)
+	}
+
+	return all, nil
 }
 
 // convertToGames converts ESPN events to our Game model
