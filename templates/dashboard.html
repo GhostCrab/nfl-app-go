@@ -973,7 +973,8 @@ This prevents the picks-container from becoming empty during week switching.
         let expectedMessageId = null; // Will be set from first message received
 
         document.addEventListener('htmx:sseMessage', function(e) {
-            console.log(`[HTMX SSE Message received] type: ${e.detail.type}, lastEventId: ${e.detail.lastEventId}, expected ID: ${expectedMessageId}`);
+            // Any traffic - including heartbeats - proves the stream is alive.
+            resetMessageTimeout();
 
             // Extract message ID from SSE event
             const lastEventId = e.detail.lastEventId;
@@ -1003,41 +1004,123 @@ This prevents the picks-container from becoming empty during week switching.
         //     console.log('HTMX OOB swap completed:', e.detail);
         // });
 
+        // ---- Connection freshness -------------------------------------------
+        // Mobile browsers suspend background tabs, which quietly kills the SSE
+        // stream. Nothing arrives on return, so the page can sit on stale scores
+        // until the user reloads or flips weeks by hand. Track when we last heard
+        // from the server, and resync whenever the page wakes or the stream goes
+        // quiet.
+
+        const HEARTBEAT_MS = 30000;                   // server heartbeat cadence
+        const SILENT_RESYNC_MS = HEARTBEAT_MS * 2.5;  // 75s - assume missed updates
+        const SILENT_RELOAD_MS = HEARTBEAT_MS * 5;    // 150s - stream is gone
+        const RESYNC_THROTTLE_MS = 3000;
+
+        let lastServerContactAt = Date.now();
+        let lastResyncAt = 0;
+        let messageTimeoutId = null;
+
+        function msSinceServerContact() {
+            return Date.now() - lastServerContactAt;
+        }
+
+        // Refetch dashboard content for the week currently on screen. The SSE
+        // listener lives outside #dashboard-content, so this leaves it untouched.
+        function resyncDashboard(reason) {
+            if (Date.now() - lastResyncAt < RESYNC_THROTTLE_MS) return;
+            lastResyncAt = Date.now();
+
+            const weekSelect = document.getElementById('week-select');
+            if (!weekSelect) {
+                window.location.reload();
+                return;
+            }
+            console.log('Resyncing dashboard (' + reason + ')');
+            htmx.trigger(weekSelect, 'change');
+        }
+
+        // A reload is the only reliable way to rebuild a dead stream, since the
+        // SSE listener element is never swapped out.
+        function recoverConnection(reason) {
+            console.warn('Reloading to rebuild SSE connection (' + reason + ')');
+            window.location.reload();
+        }
+
+        // Restart the silence timer without claiming we heard from the server.
+        function armWatchdog() {
+            if (messageTimeoutId) clearTimeout(messageTimeoutId);
+            messageTimeoutId = setTimeout(onWatchdogFire, SILENT_RESYNC_MS);
+        }
+
+        function onWatchdogFire() {
+            // Timers are throttled while hidden; the wake handlers cover that.
+            if (document.visibilityState !== 'visible') {
+                armWatchdog();
+                return;
+            }
+            const silentFor = Math.round(msSinceServerContact() / 1000) + 's';
+            if (msSinceServerContact() >= SILENT_RELOAD_MS) {
+                recoverConnection('silent ' + silentFor);
+                return;
+            }
+            resyncDashboard('silent ' + silentFor);
+            armWatchdog();
+        }
+
+        // Called whenever the server contacts us.
+        function resetMessageTimeout() {
+            lastServerContactAt = Date.now();
+            armWatchdog();
+        }
+
+        // Page returned to the foreground - the common mobile case.
+        function handleWake(reason) {
+            if (document.visibilityState !== 'visible') return;
+
+            const silent = msSinceServerContact();
+            if (silent >= SILENT_RELOAD_MS) {
+                recoverConnection(reason);
+                return;
+            }
+            // Heard from the server within a heartbeat: stream is healthy, leave it.
+            if (silent >= HEARTBEAT_MS) {
+                resyncDashboard(reason);
+            }
+            armWatchdog();
+        }
+
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') handleWake('tab visible');
+        });
+
+        // iOS back/forward-cache restores do not fire visibilitychange.
+        window.addEventListener('pageshow', function (e) {
+            if (e.persisted) handleWake('bfcache restore');
+        });
+
+        window.addEventListener('online', function () {
+            handleWake('network back online');
+        });
+
         // Log SSE connection status
-        document.addEventListener('htmx:sseOpen', function(e) {
+        document.addEventListener('htmx:sseOpen', function (e) {
             console.log('SSE connection opened successfully');
+            resetMessageTimeout();
         });
 
         // Handle SSE connection errors and server restarts
-        document.addEventListener('htmx:sseError', function(e) {
+        document.addEventListener('htmx:sseError', function (e) {
             console.warn('SSE connection error:', e.detail);
             // Reset expected message ID on connection error (server may have restarted)
             expectedMessageId = null;
         });
 
-        // Function to refresh dashboard state
+        // Kept for the message-gap detector above.
         function refreshDashboard() {
-            console.log('Refreshing dashboard due to missed SSE messages');
-
-            // Get stored week from localStorage, fallback to current week selector value
-            const storedWeek = localStorage.getItem('currentWeek');
-            const weekSelect = document.getElementById('week-select');
-
-            if (storedWeek && weekSelect) {
-                // Restore the week selector to the stored value
-                weekSelect.value = storedWeek;
-
-                // Trigger the HTMX change event to refresh the dashboard content
-                htmx.trigger(weekSelect, 'change');
-                console.log('Dashboard refreshed with stored week:', storedWeek);
-            } else {
-                // Fallback to page reload if we can't find the week selector
-                console.log('Week selector not found, falling back to page reload');
-                window.location.href = window.location.href;
-            }
+            resyncDashboard('missed SSE messages');
         }
 
-        // Initialize timeout on page load
+        // Start the watchdog
         resetMessageTimeout();
 
         // Initialize localStorage with current week on page load
