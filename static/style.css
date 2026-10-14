@@ -34,6 +34,22 @@
     --toolbar-total: calc(var(--toolbar-height) + var(--safe-top));
 }
 
+/* Installed to the home screen, the web view owns the full screen and draws
+   under the status bar. Safari reports a real safe-area inset there; Chrome's
+   iOS home-screen app draws under the status bar but reports 0, which lands
+   the toolbar on top of the clock and battery.
+
+   max() is a floor, not an override: wherever the browser reports a correct
+   inset it is larger than the floor and wins, so Safari is unaffected. The
+   floor is the largest common iOS portrait status bar (Dynamic Island, 59px);
+   overshooting only makes the tinted band above the toolbar slightly taller,
+   while undershooting puts the navigation under the clock. Tune here. */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+    :root {
+        --safe-top: max(env(safe-area-inset-top, 0px), 59px);
+    }
+}
+
 [data-theme="light"] {
     --bg-color: #f5f5f5;
     --text-color: #333;
