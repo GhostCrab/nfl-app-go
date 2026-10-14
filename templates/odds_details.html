@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {{template "app-head-meta" .}}
     <title>{{.Title}}</title>
     <script>
         (function() {
@@ -19,8 +19,9 @@
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <style>
         .odds-container {
-            margin-top: 64px;
-            min-height: calc(100vh - 64px);
+            margin-top: var(--toolbar-total);
+            min-height: calc(100vh - var(--toolbar-total) - var(--safe-bottom));
+            min-height: calc(100dvh - var(--toolbar-total) - var(--safe-bottom));
             padding: 24px;
         }
 

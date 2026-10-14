@@ -21,6 +21,17 @@
     --info-bg: #e3f2fd;
     --info-border: #bbdefb;
     --input-bg: #2d2d2d;
+
+    /* Layout and iOS safe areas. The insets resolve to 0px unless a page opts
+       in with viewport-fit=cover (templates/partials/app_head.html), so they
+       are safe to reference unconditionally. --toolbar-total is what page
+       containers offset by: the bar plus whatever the status bar occupies. */
+    --toolbar-height: 64px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --toolbar-total: calc(var(--toolbar-height) + var(--safe-top));
 }
 
 [data-theme="light"] {
@@ -65,16 +76,22 @@ body {
     padding: 0;
     transition: background-color 0.3s ease, color 0.3s ease;
     overflow-y: scroll;
+    /* Longhands deliberately follow the `padding: 0` above. The fixed toolbar
+       and the modal overlay are positioned against the viewport, so they carry
+       their own insets rather than inheriting these. */
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--safe-bottom);
 }
 
 /* Navigation Bar */
 .mat-toolbar {
     background-color: var(--nav-bg);
     color: white;
-    height: 64px;
+    height: var(--toolbar-total);
     display: flex;
     align-items: center;
-    padding: 0 24px;
+    padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
     box-shadow: 0 2px 4px rgba(0,0,0,0.14), 0 3px 4px rgba(0,0,0,0.12), 0 1px 5px rgba(0,0,0,0.2);
     position: fixed;
     top: 0;
@@ -130,9 +147,10 @@ body {
 
 /* Main content container */
 .dashboard-container {
-    margin-top: 64px;
+    margin-top: var(--toolbar-total);
     background-color: var(--bg-color);
-    min-height: calc(100vh - 64px);
+    min-height: calc(100vh - var(--toolbar-total) - var(--safe-bottom));
+    min-height: calc(100dvh - var(--toolbar-total) - var(--safe-bottom));
 }
 
 .dashboard-content {

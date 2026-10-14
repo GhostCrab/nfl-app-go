@@ -32,23 +32,23 @@ Solve this in CSS. The project's standing constraint is minimal JavaScript, and 
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ### Agent-verifiable
 
-- [ ] The footer is a laid-out part of the dialog at any viewport height, not clipped by overflow
-- [ ] The games list is the only scrolling region; it scrolls independently of the footer
-- [ ] No hardcoded pixel slack remains in the dialog's height calculation
-- [ ] Dialog height responds to browser chrome appearing and retracting, with a fallback for browsers lacking dynamic viewport units
-- [ ] Safe-area insets still apply, so the footer clears the home indicator
-- [ ] No user-agent or browser-brand detection is introduced
-- [ ] Submit and Cancel remain reachable at the narrow breakpoint and in landscape
-- [ ] Submitting picks still posts and swaps its result as before
+- [x] The footer is a laid-out part of the dialog at any viewport height, not clipped by overflow
+- [x] The games list is the only scrolling region; it scrolls independently of the footer
+- [x] No hardcoded pixel slack remains in the dialog's height calculation
+- [x] Dialog height responds to browser chrome appearing and retracting, with a fallback for browsers lacking dynamic viewport units
+- [x] Safe-area insets still apply, so the footer clears the home indicator — now genuinely satisfied: viewport-fit=cover landed with the iOS standalone work.
+- [x] No user-agent or browser-brand detection is introduced
+- [x] Submit and Cancel remain reachable at the narrow breakpoint and in landscape
+- [x] Submitting picks still posts and swaps its result as before
 
 ### Needs the reporter or a real device
 
-- [ ] Confirmed fixed on Brave for iOS by the user who reported it
-- [ ] Spot-checked on Safari for iOS to confirm no regression where it already worked
+- [x] Confirmed fixed on Brave for iOS by the user who reported it
+- [x] Spot-checked on Safari for iOS to confirm no regression where it already worked — accepted unverified at the owner’s direction.
 
 ## Comments
 
@@ -63,3 +63,12 @@ The inset expressions were kept, now with explicit `0px` fallbacks, so they begi
 This does not gate the reported bug. Submit Picks being unreachable was caused by the broken flex chain and the large-viewport measurement, both of which are fixed here and neither of which depends on the insets.
 
 **Also corrected during review:** the first version of this fix used `100vh` as the pre-`dvh` fallback. On iOS below 15.4 that is strictly worse than the `height: 100%` it replaced, since `100vh` is the large viewport while `100%` on a fixed overlay tracks the visual viewport. The fallback is now `height: 100%`.
+
+**Resolved 2026-10-13.** The reporter confirmed the Submit Picks button is reachable on Brave for iOS. Fix shipped in commit 433e1a0.
+
+Two criteria remain unticked and neither blocks this ticket:
+
+- The safe-area inset criterion cannot be satisfied by the stylesheet, for the reason recorded above. The footer clears the home indicator by a different mechanism, so the user-visible outcome is correct. Enabling `viewport-fit=cover` is a separate, application-wide change.
+- The Safari for iOS spot-check was never run. The risk it covers is a regression on a configuration that already worked, which is low here: the change removed height ceilings rather than adding them, so a dialog that previously fitted still fits.
+
+**Follow-up closed 2026-10-13.** `viewport-fit=cover` has since been added across every page as part of the iOS standalone work, so the safe-area insets in this dialog are live rather than inert. The criterion above that could not be met in CSS alone is now met. The Safari spot-check was waived by the owner.

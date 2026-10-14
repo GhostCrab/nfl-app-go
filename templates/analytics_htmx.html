@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {{template "app-head-meta" .}}
     <title>{{.Title}}</title>
     <script>
         // Apply dark theme by default
@@ -22,8 +22,13 @@
     <style>
         .analytics-container {
             max-width: 1200px;
-            margin: 0 auto;
+            /* Was `margin: 0 auto`, which left this page's content under the
+               fixed toolbar. --toolbar-total also covers the status bar in
+               standalone mode. */
+            margin: var(--toolbar-total) auto 0;
             padding: 20px;
+            min-height: calc(100vh - var(--toolbar-total) - var(--safe-bottom));
+            min-height: calc(100dvh - var(--toolbar-total) - var(--safe-bottom));
         }
         
         .analytics-header {

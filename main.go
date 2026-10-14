@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"html/template"
+	"mime"
 	"net/http"
 	"nfl-app-go/config"
 	"nfl-app-go/database"
@@ -18,6 +19,13 @@ import (
 )
 
 func main() {
+	// Go has no built-in mapping for .webmanifest, so http.FileServer would
+	// sniff it as text/plain and Safari refuses a manifest served that way -
+	// which silently breaks "Add to Home Screen" launching standalone.
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		logging.Warnf("Could not register .webmanifest MIME type: %v", err)
+	}
+
 	// Load configuration from environment and .env file
 	cfg, err := config.Load()
 	if err != nil {
