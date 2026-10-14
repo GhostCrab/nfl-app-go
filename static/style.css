@@ -1838,6 +1838,7 @@ fieldset legend {
     line-height: 1.1;
 }
 
+/* flex-shrink pins the footer; the content above absorbs the pressure */
 .pick-picker-footer {
     background: var(--card-bg);
     border-top: 1px solid var(--border-color);
@@ -1862,7 +1863,18 @@ body.modal-open {
     top: 0;
     left: 0;
     width: 100%;
+    /* dvh tracks browser chrome as it appears and retracts. 100vh does not,
+       and on iOS resolves to the large viewport, which is what left the footer
+       under Brave's toolbar. Declaration order is the fallback. */
     height: 100%;
+    height: 100dvh;
+    /* Insets are inert until a template sets viewport-fit=cover; kept so they
+       apply if one ever does. The 12px is the dialog's vertical gutter;
+       horizontally .pick-picker-modal's max-width already handles it. */
+    padding: calc(env(safe-area-inset-top, 0px) + 12px)
+             env(safe-area-inset-right, 0px)
+             calc(env(safe-area-inset-bottom, 0px) + 12px)
+             env(safe-area-inset-left, 0px);
     background: rgba(0, 0, 0, 0.8);
     display: flex;
     justify-content: center;
@@ -1874,17 +1886,29 @@ body.modal-open {
     background: var(--card-bg);
     border-radius: 0;
     max-width: 90vw;
-    max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 40px);
+    max-height: 100%;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
+/* The modal is a flex column but its direct child is the form, not the content
+   and footer nested inside it. Without this the form is a plain block, the flex
+   sizing on .pick-picker-content is inert, and the footer is laid out past the
+   modal's hidden overflow where no scroll container can reach it. */
+.pick-picker-form {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 .pick-picker-header {
     background: var(--nav-bg);
     color: white;
     padding: 8px 16px;
+    flex-shrink: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1917,7 +1941,6 @@ body.modal-open {
     padding: 12px;
     flex: 1;
     min-height: 0;
-    max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 160px);
     border-top: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
 }
@@ -2082,17 +2105,6 @@ body.modal-open {
     background: var(--input-bg);
 }
 
-.pick-picker-footer {
-    background: var(--card-bg);
-    border-top: 1px solid var(--border-color);
-    padding: 6px 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    flex-shrink: 0;
-}
-
 .submit-picks-btn {
     background: var(--nav-bg);
     color: white;
@@ -2139,7 +2151,6 @@ body.modal-open {
     .pick-picker-modal {
         width: 95vw;
         max-width: 100vw;
-        max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 20px);
     }
     
     .pick-picker-grid {

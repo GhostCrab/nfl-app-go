@@ -49,3 +49,17 @@ Solve this in CSS. The project's standing constraint is minimal JavaScript, and 
 
 - [ ] Confirmed fixed on Brave for iOS by the user who reported it
 - [ ] Spot-checked on Safari for iOS to confirm no regression where it already worked
+
+## Comments
+
+**Implementation finding — the safe-area criterion cannot be met by CSS alone.**
+
+`env(safe-area-inset-*)` only resolves to a non-zero value when a page opts its viewport into the unsafe area with `viewport-fit=cover`. No template in this repo does; every one is `width=device-width, initial-scale=1.0`. So every safe-area inset here — including the three that predate this work — has always evaluated to `0px`.
+
+This means the criterion "Safe-area insets still apply, so the footer clears the home indicator" is **not satisfied by the stylesheet**. The footer clears the home indicator anyway, because without `viewport-fit=cover` the browser insets the viewport itself and the dialog never extends under the indicator. The mechanism differs from what the criterion assumed; the user-visible outcome is correct.
+
+The inset expressions were kept, now with explicit `0px` fallbacks, so they begin working the moment `viewport-fit=cover` is added. Adding it was deliberately left out of scope: it opts the entire application into drawing under the notch and home indicator, so the nav bar, dashboard, and every edge-anchored element would need safe-area padding audited on a real device. That is its own ticket, not a rider on this fix.
+
+This does not gate the reported bug. Submit Picks being unreachable was caused by the broken flex chain and the large-viewport measurement, both of which are fixed here and neither of which depends on the insets.
+
+**Also corrected during review:** the first version of this fix used `100vh` as the pre-`dvh` fallback. On iOS below 15.4 that is strictly worse than the `height: 100%` it replaced, since `100vh` is the large viewport while `100%` on a fixed overlay tracks the visual viewport. The fallback is now `height: 100%`.
