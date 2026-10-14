@@ -17,6 +17,11 @@ does that for the toolbar, the page containers and the body.
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Parlay Club">
-    <link rel="manifest" href="/static/manifest.webmanifest">
-    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    {{/* ?v= busts Cloudflare's edge cache and iOS's very sticky
+         apple-touch-icon cache. Bump it here AND in the icon entries inside
+         static/manifest.webmanifest whenever the icons change, or devices keep
+         serving the previous artwork. The manifest itself is versioned too,
+         otherwise a cached copy keeps pointing at the old icon URLs. */}}
+    <link rel="manifest" href="/static/manifest.webmanifest?v=2">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=2">
 {{end}}
